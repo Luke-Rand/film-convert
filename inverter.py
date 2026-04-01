@@ -3,27 +3,28 @@ from pathlib import Path
 import numpy as np
 import tifffile
 import argparse
+import rawpy
 
 def process_positives(directory_path, output_dir=None, clip=0.1, gamma=2.2, compress_tiff=False, global_levels=False, ignore_margin=0.15):
     """
-    Scans a directory for 16-bit TIFF files, inverts them (negative to positive),
+    Scans a directory for 16-bit TIFF and DNG files, inverts them (negative to positive),
     normalizes the black and white points (ignoring outer margins), applies a gamma curve, and saves the results.
     """
-    # 1. Gather all supported TIFF files (case-insensitive)
-    supported_exts = {'.tiff', '.tif'}
-    tiff_files = [
+    # 1. Gather all supported image files (case-insensitive)
+    supported_exts = {'.tiff', '.tif', '.dng'}
+    image_files = [
         os.path.join(directory_path, f) for f in os.listdir(directory_path)
         if os.path.isfile(os.path.join(directory_path, f)) and os.path.splitext(f)[1].lower() in supported_exts
     ]
     
-    if not tiff_files:
-        print(f"No .tiff or .tif files found in {directory_path}")
+    if not image_files:
+        print(f"No .tiff, .tif, or .dng files found in {directory_path}")
         return
 
     # 2. Sort files alphabetically 
-    tiff_files.sort()
-    total_files = len(tiff_files)
-    print(f"Found {total_files} TIFF files to process.")
+    image_files.sort()
+    total_files = len(image_files)
+    print(f"Found {total_files} files to process.")
 
     # 3. Setup output directory
     if output_dir is None:
@@ -31,25 +32,42 @@ def process_positives(directory_path, output_dir=None, clip=0.1, gamma=2.2, comp
     os.makedirs(output_dir, exist_ok=True)
 
     # 4. Process each file
-    for filepath in tiff_files:
+    for filepath in image_files:
         filename = Path(filepath).name
         print(f"Processing {filename}...")
         
         try:
-            # Read the TIFF file
-            img = tifffile.imread(filepath)
+            # Read the file based on its extension
+            ext = os.path.splitext(filename)[1].lower()
+            if ext == '.dng':
+                with rawpy.imread(filepath) as raw:
+                    # Extract as linear 16-bit to match compositor TIFFs
+                    img = raw.postprocess(
+                        gamma=(1, 1),
+                        no_auto_bright=True,
+                        use_camera_wb=False,
+                        user_wb=[1.0, 1.0, 1.0, 1.0],
+                        output_color=rawpy.ColorSpace.raw,
+                        output_bps=16
+                    )
+            else:
+                img = tifffile.imread(filepath)
             
-            # Ensure we are working with 16-bit data from the compositor
+            # Ensure we are working with 16-bit data
             if img.dtype != np.uint16:
                 print(f"  -> WARNING: {filename} is not 16-bit (uint16). Skipping.")
                 continue
                 
             # --- STEP 1: INVERSION ---
-            # Subtract pixel values from the maximum 16-bit value (65535)
-            inverted = 65535 - img
+            # Convert to float32 for precise math
+            img_float = img.astype(np.float32)
             
-            # Convert to float32 for precise math during normalization and gamma
-            img_float = inverted.astype(np.float32)
+            # THE FIX: True Linear Inversion
+            # Inverting linear RAW data with subtraction (max - pixel) crushes highlight 
+            # contrast because it's the wrong math for density. Film density is logarithmic.
+            # To get linear scene exposure back from linear transmission, we must divide.
+            # Avoid division by zero by using a minimum value of 1.0.
+            img_float = 1.0 / np.maximum(img_float, 1.0)
             
             # --- STEP 2: LEVELS NORMALIZATION ---
             print(f"  -> Normalizing levels (clip={clip}%, ignoring {ignore_margin*100:.0f}% margins)...")
@@ -99,10 +117,12 @@ def process_positives(directory_path, output_dir=None, clip=0.1, gamma=2.2, comp
             final_img = img_float.astype(np.uint16)
             final_img = np.ascontiguousarray(final_img)
             
-            # Generate new filename
-            out_filename = filename.replace("_Composite", "_Positive")
-            if out_filename == filename:
-                out_filename = f"Positive_{filename}"
+            # Generate new filename ensuring it ends in .tiff
+            base_name = os.path.splitext(filename)[0]
+            if "_Composite" in base_name:
+                out_filename = base_name.replace("_Composite", "_Positive") + ".tiff"
+            else:
+                out_filename = f"Positive_{base_name}.tiff"
                 
             output_filepath = os.path.join(output_dir, out_filename)
             
@@ -118,11 +138,11 @@ def process_positives(directory_path, output_dir=None, clip=0.1, gamma=2.2, comp
     print("Inversion and normalization complete!")
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Invert, Normalize, and Gamma Correct 16-bit linear TIFF film scans.")
+    parser = argparse.ArgumentParser(description="Invert, Normalize, and Gamma Correct 16-bit linear TIFF and RAW DNG film scans.")
     
     # Define command line arguments
     parser.add_argument("-i", "--input", type=str, required=True, 
-                        help="Path to the directory containing 16-bit composite TIFF files")
+                        help="Path to the directory containing 16-bit composite TIFF or RAW DNG files")
     parser.add_argument("-c", "--compress", action="store_true", 
                         help="Enable lossless compression (zlib/deflate) for output TIFFs")
     parser.add_argument("-p", "--clip", type=float, default=0.1,
