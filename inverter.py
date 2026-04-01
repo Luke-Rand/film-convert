@@ -5,7 +5,7 @@ import tifffile
 import argparse
 import rawpy
 
-def process_positives(directory_path, output_dir=None, clip=0.1, gamma=2.2, compress_tiff=False, global_levels=False, ignore_margin=0.15):
+def process_positives(directory_path, output_dir=None, clip=0.1, gamma=2.2, compress_tiff=False, global_levels=False, ignore_margin=0.15, scurve=0.0):
     """
     Scans a directory for 16-bit TIFF and DNG files, inverts them (negative to positive),
     normalizes the black and white points (ignoring outer margins), applies a gamma curve, and saves the results.
@@ -104,13 +104,29 @@ def process_positives(directory_path, output_dir=None, clip=0.1, gamma=2.2, comp
             # Clip any mathematical overshoots to the absolute 0-65535 bounds
             img_float = np.clip(img_float, 0, 65535)
             
-            # --- STEP 3: GAMMA CORRECTION ---
+            # --- STEP 3: GAMMA AND CONTRAST ---
             # Linear scans look very dark/muddy when inverted. We apply a standard
             # viewing gamma (e.g., 2.2) to lift the midtones properly.
-            if gamma != 1.0:
-                print(f"  -> Applying gamma correction (gamma={gamma})...")
-                # Normalize to 0.0-1.0, apply power law, scale back to 16-bit
-                img_float = ((img_float / 65535.0) ** (1.0 / gamma)) * 65535.0
+            if gamma != 1.0 or scurve > 0.0:
+                print(f"  -> Applying tone curve (gamma={gamma}, scurve={scurve})...")
+                # Normalize to 0.0-1.0
+                img_norm = img_float / 65535.0
+                
+                # Apply power law for gamma
+                if gamma != 1.0:
+                    img_norm = img_norm ** (1.0 / gamma)
+                
+                # Apply S-Curve for contrast
+                if scurve > 0.0:
+                    c = 1.0 + scurve
+                    mask = img_norm < 0.5
+                    
+                    # Piecewise contrast curve that pins black/white but stretches midtones
+                    img_norm[mask] = 0.5 * (2.0 * img_norm[mask]) ** c
+                    img_norm[~mask] = 1.0 - 0.5 * (2.0 * (1.0 - img_norm[~mask])) ** c
+                
+                # Scale back to 16-bit
+                img_float = img_norm * 65535.0
                 
             # --- STEP 4: SAVE OUT ---
             # Convert back to contiguous 16-bit integer array
@@ -149,6 +165,8 @@ if __name__ == "__main__":
                         help="Percentile to clip for black/white points (default: 0.1%% to ignore dust/scratches)")
     parser.add_argument("-g", "--gamma", type=float, default=2.2,
                         help="Gamma correction curve to apply (default: 2.2). Set to 1.0 for strictly linear output.")
+    parser.add_argument("-s", "--scurve", type=float, default=0.0,
+                        help="Strength of the contrast S-Curve to apply (default: 0.0 = none). Try 0.2 to 0.5 for a film-like punch.")
     parser.add_argument("-m", "--margin", type=float, default=0.15,
                         help="Fraction of outer edge to ignore when calculating levels (default: 0.15 = 15%%). Prevents film holders from skewing brightness.")
     parser.add_argument("--global-levels", action="store_true",
@@ -162,5 +180,6 @@ if __name__ == "__main__":
         gamma=args.gamma, 
         compress_tiff=args.compress,
         global_levels=args.global_levels,
-        ignore_margin=args.margin
+        ignore_margin=args.margin,
+        scurve=args.scurve
     )
