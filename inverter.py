@@ -4,10 +4,10 @@ import numpy as np
 import tifffile
 import argparse
 
-def process_positives(directory_path, output_dir=None, clip=0.1, gamma=2.2, compress_tiff=False, global_levels=False):
+def process_positives(directory_path, output_dir=None, clip=0.1, gamma=2.2, compress_tiff=False, global_levels=False, ignore_margin=0.15):
     """
     Scans a directory for 16-bit TIFF files, inverts them (negative to positive),
-    normalizes the black and white points, applies a gamma curve, and saves the results.
+    normalizes the black and white points (ignoring outer margins), applies a gamma curve, and saves the results.
     """
     # 1. Gather all supported TIFF files (case-insensitive)
     supported_exts = {'.tiff', '.tif'}
@@ -52,13 +52,22 @@ def process_positives(directory_path, output_dir=None, clip=0.1, gamma=2.2, comp
             img_float = inverted.astype(np.float32)
             
             # --- STEP 2: LEVELS NORMALIZATION ---
-            print(f"  -> Normalizing levels (clip={clip}%)...")
+            print(f"  -> Normalizing levels (clip={clip}%, ignoring {ignore_margin*100:.0f}% margins)...")
+            
+            h, w = img_float.shape[:2]
+            h_margin = int(h * ignore_margin)
+            w_margin = int(w * ignore_margin)
+            
+            # Use only the center of the image to calculate percentiles
+            # This prevents film holders (pure black) and unexposed film base (pure white) 
+            # from skewing the auto-levels.
+            analysis_region = img_float[h_margin:h-h_margin, w_margin:w-w_margin]
             
             if global_levels:
                 # Global normalization: preserves the exact color ratio/balance 
                 # produced by the compositor's --neutralize flag.
-                p_low = np.percentile(img_float, clip)
-                p_high = np.percentile(img_float, 100 - clip)
+                p_low = np.percentile(analysis_region, clip)
+                p_high = np.percentile(analysis_region, 100 - clip)
                 
                 if p_high > p_low:
                     img_float = (img_float - p_low) / (p_high - p_low) * 65535.0
@@ -67,12 +76,12 @@ def process_positives(directory_path, output_dir=None, clip=0.1, gamma=2.2, comp
                 # independently for R, G, and B. This acts as an automated color correction 
                 # to remove residual film base color casts.
                 for c in range(3):
-                    channel = img_float[:, :, c]
-                    p_low = np.percentile(channel, clip)
-                    p_high = np.percentile(channel, 100 - clip)
+                    analysis_channel = analysis_region[:, :, c]
+                    p_low = np.percentile(analysis_channel, clip)
+                    p_high = np.percentile(analysis_channel, 100 - clip)
                     
                     if p_high > p_low:
-                        img_float[:, :, c] = (channel - p_low) / (p_high - p_low) * 65535.0
+                        img_float[:, :, c] = (img_float[:, :, c] - p_low) / (p_high - p_low) * 65535.0
             
             # Clip any mathematical overshoots to the absolute 0-65535 bounds
             img_float = np.clip(img_float, 0, 65535)
@@ -120,6 +129,8 @@ if __name__ == "__main__":
                         help="Percentile to clip for black/white points (default: 0.1%% to ignore dust/scratches)")
     parser.add_argument("-g", "--gamma", type=float, default=2.2,
                         help="Gamma correction curve to apply (default: 2.2). Set to 1.0 for strictly linear output.")
+    parser.add_argument("-m", "--margin", type=float, default=0.15,
+                        help="Fraction of outer edge to ignore when calculating levels (default: 0.15 = 15%%). Prevents film holders from skewing brightness.")
     parser.add_argument("--global-levels", action="store_true",
                         help="Stretch levels globally instead of per-channel. Use this if you relied on the compositor's neutralization and want to perfectly maintain that color balance.")
     
@@ -130,5 +141,6 @@ if __name__ == "__main__":
         clip=args.clip, 
         gamma=args.gamma, 
         compress_tiff=args.compress,
-        global_levels=args.global_levels
+        global_levels=args.global_levels,
+        ignore_margin=args.margin
     )
