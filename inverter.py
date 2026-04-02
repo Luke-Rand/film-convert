@@ -5,20 +5,31 @@ import tifffile
 import argparse
 import rawpy
 
-def process_positives(directory_path, output_dir=None, clip=0.1, gamma=2.2, compress_tiff=False, global_levels=False, ignore_margin=0.15, scurve=0.0):
+def process_positives(input_path, output_dir=None, clip=0.1, gamma=2.2, compress_tiff=False, global_levels=False, ignore_margin=0.15, scurve=0.0, autocrop=False):
     """
-    Scans a directory for 16-bit TIFF and DNG files, inverts them (negative to positive),
-    normalizes the black and white points (ignoring outer margins), applies a gamma curve, and saves the results.
+    Scans a directory or processes a single 16-bit TIFF/DNG file, inverts it (negative to positive),
+    normalizes the black and white points, applies a gamma curve, optionally crops, and saves the results.
     """
     # 1. Gather all supported image files (case-insensitive)
     supported_exts = {'.tiff', '.tif', '.dng'}
-    image_files = [
-        os.path.join(directory_path, f) for f in os.listdir(directory_path)
-        if os.path.isfile(os.path.join(directory_path, f)) and os.path.splitext(f)[1].lower() in supported_exts
-    ]
+    image_files = []
+    
+    if os.path.isfile(input_path):
+        if os.path.splitext(input_path)[1].lower() in supported_exts:
+            image_files.append(input_path)
+        base_dir = os.path.dirname(input_path) or "."
+    elif os.path.isdir(input_path):
+        image_files = [
+            os.path.join(input_path, f) for f in os.listdir(input_path)
+            if os.path.isfile(os.path.join(input_path, f)) and os.path.splitext(f)[1].lower() in supported_exts
+        ]
+        base_dir = input_path
+    else:
+        print(f"Error: '{input_path}' is not a valid file or directory.")
+        return
     
     if not image_files:
-        print(f"No .tiff, .tif, or .dng files found in {directory_path}")
+        print(f"No valid .tiff, .tif, or .dng files found for input: {input_path}")
         return
 
     # 2. Sort files alphabetically 
@@ -28,7 +39,7 @@ def process_positives(directory_path, output_dir=None, clip=0.1, gamma=2.2, comp
 
     # 3. Setup output directory
     if output_dir is None:
-        output_dir = os.path.join(directory_path, "Positives")
+        output_dir = os.path.join(base_dir, "Positives")
     os.makedirs(output_dir, exist_ok=True)
 
     # 4. Process each file
@@ -69,21 +80,25 @@ def process_positives(directory_path, output_dir=None, clip=0.1, gamma=2.2, comp
             # Avoid division by zero by using a minimum value of 1.0.
             img_float = 1.0 / np.maximum(img_float, 1.0)
             
-            # --- STEP 2: LEVELS NORMALIZATION ---
-            print(f"  -> Normalizing levels (clip={clip}%, ignoring {ignore_margin*100:.0f}% margins)...")
-            
+            # --- STEP 2: CROPPING & LEVELS NORMALIZATION ---
             h, w = img_float.shape[:2]
             h_margin = int(h * ignore_margin)
             w_margin = int(w * ignore_margin)
             
-            # Use only the center of the image to calculate percentiles
-            # This prevents film holders (pure black) and unexposed film base (pure white) 
-            # from skewing the auto-levels.
-            analysis_region = img_float[h_margin:h-h_margin, w_margin:w-w_margin]
+            if autocrop:
+                print(f"  -> Auto-cropping {ignore_margin*100:.0f}% margins (maintaining aspect ratio)...")
+                # Physically crop the image array
+                img_float = img_float[h_margin:h-h_margin, w_margin:w-w_margin]
+                # The region for level analysis is now the entire remaining image
+                analysis_region = img_float
+            else:
+                # Keep the full image, but only use the center to calculate percentiles
+                analysis_region = img_float[h_margin:h-h_margin, w_margin:w-w_margin]
+                
+            print(f"  -> Normalizing levels (clip={clip}%)...")
             
             if global_levels:
-                # Global normalization: preserves the exact color ratio/balance 
-                # produced by the compositor's --neutralize flag.
+                # Global normalization
                 p_low = np.percentile(analysis_region, clip)
                 p_high = np.percentile(analysis_region, 100 - clip)
                 
@@ -158,7 +173,7 @@ if __name__ == "__main__":
     
     # Define command line arguments
     parser.add_argument("-i", "--input", type=str, required=True, 
-                        help="Path to the directory containing 16-bit composite TIFF or RAW DNG files")
+                        help="Path to a single 16-bit composite TIFF/RAW DNG file, or a directory containing them")
     parser.add_argument("-c", "--compress", action="store_true", 
                         help="Enable lossless compression (zlib/deflate) for output TIFFs")
     parser.add_argument("-p", "--clip", type=float, default=0.1,
@@ -167,19 +182,22 @@ if __name__ == "__main__":
                         help="Gamma correction curve to apply (default: 2.2). Set to 1.0 for strictly linear output.")
     parser.add_argument("-s", "--scurve", type=float, default=0.0,
                         help="Strength of the contrast S-Curve to apply (default: 0.0 = none). Try 0.2 to 0.5 for a film-like punch.")
-    parser.add_argument("-m", "--margin", type=float, default=0.15,
-                        help="Fraction of outer edge to ignore when calculating levels (default: 0.15 = 15%%). Prevents film holders from skewing brightness.")
+    parser.add_argument("-m", "--margin", type=float, default=0.03,
+                        help="Fraction of outer edge to ignore when calculating levels (default: 0.03 = 3%%). Prevents film holders from skewing brightness.")
+    parser.add_argument("-a", "--autocrop", action="store_true",
+                        help="Physically crop off the outer margins defined by --margin from the final saved image.")
     parser.add_argument("--global-levels", action="store_true",
                         help="Stretch levels globally instead of per-channel. Use this if you relied on the compositor's neutralization and want to perfectly maintain that color balance.")
     
     args = parser.parse_args()
     
     process_positives(
-        directory_path=args.input, 
+        input_path=args.input, 
         clip=args.clip, 
         gamma=args.gamma, 
         compress_tiff=args.compress,
         global_levels=args.global_levels,
         ignore_margin=args.margin,
-        scurve=args.scurve
+        scurve=args.scurve,
+        autocrop=args.autocrop
     )
