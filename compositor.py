@@ -51,15 +51,18 @@ def process_roll(directory_path, output_dir=None, neutralize_base=False, compres
                 print(f"    Analyzing {Path(filepath).name}...")
                 with rawpy.imread(filepath) as raw:
                     # Process the RAW file into a linear 16-bit RGB image
-                    # KEY FIX: output_color=rawpy.ColorSpace.raw prevents the sRGB 
-                    # matrix from scrambling monochromatic LED light sources.
+                    # KEY FIXES: 
+                    # 1. output_color=rawpy.ColorSpace.raw prevents the sRGB matrix from scrambling LEDs.
+                    # 2. user_flip=0 ignores camera rotation metadata, preventing stacking errors 
+                    #    if the copy stand gravity sensor gets confused.
                     linear_rgb = raw.postprocess(
                         gamma=(1, 1),
                         no_auto_bright=True,
                         use_camera_wb=False,
                         user_wb=[1.0, 1.0, 1.0, 1.0], 
                         output_color=rawpy.ColorSpace.raw,
-                        output_bps=16
+                        output_bps=16,
+                        user_flip=0
                     )
                     
                     # Auto-detect which light was used by finding the brightest channel
