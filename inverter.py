@@ -69,6 +69,13 @@ def process_positives(input_path, output_dir=None, clip=0.1, gamma=2.2, compress
                 print(f"  -> WARNING: {filename} is not 16-bit (uint16). Skipping.")
                 continue
                 
+            # THE FIX: Strip alpha channels from stitched panoramas
+            # Stitched TIFFs often have a 4th Alpha channel. If left in, it becomes fully 
+            # transparent during math, making the final image appear entirely white.
+            if img.ndim == 3 and img.shape[2] > 3:
+                print("  -> Stripping Alpha/Extra channels...")
+                img = img[:, :, :3]
+                
             # --- STEP 1: INVERSION ---
             # Convert to float32 for precise math
             img_float = img.astype(np.float32)
