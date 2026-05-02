@@ -83,3 +83,34 @@ python compositor.py -i /path/to/your/raw/files --neutralize --compress
 
 - The total number of RAW files in the directory **must be divisible by 3**. If you have misfires or test shots in the folder, remove them before running the script so the sequence isn't thrown off.
 - The script expects distinct RGB monochromatic light sources. If a shot is heavily mixed or exposed incorrectly, auto-detection may fail.
+
+### 2. Inverting Composites
+
+The inverter script takes your 16-bit composite TIFFs (or single RAW DNGs) and accurately inverts them, normalizes levels, and applies gamma and contrast curves.
+
+### Basic Usage
+
+```bash
+python inverter.py -i /path/to/your/Composites
+```
+
+*This will process the files, invert them, apply default auto-levels (0.1% clipping) and gamma (2.2), and save them into a new `Positives` subfolder.*
+
+### Advanced Usage
+
+```bash
+python inverter.py -i /path/to/your/Composites --compress --scurve 0.3 --autocrop
+```
+
+### Command Line Arguments
+
+| **Argument** | **Short** | **Description** |
+| :--- | :---: | :--- |
+| `--input` | `-i` | **(Required)** Path to a single 16-bit composite TIFF/RAW DNG file, or a directory containing them. |
+| `--compress` | `-c` | Enable lossless compression (`zlib`/`deflate`) for output TIFFs. |
+| `--clip` | `-p` | Percentile to clip for black/white points (default: `0.1`% to ignore dust/scratches). |
+| `--gamma` | `-g` | Gamma correction curve to apply (default: `2.2`). Set to 1.0 for strictly linear output. |
+| `--scurve` | `-s` | Strength of the contrast S-Curve to apply (default: `0.0` = none). Try 0.2 to 0.5 for a film-like punch. |
+| `--margin` | `-m` | Fraction of outer edge to ignore when calculating levels (default: `0.03` = 3%). Prevents film holders from skewing brightness. |
+| `--autocrop` | `-a` | Physically crop off the outer margins defined by `--margin` from the final saved image. |
+| `--global-levels` | | Stretch levels globally instead of per-channel. Use this if you relied on the compositor's neutralization and want to perfectly maintain that color balance. |
