@@ -7,10 +7,9 @@ import rawpy
 
 def process_positives(input_path, output_dir=None, clip=0.1, gamma=2.2, compress_tiff=False, global_levels=False, ignore_margin=0.15, scurve=0.0, autocrop=False):
     """
-    Scans a directory or processes a single 16-bit TIFF/DNG file, inverts it (negative to positive),
-    normalizes the black and white points, applies a gamma curve, optionally crops, and saves the results.
+    Processes 16-bit TIFF/DNG files: inverts, normalizes, applies gamma, crops, and saves.
     """
-    # 1. Gather all supported image files (case-insensitive)
+    # Find supported image files
     supported_exts = {'.tiff', '.tif', '.dng'}
     image_files = []
     
@@ -32,27 +31,27 @@ def process_positives(input_path, output_dir=None, clip=0.1, gamma=2.2, compress
         print(f"No valid .tiff, .tif, or .dng files found for input: {input_path}")
         return
 
-    # 2. Sort files alphabetically 
+    # Sort files alphabetically
     image_files.sort()
     total_files = len(image_files)
     print(f"Found {total_files} files to process.")
 
-    # 3. Setup output directory
+    # Create output directory
     if output_dir is None:
         output_dir = os.path.join(base_dir, "Positives")
     os.makedirs(output_dir, exist_ok=True)
 
-    # 4. Process each file
+    # Process files
     for filepath in image_files:
         filename = Path(filepath).name
         print(f"Processing {filename}...")
         
         try:
-            # Read the file based on its extension
+            # Read file based on extension
             ext = os.path.splitext(filename)[1].lower()
             if ext == '.dng':
                 with rawpy.imread(filepath) as raw:
-                    # Extract as linear 16-bit to match compositor TIFFs
+                    # Extract as linear 16-bit
                     img = raw.postprocess(
                         gamma=(1, 1),
                         no_auto_bright=True,
@@ -64,27 +63,22 @@ def process_positives(input_path, output_dir=None, clip=0.1, gamma=2.2, compress
             else:
                 img = tifffile.imread(filepath)
             
-            # Ensure we are working with 16-bit data
+            # Check for 16-bit data
             if img.dtype != np.uint16:
                 print(f"  -> WARNING: {filename} is not 16-bit (uint16). Skipping.")
                 continue
                 
-            # THE FIX: Strip alpha channels from stitched panoramas
-            # Stitched TIFFs often have a 4th Alpha channel. If left in, it becomes fully 
-            # transparent during math, making the final image appear entirely white.
+            # Remove alpha channels from stitched panos to prevent transparency issues
             if img.ndim == 3 and img.shape[2] > 3:
                 print("  -> Stripping Alpha/Extra channels...")
                 img = img[:, :, :3]
                 
             # --- STEP 1: INVERSION ---
-            # Convert to float32 for precise math
+            # Convert to float32
             img_float = img.astype(np.float32)
             
-            # THE FIX: True Linear Inversion
-            # Inverting linear RAW data with subtraction (max - pixel) crushes highlight 
-            # contrast because it's the wrong math for density. Film density is logarithmic.
-            # To get linear scene exposure back from linear transmission, we must divide.
-            # Avoid division by zero by using a minimum value of 1.0.
+            # True linear inversion: use division instead of subtraction for film density.
+            # Set minimum value to 1.0 to avoid division by zero.
             img_float = 1.0 / np.maximum(img_float, 1.0)
             
             # --- STEP 2: CROPPING & LEVELS NORMALIZATION ---
@@ -94,12 +88,12 @@ def process_positives(input_path, output_dir=None, clip=0.1, gamma=2.2, compress
             
             if autocrop:
                 print(f"  -> Auto-cropping {ignore_margin*100:.0f}% margins (maintaining aspect ratio)...")
-                # Physically crop the image array
+                # Crop the image array
                 img_float = img_float[h_margin:h-h_margin, w_margin:w-w_margin]
-                # The region for level analysis is now the entire remaining image
+                # Use the entire remaining image for level analysis
                 analysis_region = img_float
             else:
-                # Keep the full image, but only use the center to calculate percentiles
+                # Use the center of the image to calculate percentiles
                 analysis_region = img_float[h_margin:h-h_margin, w_margin:w-w_margin]
                 
             print(f"  -> Normalizing levels (clip={clip}%)...")
@@ -112,9 +106,7 @@ def process_positives(input_path, output_dir=None, clip=0.1, gamma=2.2, compress
                 if p_high > p_low:
                     img_float = (img_float - p_low) / (p_high - p_low) * 65535.0
             else:
-                # Per-channel normalization (Auto-Color): Calculates black/white points
-                # independently for R, G, and B. This acts as an automated color correction 
-                # to remove residual film base color casts.
+                # Per-channel normalization (Auto-Color) to remove color casts.
                 for c in range(3):
                     analysis_channel = analysis_region[:, :, c]
                     p_low = np.percentile(analysis_channel, clip)
@@ -123,27 +115,26 @@ def process_positives(input_path, output_dir=None, clip=0.1, gamma=2.2, compress
                     if p_high > p_low:
                         img_float[:, :, c] = (img_float[:, :, c] - p_low) / (p_high - p_low) * 65535.0
             
-            # Clip any mathematical overshoots to the absolute 0-65535 bounds
+            # Clip values to 0-65535
             img_float = np.clip(img_float, 0, 65535)
             
             # --- STEP 3: GAMMA AND CONTRAST ---
-            # Linear scans look very dark/muddy when inverted. We apply a standard
-            # viewing gamma (e.g., 2.2) to lift the midtones properly.
+            # Apply gamma curve to lift midtones.
             if gamma != 1.0 or scurve > 0.0:
                 print(f"  -> Applying tone curve (gamma={gamma}, scurve={scurve})...")
                 # Normalize to 0.0-1.0
                 img_norm = img_float / 65535.0
                 
-                # Apply power law for gamma
+                # Apply gamma curve
                 if gamma != 1.0:
                     img_norm = img_norm ** (1.0 / gamma)
                 
-                # Apply S-Curve for contrast
+                # Apply S-Curve
                 if scurve > 0.0:
                     c = 1.0 + scurve
                     mask = img_norm < 0.5
                     
-                    # Piecewise contrast curve that pins black/white but stretches midtones
+                    # Piecewise curve to stretch midtones
                     img_norm[mask] = 0.5 * (2.0 * img_norm[mask]) ** c
                     img_norm[~mask] = 1.0 - 0.5 * (2.0 * (1.0 - img_norm[~mask])) ** c
                 
@@ -151,11 +142,11 @@ def process_positives(input_path, output_dir=None, clip=0.1, gamma=2.2, compress
                 img_float = img_norm * 65535.0
                 
             # --- STEP 4: SAVE OUT ---
-            # Convert back to contiguous 16-bit integer array
+            # Convert back to contiguous 16-bit array
             final_img = img_float.astype(np.uint16)
             final_img = np.ascontiguousarray(final_img)
             
-            # Generate new filename ensuring it ends in .tiff
+            # Generate output filename
             base_name = os.path.splitext(filename)[0]
             if "_Composite" in base_name:
                 out_filename = base_name.replace("_Composite", "_Positive") + ".tiff"
@@ -164,7 +155,7 @@ def process_positives(input_path, output_dir=None, clip=0.1, gamma=2.2, compress
                 
             output_filepath = os.path.join(output_dir, out_filename)
             
-            # Setup compression
+            # Set up compression
             tiff_compression = 'zlib' if compress_tiff else None
             tifffile.imwrite(output_filepath, final_img, photometric='rgb', compression=tiff_compression)
             

@@ -10,17 +10,16 @@ import shutil
 import sys
 
 def process_triplet(group, output_filepath, neutralize_base, compress_tiff):
-    """Core logic to process exactly 3 RAW files into 1 composite."""
+    """Processes exactly 3 RAW files into a single composite."""
     channels_data = {'red': None, 'green': None, 'blue': None}
     
     for filepath in group:
         print(f"    Analyzing {Path(filepath).name}...")
         with rawpy.imread(filepath) as raw:
-            # Process the RAW file into a linear 16-bit RGB image
-            # KEY FIXES: 
-            # 1. output_color=rawpy.ColorSpace.raw prevents the sRGB matrix from scrambling LEDs.
-            # 2. user_flip=0 ignores camera rotation metadata, preventing stacking errors 
-            #    if the copy stand gravity sensor gets confused.
+            # Decode RAW to linear 16-bit RGB
+            # Important settings:
+            # - output_color=rawpy.ColorSpace.raw prevents sRGB color matrix interference.
+            # - user_flip=0 ignores camera rotation metadata to avoid stacking errors.
             linear_rgb = raw.postprocess(
                 gamma=(1, 1),
                 no_auto_bright=True,
@@ -31,7 +30,7 @@ def process_triplet(group, output_filepath, neutralize_base, compress_tiff):
                 user_flip=0
             )
             
-            # Auto-detect which light was used by finding the brightest channel
+            # Determine light source by finding the brightest channel
             means = [
                 np.mean(linear_rgb[:, :, 0]), # Red channel average
                 np.mean(linear_rgb[:, :, 1]), # Green channel average
@@ -50,18 +49,18 @@ def process_triplet(group, output_filepath, neutralize_base, compress_tiff):
                 channels_data['blue'] = linear_rgb[:, :, 2]
                 print("      -> Detected as BLUE light shot")
     
-    # Ensure we found exactly one of each color in this group of 3
+    # Check if we have one of each color (Red, Green, Blue)
     if any(v is None for v in channels_data.values()):
         raise ValueError("Could not detect a distinct Red, Green, and Blue shot in this group. Verify your shots.")
     
-    # Stack the 3 grayscale channels into a single (H, W, 3) RGB array
+    # Combine channels into an RGB image
     composite_rgb = np.stack((
         channels_data['red'], 
         channels_data['green'], 
         channels_data['blue']
     ), axis=-1)
     
-    # Print average brightness to help debug exposure settings
+    # Print channel averages for exposure debugging
     r_mean = np.mean(channels_data['red'])
     g_mean = np.mean(channels_data['green'])
     b_mean = np.mean(channels_data['blue'])
@@ -69,32 +68,32 @@ def process_triplet(group, output_filepath, neutralize_base, compress_tiff):
     
     if neutralize_base:
         print("  -> Neutralizing film base color cast...")
-        # Convert to float for math
+        # Convert to float32
         composite_float = composite_rgb.astype(np.float32)
         
-        # Find the 99.9th percentile to represent the unexposed film base (ignoring hot pixels)
+        # Use 99.9th percentile to estimate unexposed film base, ignoring hot pixels
         r_base = np.percentile(composite_float[:,:,0], 99.9)
         g_base = np.percentile(composite_float[:,:,1], 99.9)
         b_base = np.percentile(composite_float[:,:,2], 99.9)
         
-        # Scale all channels so the film base is white/neutral (65535)
+        # Scale channels to neutralize film base (white = 65535)
         composite_float[:,:,0] = np.clip((composite_float[:,:,0] / r_base) * 65535.0, 0, 65535)
         composite_float[:,:,1] = np.clip((composite_float[:,:,1] / g_base) * 65535.0, 0, 65535)
         composite_float[:,:,2] = np.clip((composite_float[:,:,2] / b_base) * 65535.0, 0, 65535)
         
         composite_rgb = composite_float.astype(np.uint16)
     
-    # Enforce contiguous array to prevent TIFF reading errors in some viewers
+    # Make array contiguous to avoid TIFF reader issues
     composite_rgb = np.ascontiguousarray(composite_rgb)
     
-    # Setup compression
+    # Set up compression
     tiff_compression = 'zlib' if compress_tiff else None
     tifffile.imwrite(output_filepath, composite_rgb, photometric='rgb', compression=tiff_compression)
     
     print(f"  -> Saved composite to: {os.path.basename(output_filepath)}\n")
 
 def get_next_frame_number(directory):
-    """Helper to find the next sequential frame number based on existing output."""
+    """Finds the next frame number based on existing files."""
     existing = glob.glob(os.path.join(directory, "Frame_*_Composite.tiff"))
     max_num = 0
     for f in existing:
@@ -106,7 +105,7 @@ def get_next_frame_number(directory):
     return max_num + 1
 
 def hot_folder_mode(directory_path, neutralize_base=False, compress_tiff=False, timeout=60):
-    """Monitors a directory for incoming R, G, B RAW triplets and processes them automatically."""
+    """Monitors a directory for RAW triplets and processes them."""
     print(f"\n{'='*60}")
     print(f"🔥 HOT FOLDER MODE ACTIVE 🔥")
     print(f"Monitoring: {directory_path}")
@@ -128,26 +127,26 @@ def hot_folder_mode(directory_path, neutralize_base=False, compress_tiff=False, 
                 if os.path.isfile(os.path.join(directory_path, f)) and os.path.splitext(f)[1].lower() in supported_exts
             ]
             
-            # Sort files by modification time (oldest first)
+            # Sort by modification time, oldest first
             raw_files.sort(key=lambda x: os.path.getmtime(x))
             
             if len(raw_files) >= 3:
                 group = raw_files[:3]
                 
-                # Wait until the newest file is completely written (2 seconds since last modified)
+                # Ensure the newest file is completely written (wait 2 seconds)
                 if time.time() - os.path.getmtime(group[-1]) < 2:
                     time.sleep(1)
                     continue
                     
                 print(f"Triplet detected! Processing Frame {frame_number:02d}...")
                 output_filename = f"Frame_{frame_number:02d}_Composite.tiff"
-                # Hot folder mode leaves composites in the watched directory itself
+                # Save composites directly in the watched directory
                 output_filepath = os.path.join(directory_path, output_filename)
                 
                 try:
                     process_triplet(group, output_filepath, neutralize_base, compress_tiff)
                     
-                    # Move to processed folder
+                    # Move original RAWs to processed folder
                     for f in group:
                         shutil.move(f, os.path.join(processed_dir, os.path.basename(f)))
                     print(f"Moved original RAWs to {processed_dir}")
@@ -159,7 +158,7 @@ def hot_folder_mode(directory_path, neutralize_base=False, compress_tiff=False, 
                     print(f"ERROR PROCESSING TRIPLET: {e}")
                     print(f"Moving problematic files to Error_RAWs folder.")
                     print(f"{'!'*60}\n")
-                    # If they fail, get them out of the hotfolder so it doesn't loop infinitely
+                    # Move failed files to avoid infinite loops
                     for f in group:
                         shutil.move(f, os.path.join(error_dir, os.path.basename(f)))
             
@@ -173,7 +172,7 @@ def hot_folder_mode(directory_path, neutralize_base=False, compress_tiff=False, 
                     print(f"Found {len(raw_files)} file(s), but waiting for a full 3 to complete the triplet.")
                     print(f"Please check your camera or the hot folder!")
                     print(f"{'!'*60}\n")
-                    time.sleep(10) # Snooze warning for 10s so it doesn't spam
+                    time.sleep(10) # Snooze for 10s to avoid spamming
                     
             time.sleep(1)
             
@@ -183,10 +182,9 @@ def hot_folder_mode(directory_path, neutralize_base=False, compress_tiff=False, 
 
 def process_roll(directory_path, output_dir=None, neutralize_base=False, compress_tiff=False):
     """
-    Scans a directory for CR3 and RAF files, groups them by 3 based on filename, 
-    auto-detects the color of each shot, and creates linear composited TIFFs.
+    Scans for RAW files, groups by 3, auto-detects colors, and creates linear TIFFs.
     """
-    # 1. Gather all supported RAW files (case-insensitive)
+    # Find all supported RAW files
     supported_exts = {'.cr3', '.raf'}
     raw_files = [
         os.path.join(directory_path, f) for f in os.listdir(directory_path)
@@ -197,7 +195,7 @@ def process_roll(directory_path, output_dir=None, neutralize_base=False, compres
         print(f"No .cr3 or .raf files found in {directory_path}")
         return
 
-    # 2. Sort files alphabetically by filename 
+    # Sort files alphabetically
     raw_files.sort()
     
     total_files = len(raw_files)
@@ -208,12 +206,12 @@ def process_roll(directory_path, output_dir=None, neutralize_base=False, compres
         print("Please ensure there are exactly 3 shots (R, G, B) per frame.")
         print("The script will process as many complete groups of 3 as possible.\n")
 
-    # 3. Setup output directory
+    # Create output directory
     if output_dir is None:
         output_dir = os.path.join(directory_path, "Composites")
     os.makedirs(output_dir, exist_ok=True)
 
-    # 4. Process in groups of 3
+    # Process files in groups of 3
     frame_number = 1
     for i in range(0, total_files - 2, 3):
         group = raw_files[i:i+3]
