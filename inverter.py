@@ -31,14 +31,15 @@ def process_positives(input_path, output_dir=None, clip=0.1, gamma=2.2, compress
         print(f"No valid .tiff, .tif, or .dng files found for input: {input_path}")
         return
 
-    # Sort files alphabetically
-    image_files.sort()
-    total_files = len(image_files)
-    print(f"Found {total_files} files to process.")
-
     # Create output directory
     if output_dir is None:
-        output_dir = os.path.join(base_dir, "Positives")
+        # Check if the base directory name is "negatives"
+        if os.path.basename(base_dir).lower() == "negatives":
+            # If so, place the 'Positives' folder one level up
+            output_dir = os.path.join(os.path.dirname(base_dir), "Positives")
+        else:
+            # Otherwise, place it as a subdirectory of the base
+            output_dir = os.path.join(base_dir, "Positives")
     os.makedirs(output_dir, exist_ok=True)
 
     # Process files
