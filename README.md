@@ -1,14 +1,20 @@
-# Tri-Color Auto Compositor for RAW Film Scans
+# Tri-Color Auto Compositor & Film Inverter for RAW Scans
 
-A Python script designed to automate the process of combining individual Red, Green, and Blue RAW film scans into high-quality, 16-bit linear composite TIFF images. This tool is perfect for archival film scanning setups that use distinct red, green, and blue monochromatic light sources to capture color film.
+A suite of Python scripts designed to automate the process of combining individual Red, Green, and Blue RAW film scans into high-quality, 16-bit linear composite TIFF images, and accurately inverting them into positive images. This toolset is perfect for archival film scanning setups that use distinct red, green, and blue monochromatic light sources to capture color film.
 
 ## Features
 
+### Compositor (`compositor.py`)
 - **Auto-Color Detection:** Automatically determines which shot is the Red, Green, or Blue channel by analyzing the average brightness of the RAW data.
 - **Linear 16-bit Processing:** Uses raw sensor data (`rawpy.ColorSpace.raw`) bypassing standard sRGB matrices to ensure pure channel data without cross-channel contamination.
 - **Film Base Neutralization:** Optional automated color balancing that calculates the 99.9th percentile of brightness to neutralize the unexposed film base color cast.
 - **Lossless Compression:** Optional `zlib`/`deflate` compression for the output TIFFs to save disk space.
 - **Broad Camera Support:** Currently supports `.CR3` (Canon) and `.RAF` (Fujifilm) RAW formats.
+
+### Inverter (`inverter.py`)
+- **Accurate Density Inversion:** Uses true mathematical division for linear data, maintaining contrast across highlights and shadows.
+- **Auto-Levels & Tone Curve Control:** Removes remaining color casts (per-channel clipping), applies a viewing gamma (default 2.2), and supports optional photographic S-curves for punchy contrast.
+- **Auto-Cropping:** Option to physically crop or just ignore film holder borders during auto-level calculation.
 
 ## Prerequisites
 
@@ -17,8 +23,22 @@ A Python script designed to automate the process of combining individual Red, Gr
 
 ## Installation
 
-1. Clone this repository or download the script.
-2. Install the required dependencies using pip:
+1. Clone this repository or download the scripts.
+2. (Recommended) Create and activate a Python virtual environment to keep dependencies isolated:
+
+   **Windows:**
+   ```bash
+   python -m venv .venv
+   .venv\Scripts\activate
+   ```
+
+   **macOS/Linux:**
+   ```bash
+   python3 -m venv .venv
+   source .venv/bin/activate
+   ```
+
+3. Install the required dependencies using pip:
 
 ```bash
 pip install rawpy numpy tifffile
@@ -26,7 +46,9 @@ pip install rawpy numpy tifffile
 
 ## Usage
 
-The script runs via the command line and requires the path to a directory containing your RAW files.
+### 1. Compositing RAWs
+
+The compositor script runs via the command line and requires the path to a directory containing your RAW files.
 
 ### Basic Usage
 
