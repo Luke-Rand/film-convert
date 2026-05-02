@@ -138,7 +138,8 @@ def hot_folder_mode(directory_path, neutralize_base=False, compress_tiff=False, 
                     time.sleep(1)
                     continue
                     
-                print(f"Triplet detected! Processing Frame {frame_number:02d}...")
+                print(f"\n{'-'*60}")
+                print(f"📸 Triplet detected! Processing Frame {frame_number:02d}...")
                 output_filename = f"Frame_{frame_number:02d}_Composite.tiff"
                 # Save composites directly in the watched directory
                 output_filepath = os.path.join(directory_path, output_filename)
@@ -149,13 +150,16 @@ def hot_folder_mode(directory_path, neutralize_base=False, compress_tiff=False, 
                     # Move original RAWs to processed folder
                     for f in group:
                         shutil.move(f, os.path.join(processed_dir, os.path.basename(f)))
+                    print(f"\n{'*'*60}")
+                    print(f"✅ SUCCESS: Frame {frame_number:02d} processed and saved.")
                     print(f"Moved original RAWs to {processed_dir}")
-                    print(f"Waiting for next triplet...\n")
+                    print(f"Waiting for next triplet...")
+                    print(f"{'*'*60}\n")
                     frame_number += 1
                     
                 except Exception as e:
                     print(f"\n{'!'*60}")
-                    print(f"ERROR PROCESSING TRIPLET: {e}")
+                    print(f"❌ ERROR PROCESSING TRIPLET: {e}")
                     print(f"Moving problematic files to Error_RAWs folder.")
                     print(f"{'!'*60}\n")
                     # Move failed files to avoid infinite loops
@@ -167,11 +171,11 @@ def hot_folder_mode(directory_path, neutralize_base=False, compress_tiff=False, 
                 oldest_time = os.path.getmtime(raw_files[0])
                 elapsed = time.time() - oldest_time
                 if elapsed > timeout:
-                    print(f"\n{'!'*60}")
-                    print(f"TIMEOUT ANOMALY: {int(elapsed)} seconds have passed!")
+                    print(f"\n{'?'*60}")
+                    print(f"⚠️ TIMEOUT ANOMALY: {int(elapsed)} seconds have passed!")
                     print(f"Found {len(raw_files)} file(s), but waiting for a full 3 to complete the triplet.")
                     print(f"Please check your camera or the hot folder!")
-                    print(f"{'!'*60}\n")
+                    print(f"{'?'*60}\n")
                     time.sleep(10) # Snooze for 10s to avoid spamming
                     
             time.sleep(1)
