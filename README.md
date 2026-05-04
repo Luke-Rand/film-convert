@@ -4,6 +4,11 @@ A suite of Python scripts designed to automate the process of combining individu
 
 ## Features
 
+### Session Manager (`scanning_session.py`)
+- **Interactive Setup:** Prompts for film stock, format, and roll number to automatically generate organized directory structures.
+- **End-to-End Automation:** Runs a hot folder monitor that instantly composites RAW triplets as they are captured and pipes them directly into the inverter.
+- **Clean File Management:** Automatically moves processed and errored RAW files into designated subfolders to keep your working directory tidy.
+
 ### Compositor (`compositor.py`)
 - **Auto-Color Detection:** Automatically determines which shot is the Red, Green, or Blue channel by analyzing the average brightness of the RAW data.
 - **Linear 16-bit Processing:** Uses raw sensor data (`rawpy.ColorSpace.raw`) bypassing standard sRGB matrices to ensure pure channel data without cross-channel contamination.
@@ -46,7 +51,24 @@ pip install rawpy numpy tifffile
 
 ## Usage
 
-### 1. Compositing RAWs
+### 1. End-to-End Workflow (Recommended)
+
+The session manager provides an interactive, fully automated pipeline.
+
+```bash
+python scanning_session.py
+```
+
+You will be prompted to enter a root directory, film stock, format, and roll number. The script will create an organized session folder and start monitoring the `negatives` subfolder. 
+
+As you shoot your RGB triplets into the `negatives` folder, the script will automatically:
+1. Detect the 3 RAW files.
+2. Composite them into a 16-bit linear TIFF.
+3. Invert, auto-color balance, and apply an S-curve to create a positive image.
+4. Save the final positive to the `positives` folder.
+5. Move the original RAWs to the `processed_raws` folder.
+
+### 2. Manual Compositing RAWs
 
 The compositor script runs via the command line and requires the path to a directory containing your RAW files.
 
@@ -84,7 +106,7 @@ python compositor.py -i /path/to/your/raw/files --neutralize --compress
 - The total number of RAW files in the directory **must be divisible by 3**. If you have misfires or test shots in the folder, remove them before running the script so the sequence isn't thrown off.
 - The script expects distinct RGB monochromatic light sources. If a shot is heavily mixed or exposed incorrectly, auto-detection may fail.
 
-### 2. Inverting Composites
+### 3. Manual Inverting Composites
 
 The inverter script takes your 16-bit composite TIFFs (or single RAW DNGs) and accurately inverts them, normalizes levels, and applies gamma and contrast curves.
 
