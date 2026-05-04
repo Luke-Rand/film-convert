@@ -121,8 +121,8 @@ def run_triplet_pipeline(dirs):
                         compress_tiff=True,
                         global_levels=False,
                         ignore_margin=0.03,
-                        scurve=0.2,
-                        autocrop=True
+                        scurve=0.0,
+                        autocrop=False
                     )
                     
                     # 3. Move original RAWs and intermediate composite out of the hot folder
@@ -186,8 +186,8 @@ def run_single_shot_pipeline(dirs):
                         compress_tiff=True,
                         global_levels=False, 
                         ignore_margin=0.03,
-                        scurve=0.2,          
-                        autocrop=True
+                        scurve=0.0,          
+                        autocrop=False
                     )
                     
                     # Move the original negative out of the hot folder
