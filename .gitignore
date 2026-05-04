@@ -1,2 +1,21 @@
+# Virtual Environments
 .venv/
+
+# Python Cache
 __pycache__/
+*.py[cod]
+
+# OS Generated Files
+.DS_Store
+Thumbs.db
+
+# IDEs and Editors
+.vscode/
+.idea/
+
+# Image / Scan Data (Prevent accidental commits of massive RAW/TIFF files)
+*.cr3
+*.raf
+*.dng
+*.tiff
+*.tif
