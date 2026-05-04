@@ -5,23 +5,22 @@ import glob
 from pathlib import Path
 import sys
 
-# Import your existing logic as modules
 from compositor import process_triplet
 from inverter import process_positives
 
 def setup_session():
-    """Prompts the user for folder locations and film details, then builds the directory structure."""
+    """Interactively gather session details and create necessary folders."""
     print("\n" + "="*50)
     print("🎞️  NEW FILM SCANNING SESSION")
     print("="*50)
     
-    # Prompt for the root working directory
+    # Get the base path for scans
     root_input = input("Enter the root directory for your scans (e.g., ~/Pictures/Scans): ").strip()
     
-    # Expand shortcuts like "~/" to the actual home directory and make the path absolute
+    # Resolve ~ and make the path absolute
     root_folder = os.path.abspath(os.path.expanduser(root_input))
     
-    # Check if the root directory exists, and offer to create it if it doesn't
+    # Create the root directory if it's missing
     if not os.path.exists(root_folder):
         create = input(f"Directory '{root_folder}' does not exist. Create it? (y/n): ").strip().lower()
         if create == 'y':
@@ -39,7 +38,7 @@ def setup_session():
     folder_name = f"{stock}-{fmt}-{roll}"
     session_dir = os.path.join(root_folder, folder_name)
     
-    # Define subdirectories inside the new session folder
+    # Set up paths for the various stages of processing
     dirs = {
         "negatives": os.path.join(session_dir, "negatives"),
         "positives": os.path.join(session_dir, "positives"),
@@ -47,7 +46,7 @@ def setup_session():
         "errors": os.path.join(session_dir, "error_raws")
     }
     
-    # Create all the subdirectories
+    # Make sure all directories exist
     for d in dirs.values():
         os.makedirs(d, exist_ok=True)
         
@@ -55,7 +54,7 @@ def setup_session():
     return dirs
 
 def get_next_frame_number(composites_dir):
-    """Finds the next frame number to avoid overwriting existing files."""
+    """Figures out the next available frame number by looking at existing composite files."""
     existing = glob.glob(os.path.join(composites_dir, "Frame_*_Composite.tiff"))
     max_num = 0
     for f in existing:
@@ -67,7 +66,7 @@ def get_next_frame_number(composites_dir):
     return max_num + 1
 
 def run_pipeline(dirs):
-    """Monitors the negatives folder and runs the full composite -> invert pipeline."""
+    """Watches the negatives folder for new RAW files and processes them in groups of 3."""
     print(f"\n🔥 HOT FOLDER PIPELINE ACTIVE 🔥")
     print(f"Monitoring: {dirs['negatives']}")
     print(f"Waiting for RGB RAW triplets. Press Ctrl+C to exit.\n")
@@ -77,7 +76,7 @@ def run_pipeline(dirs):
     
     while True:
         try:
-            # 1. Look for RAWs in the negatives folder
+            # Grab all supported RAW files in the negatives directory, sorted by age
             raw_files = [
                 os.path.join(dirs['negatives'], f) for f in os.listdir(dirs['negatives'])
                 if os.path.isfile(os.path.join(dirs['negatives'], f)) and os.path.splitext(f)[1].lower() in supported_exts
@@ -87,7 +86,7 @@ def run_pipeline(dirs):
             if len(raw_files) >= 3:
                 group = raw_files[:3]
                 
-                # Wait for the newest file to finish writing to disk
+                # Give the camera/OS a couple seconds to finish saving the newest file
                 if time.time() - os.path.getmtime(group[-1]) < 2:
                     time.sleep(1)
                     continue
@@ -98,8 +97,8 @@ def run_pipeline(dirs):
                 composite_filepath = os.path.join(dirs['negatives'], composite_filename)
                 
                 try:
-                    # STEP 1: Composite the RAWs
-                    # pass neutralize_base=False so that inverter.py handles it via auto-color
+                    # 1. Combine the 3 exposures
+                    # We skip neutralizing the base here; the inverter handles the orange mask better.
                     process_triplet(
                         group=group, 
                         output_filepath=composite_filepath, 
@@ -107,8 +106,8 @@ def run_pipeline(dirs):
                         compress_tiff=True
                     )
                     
-                    # STEP 2: Invert and Neutralize
-                    # global_levels=False (default) neutralizes the orange mask per-channel
+                    # 2. Invert to positive and adjust colors
+                    # Using per-channel levels (global_levels=False) naturally removes the orange mask.
                     process_positives(
                         input_path=composite_filepath,
                         output_dir=dirs['positives'],
@@ -121,7 +120,7 @@ def run_pipeline(dirs):
                         autocrop=True
                     )
                     
-                    # STEP 3: Cleanup
+                    # 3. Move the original RAWs out of the hot folder
                     for f in group:
                         shutil.move(f, os.path.join(dirs['processed'], os.path.basename(f)))
                     
