@@ -15,7 +15,7 @@ def setup_session():
     print("="*50)
     
     # Get the base path for scans
-    root_input = input("Enter the root directory for your scans (e.g., ~/Pictures/Scans): ").strip()
+    root_input = input("Enter the root directory for your scans (e.g., ~/Pictures/Scans): ").strip().strip("'\"")
     
     # Resolve ~ and make the path absolute
     root_folder = os.path.abspath(os.path.expanduser(root_input))
