@@ -196,6 +196,7 @@ function disableInputs(disabled) {
     document.getElementById('config-global-levels').disabled = disabled;
     document.getElementById('config-neutralize').disabled = disabled;
     document.getElementById('config-compress').disabled = disabled;
+    document.getElementById('config-align-channels').disabled = disabled;
 }
 
 // Sync config from backend to HTML inputs
@@ -212,6 +213,7 @@ function syncConfigToUI(config) {
     document.getElementById('config-global-levels').checked = config.global_levels;
     document.getElementById('config-neutralize').checked = config.neutralize;
     document.getElementById('config-compress').checked = config.compress_tiff;
+    document.getElementById('config-align-channels').checked = config.align_channels;
     
     // Update labels
     document.getElementById('val-gamma').textContent = config.gamma;
@@ -256,7 +258,8 @@ function toggleMonitor() {
             autocrop: document.getElementById('config-autocrop').checked,
             global_levels: document.getElementById('config-global-levels').checked,
             neutralize: document.getElementById('config-neutralize').checked,
-            compress_tiff: document.getElementById('config-compress').checked
+            compress_tiff: document.getElementById('config-compress').checked,
+            align_channels: document.getElementById('config-align-channels').checked
         };
 
         const payload = {
@@ -377,7 +380,8 @@ function runBatchJob() {
         autocrop: document.getElementById('batch-autocrop').checked,
         global_levels: document.getElementById('batch-global-levels').checked,
         neutralize: document.getElementById('batch-neutralize').checked,
-        compress_tiff: document.getElementById('batch-compress').checked
+        compress_tiff: document.getElementById('batch-compress').checked,
+        align_channels: document.getElementById('batch-align-channels').checked
     };
 
     const payload = {

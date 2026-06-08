@@ -116,6 +116,7 @@ python compositor.py -i /path/to/your/raw/files --neutralize --compress
 | `--input` | `-i` | **(Required)** Path to the directory containing RAW files (`.CR3` or `.RAF`). |
 | `--compress` | `-c` | Enable lossless compression (`zlib`/`deflate`) for output TIFFs. |
 | `--neutralize` | `-n` | Automatically balance the color channels to neutralize the film base. |
+| `--align` | `-a` | Auto-correct exposure alignment between channels (R, G, B) using FFT phase correlation. |
 
 ## How It Works & Best Practices
 

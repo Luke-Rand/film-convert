@@ -9,7 +9,59 @@ import time
 import shutil
 import sys
 
-def process_triplet(group, output_filepath, neutralize_base, compress_tiff):
+def align_channel(ref, mov, channel_name=""):
+    """Aligns moving channel to reference channel using FFT phase correlation."""
+    h, w = ref.shape
+    size = 1024
+    y_start = max(0, h // 2 - size // 2)
+    y_end = min(h, h // 2 + size // 2)
+    x_start = max(0, w // 2 - size // 2)
+    x_end = min(w, w // 2 + size // 2)
+    
+    ref_crop = ref[y_start:y_end, x_start:x_end].astype(np.float32)
+    mov_crop = mov[y_start:y_end, x_start:x_end].astype(np.float32)
+    
+    # Compute FFT phase correlation
+    F = np.fft.fft2(ref_crop)
+    G = np.fft.fft2(mov_crop)
+    cross_power = F * np.conjugate(G)
+    R = cross_power / (np.abs(cross_power) + 1e-8)
+    r = np.fft.ifft2(R)
+    
+    peak = np.unravel_index(np.argmax(np.abs(r)), r.shape)
+    dy, dx = peak
+    if dy > r.shape[0] // 2:
+        dy -= r.shape[0]
+    if dx > r.shape[1] // 2:
+        dx -= r.shape[1]
+        
+    print(f"    - [{channel_name}] Detected shift offset: dy={dy}, dx={dx}")
+    
+    # Safety threshold to avoid alignment distortion if files are mismatching
+    if abs(dy) > 20 or abs(dx) > 20:
+        print(f"      -> WARNING: Detected shift too large ({dy}, {dx}). Skipping alignment.")
+        return mov
+        
+    if dy == 0 and dx == 0:
+        return mov
+        
+    # Apply corrective shift (opposite of detected shift)
+    shifted = np.zeros_like(mov)
+    
+    src_y_start = max(0, dy)
+    src_y_end = min(h, h + dy)
+    src_x_start = max(0, dx)
+    src_x_end = min(w, w + dx)
+    
+    dst_y_start = max(0, -dy)
+    dst_y_end = min(h, h - dy)
+    dst_x_start = max(0, -dx)
+    dst_x_end = min(w, w - dx)
+    
+    shifted[dst_y_start:dst_y_end, dst_x_start:dst_x_end] = mov[src_y_start:src_y_end, src_x_start:src_x_end]
+    return shifted
+
+def process_triplet(group, output_filepath, neutralize_base, compress_tiff, align_channels=False):
     """Processes exactly 3 RAW files into a single composite."""
     channels_data = {'red': None, 'green': None, 'blue': None}
     
@@ -53,6 +105,11 @@ def process_triplet(group, output_filepath, neutralize_base, compress_tiff):
     if any(v is None for v in channels_data.values()):
         raise ValueError("Could not detect a distinct Red, Green, and Blue shot in this group. Verify your shots.")
     
+    if align_channels:
+        print("  -> Aligning channels to Green reference channel...")
+        channels_data['red'] = align_channel(channels_data['green'], channels_data['red'], "Red")
+        channels_data['blue'] = align_channel(channels_data['green'], channels_data['blue'], "Blue")
+        
     # Combine channels into an RGB image
     composite_rgb = np.stack((
         channels_data['red'], 
@@ -104,7 +161,7 @@ def get_next_frame_number(directory):
             pass
     return max_num + 1
 
-def hot_folder_mode(directory_path, neutralize_base=False, compress_tiff=False, timeout=60):
+def hot_folder_mode(directory_path, neutralize_base=False, compress_tiff=False, timeout=60, align_channels=False):
     """Monitors a directory for RAW triplets and processes them."""
     print(f"\n{'='*60}")
     print(f"🔥 HOT FOLDER MODE ACTIVE 🔥")
@@ -145,7 +202,7 @@ def hot_folder_mode(directory_path, neutralize_base=False, compress_tiff=False, 
                 output_filepath = os.path.join(directory_path, output_filename)
                 
                 try:
-                    process_triplet(group, output_filepath, neutralize_base, compress_tiff)
+                    process_triplet(group, output_filepath, neutralize_base, compress_tiff, align_channels)
                     
                     # Move original RAWs to processed folder
                     for f in group:
@@ -184,7 +241,7 @@ def hot_folder_mode(directory_path, neutralize_base=False, compress_tiff=False, 
             print("\nExiting Hot Folder Mode.")
             sys.exit(0)
 
-def process_roll(directory_path, output_dir=None, neutralize_base=False, compress_tiff=False):
+def process_roll(directory_path, output_dir=None, neutralize_base=False, compress_tiff=False, align_channels=False):
     """
     Scans for RAW files, groups by 3, auto-detects colors, and creates linear TIFFs.
     """
@@ -225,7 +282,7 @@ def process_roll(directory_path, output_dir=None, neutralize_base=False, compres
         output_filepath = os.path.join(output_dir, output_filename)
         
         try:
-            process_triplet(group, output_filepath, neutralize_base, compress_tiff)
+            process_triplet(group, output_filepath, neutralize_base, compress_tiff, align_channels)
         except Exception as e:
             print(f"  -> ERROR processing Frame {frame_number:02d}: {e}\n")
             
@@ -248,10 +305,13 @@ if __name__ == "__main__":
     parser.add_argument("-t", "--timeout", type=int, default=60, 
                         help="Timeout in seconds to wait for a 3rd image in hot folder mode (default: 60)")
     
+    parser.add_argument("-a", "--align", action="store_true", 
+                        help="Auto-correct exposure alignment between channels (R, G, B) using FFT phase correlation")
+    
     args = parser.parse_args()
     
     if args.hotfolder:
-        hot_folder_mode(args.input, neutralize_base=args.neutralize, compress_tiff=args.compress, timeout=args.timeout)
+        hot_folder_mode(args.input, neutralize_base=args.neutralize, compress_tiff=args.compress, timeout=args.timeout, align_channels=args.align)
     else:
         # The output directory will automatically be created as a subfolder inside the input path
-        process_roll(args.input, neutralize_base=args.neutralize, compress_tiff=args.compress)
+        process_roll(args.input, neutralize_base=args.neutralize, compress_tiff=args.compress, align_channels=args.align)

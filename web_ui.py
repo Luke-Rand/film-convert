@@ -51,7 +51,8 @@ class SessionManager:
             "autocrop": False,
             "global_levels": False,
             "compress_tiff": True,
-            "neutralize": False  # compositor neutralization
+            "neutralize": False,  # compositor neutralization
+            "align_channels": False
         }
         self.logs = deque(maxlen=1000)
         self.monitor_thread = None
@@ -203,7 +204,8 @@ class SessionManager:
                                     group=group,
                                     output_filepath=composite_filepath,
                                     neutralize_base=self.config["neutralize"],
-                                    compress_tiff=self.config["compress_tiff"]
+                                    compress_tiff=self.config["compress_tiff"],
+                                    align_channels=self.config["align_channels"]
                                 )
                             
                             # 2. Invert (redirect stdout to web log)
@@ -337,7 +339,8 @@ class SessionManager:
                                 group=group,
                                 output_filepath=output_filepath,
                                 neutralize_base=self.config["neutralize"],
-                                compress_tiff=self.config["compress_tiff"]
+                                compress_tiff=self.config["compress_tiff"],
+                                align_channels=self.config["align_channels"]
                             )
                         frame_number += 1
                     
