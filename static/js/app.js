@@ -1,10 +1,8 @@
 // Global State
 let currentTab = 'scanner';
 let systemStatus = 'idle';
-let logPollInterval = null;
-let statusPollInterval = null;
-let lastLogCount = 0;
 let activeSessionDirs = {};
+let eventSource = null;
 
 // On Load Initialization
 document.addEventListener('DOMContentLoaded', () => {
@@ -14,12 +12,66 @@ document.addEventListener('DOMContentLoaded', () => {
         rootInput.value = '~/Pictures/Scans';
     }
 
-    // Load initial system status
-    fetchStatus();
+    // Load initial logs
+    fetchInitialLogs();
     
-    // Start status polling
-    statusPollInterval = setInterval(fetchStatus, 2000);
+    // Connect to real-time event stream
+    connectSSE();
 });
+
+// Real-Time Server-Sent Events (SSE) Connection
+function connectSSE() {
+    if (eventSource) {
+        eventSource.close();
+    }
+
+    eventSource = new EventSource('/api/stream');
+
+    eventSource.addEventListener('status', (event) => {
+        try {
+            const data = JSON.parse(event.data);
+            systemStatus = data.status;
+            activeSessionDirs = data.dirs;
+            updateStatusUI(data);
+        } catch (err) {
+            console.error("Error parsing status SSE data:", err);
+        }
+    });
+
+    eventSource.addEventListener('log', (event) => {
+        try {
+            const data = JSON.parse(event.data);
+            appendLogLine(data.line);
+        } catch (err) {
+            console.error("Error parsing log SSE data:", err);
+        }
+    });
+
+    eventSource.onerror = (err) => {
+        console.error("SSE connection error:", err);
+        eventSource.close();
+        // Retry connection after 5 seconds
+        setTimeout(connectSSE, 5000);
+    };
+}
+
+// Fetch historical logs on page load
+function fetchInitialLogs() {
+    fetch('/api/logs')
+        .then(res => res.json())
+        .then(data => {
+            const consoleOut = document.getElementById('console-output');
+            if (consoleOut) consoleOut.innerHTML = '';
+            const batchConsoleOut = document.getElementById('batch-console-output');
+            if (batchConsoleOut) batchConsoleOut.innerHTML = '';
+            
+            const logs = data.logs || [];
+            logs.forEach(line => {
+                appendLogLine(line);
+            });
+        })
+        .catch(err => console.error("Error fetching initial logs:", err));
+}
 
 // Tab Navigation
 function switchTab(tabId) {
@@ -99,47 +151,18 @@ function updateBatchTaskDesc() {
     // Just visual helpers inside index.html templates
 }
 
-// Fetch general system state
-function fetchStatus() {
-    fetch('/api/status')
-        .then(response => response.json())
-        .then(data => {
-            const prevStatus = systemStatus;
-            systemStatus = data.status;
-            activeSessionDirs = data.dirs;
-            
-            updateStatusUI(data);
-
-            // Handle transition changes
-            if (systemStatus === 'monitoring' || systemStatus === 'batch_processing') {
-                if (!logPollInterval) {
-                    // Start polling logs rapidly
-                    logPollInterval = setInterval(fetchLogs, 1000);
-                }
-            } else {
-                if (logPollInterval && prevStatus !== 'idle') {
-                    // Check logs one final time
-                    fetchLogs();
-                    clearInterval(logPollInterval);
-                    logPollInterval = null;
-                }
-            }
-        })
-        .catch(err => console.error("Error fetching status:", err));
-}
-
 // Update all UI elements representing state
 function updateStatusUI(data) {
     // Summary status dot in sidebar
     const dot = document.getElementById('summary-status-dot');
     const text = document.getElementById('summary-status-text');
-    dot.className = `status-dot ${data.status}`;
+    if (dot) dot.className = `status-dot ${data.status}`;
     
     // Human readable text
     let statusText = "System Idle";
     if (data.status === 'monitoring') statusText = "Scanner Active";
     if (data.status === 'batch_processing') statusText = "Running Batch Task";
-    text.textContent = statusText;
+    if (text) text.textContent = statusText;
 
     // Scanner Panel Active Status Dashboard
     const statusVal = document.getElementById('monitor-status-val');
@@ -147,32 +170,60 @@ function updateStatusUI(data) {
     const toggleBtn = document.getElementById('btn-toggle-monitor');
     
     if (data.status === 'monitoring') {
-        statusVal.textContent = "Monitoring...";
-        statusVal.style.color = "var(--accent-green)";
-        pathVal.textContent = data.dirs.negatives || "None";
-        toggleBtn.textContent = "🛑 Stop Monitoring Session";
-        toggleBtn.className = "btn btn-primary btn-large monitoring-active";
+        if (statusVal) {
+            statusVal.textContent = "Monitoring...";
+            statusVal.style.color = "var(--accent-green)";
+        }
+        if (pathVal) pathVal.textContent = data.dirs.negatives || "None";
+        if (toggleBtn) {
+            toggleBtn.textContent = "🛑 Stop Monitoring Session";
+            toggleBtn.className = "btn btn-primary btn-large monitoring-active";
+            toggleBtn.disabled = false;
+        }
         disableInputs(true);
     } else if (data.status === 'batch_processing') {
-        statusVal.textContent = "Processing Batch...";
-        statusVal.style.color = "var(--accent-orange)";
-        pathVal.textContent = "Manual Task";
-        toggleBtn.textContent = "System Busy (Batching)";
-        toggleBtn.className = "btn btn-secondary btn-large";
-        toggleBtn.disabled = true;
+        if (statusVal) {
+            statusVal.textContent = "Processing Batch...";
+            statusVal.style.color = "var(--accent-orange)";
+        }
+        if (pathVal) pathVal.textContent = "Manual Task";
+        if (toggleBtn) {
+            toggleBtn.textContent = "System Busy (Batching)";
+            toggleBtn.className = "btn btn-secondary btn-large";
+            toggleBtn.disabled = true;
+        }
         disableInputs(true);
     } else {
-        statusVal.textContent = "Idle / Stopped";
-        statusVal.style.color = "var(--text-muted)";
-        pathVal.textContent = "None";
-        toggleBtn.textContent = "⚡ Start Monitoring Hot Folder";
-        toggleBtn.className = "btn btn-primary btn-large";
-        toggleBtn.disabled = false;
+        if (statusVal) {
+            statusVal.textContent = "Idle / Stopped";
+            statusVal.style.color = "var(--text-muted)";
+        }
+        if (pathVal) pathVal.textContent = "None";
+        if (toggleBtn) {
+            toggleBtn.textContent = "⚡ Start Monitoring Hot Folder";
+            toggleBtn.className = "btn btn-primary btn-large";
+            toggleBtn.disabled = false;
+        }
         disableInputs(false);
         
         // Sync inputs from server configuration if not active
         if (data.config) {
             syncConfigToUI(data.config);
+        }
+    }
+
+    // Reactively update batch run button state
+    const runBtn = document.getElementById('btn-run-batch');
+    if (runBtn) {
+        if (data.status === 'batch_processing') {
+            runBtn.disabled = true;
+            runBtn.textContent = "⏳ Running Task...";
+        } else if (data.status === 'monitoring') {
+            runBtn.disabled = true;
+            runBtn.textContent = "System Busy (Monitoring)";
+        } else {
+            runBtn.disabled = false;
+            runBtn.textContent = "🚀 Execute Batch Process";
         }
     }
 }
@@ -230,7 +281,6 @@ function toggleMonitor() {
             .then(res => res.json())
             .then(data => {
                 appendLogLine(`[Client] Stop request sent: ${data.message}`);
-                fetchStatus();
             })
             .catch(err => appendLogLine(`[Client Error] Failed to stop: ${err}`));
     } else {
@@ -283,30 +333,9 @@ function toggleMonitor() {
             } else {
                 alert(`Error starting scanner: ${data.message}`);
             }
-            fetchStatus();
         })
         .catch(err => appendLogLine(`[Client Error] Failed to start: ${err}`));
     }
-}
-
-// Polling Logs from server
-function fetchLogs() {
-    fetch('/api/logs')
-        .then(res => res.json())
-        .then(data => {
-            const logs = data.logs;
-            if (logs.length > lastLogCount) {
-                const newLines = logs.slice(lastLogCount);
-                newLines.forEach(line => {
-                    appendLogLine(line);
-                });
-                lastLogCount = logs.length;
-            } else if (logs.length < lastLogCount) {
-                // Console cleared
-                lastLogCount = logs.length;
-            }
-        })
-        .catch(err => console.error("Error fetching logs:", err));
 }
 
 // Add a log entry to HTML output
@@ -353,7 +382,6 @@ function clearLogs() {
                 if (consoleOut) consoleOut.innerHTML = '';
                 const batchConsoleOut = document.getElementById('batch-console-output');
                 if (batchConsoleOut) batchConsoleOut.innerHTML = '';
-                lastLogCount = 0;
             }
         })
         .catch(err => console.error(err));
@@ -395,8 +423,10 @@ function runBatchJob() {
     if (batchConsoleOut) batchConsoleOut.innerHTML = '<div class="console-line text-muted">Submitting batch task...</div>';
     
     const runBtn = document.getElementById('btn-run-batch');
-    runBtn.disabled = true;
-    runBtn.textContent = "⏳ Running Task...";
+    if (runBtn) {
+        runBtn.disabled = true;
+        runBtn.textContent = "⏳ Running Task...";
+    }
 
     fetch('/api/batch', {
         method: 'POST',
@@ -409,26 +439,18 @@ function runBatchJob() {
             appendLogLine(`[Client] Batch job started. Status: ${data.message}`);
         } else {
             alert(`Error starting batch job: ${data.message}`);
+            if (runBtn) {
+                runBtn.disabled = false;
+                runBtn.textContent = "🚀 Execute Batch Process";
+            }
         }
-        
-        // Poll status to unlock buttons
-        const checkDoneInterval = setInterval(() => {
-            fetch('/api/status')
-                .then(res => res.json())
-                .then(statusData => {
-                    if (statusData.status !== 'batch_processing') {
-                        clearInterval(checkDoneInterval);
-                        runBtn.disabled = false;
-                        runBtn.textContent = "🚀 Execute Batch Process";
-                        fetchLogs();
-                    }
-                });
-        }, 1500);
     })
     .catch(err => {
         alert(`Request failed: ${err}`);
-        runBtn.disabled = false;
-        runBtn.textContent = "🚀 Execute Batch Process";
+        if (runBtn) {
+            runBtn.disabled = false;
+            runBtn.textContent = "🚀 Execute Batch Process";
+        }
     });
 }
 

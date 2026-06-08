@@ -6,11 +6,12 @@ import glob
 import threading
 import contextlib
 import io
+import queue
 from pathlib import Path
 from datetime import datetime
 from collections import deque
 
-from flask import Flask, request, jsonify, render_template, send_file
+from flask import Flask, request, jsonify, render_template, send_file, Response
 import numpy as np
 import tifffile
 from PIL import Image
@@ -58,7 +59,37 @@ class SessionManager:
         self.monitor_thread = None
         self.stop_event = threading.Event()
         self.lock = threading.Lock()
+        self.subscribers = []
+        self.subscribers_lock = threading.Lock()
         self.log("System initialized. Ready.")
+
+    def add_subscriber(self):
+        with self.subscribers_lock:
+            q = queue.Queue()
+            self.subscribers.append(q)
+            return q
+
+    def remove_subscriber(self, q):
+        with self.subscribers_lock:
+            if q in self.subscribers:
+                self.subscribers.remove(q)
+
+    def broadcast(self, event_type, data):
+        with self.subscribers_lock:
+            for q in self.subscribers:
+                q.put((event_type, data))
+
+    def broadcast_status(self):
+        with self.lock:
+            status_data = {
+                "status": self.status,
+                "mode": self.mode,
+                "root_folder": self.root_folder,
+                "session_name": self.session_name,
+                "dirs": self.dirs,
+                "config": self.config
+            }
+        self.broadcast("status", status_data)
 
     def log(self, message):
         timestamp = datetime.now().strftime("%H:%M:%S")
@@ -74,6 +105,10 @@ class SessionManager:
             sys.__stdout__.flush()
         except Exception:
             pass
+        
+        # Broadcast to web subscribers
+        if hasattr(self, 'subscribers_lock'):
+            self.broadcast("log", {"line": formatted})
 
     def clear_logs(self):
         with self.lock:
@@ -128,7 +163,9 @@ class SessionManager:
             
             self.log(f"Started monitoring session: '{self.session_name}' ({self.mode} mode)")
             self.log(f"Negatives folder: {self.dirs['negatives']}")
-            return True, "Monitoring started successfully"
+        
+        self.broadcast_status()
+        return True, "Monitoring started successfully"
 
     def stop_monitoring(self):
         with self.lock:
@@ -146,7 +183,9 @@ class SessionManager:
             self.status = "idle"
             self.monitor_thread = None
             self.log("Monitor stopped.")
-            return True, "Monitoring stopped successfully"
+            
+        self.broadcast_status()
+        return True, "Monitoring stopped successfully"
 
     def get_next_frame_number(self, composites_dir):
         existing = glob.glob(os.path.join(composites_dir, "Frame_*_Composite.tiff"))
@@ -296,6 +335,8 @@ class SessionManager:
             self.status = "batch_processing"
             self.config.update(config)
             
+        self.broadcast_status()
+
         def _batch_thread():
             redirector = ThreadLogRedirector(self.log)
             self.log(f"Starting batch task: {task_type} for '{input_path}'")
@@ -371,7 +412,8 @@ class SessionManager:
                 with self.lock:
                     self.status = "idle"
                 self.log("System idle.")
-
+                self.broadcast_status()
+ 
         t = threading.Thread(target=_batch_thread, name="BatchProcessThread", daemon=True)
         t.start()
         return True, "Batch processing started"
@@ -396,6 +438,41 @@ def get_status():
             "dirs": session.dirs,
             "config": session.config
         })
+
+@app.route('/api/stream', methods=['GET'])
+def sse_stream():
+    q = session.add_subscriber()
+    
+    def event_generator():
+        # Yield initial status on connect
+        with session.lock:
+            initial_status = {
+                "status": session.status,
+                "mode": session.mode,
+                "root_folder": session.root_folder,
+                "session_name": session.session_name,
+                "dirs": session.dirs,
+                "config": session.config
+            }
+        import json
+        yield f"event: status\ndata: {json.dumps(initial_status)}\n\n"
+        
+        try:
+            while True:
+                try:
+                    # Wait for an event with a timeout (keep-alive check)
+                    event_type, data = q.get(timeout=10.0)
+                    yield f"event: {event_type}\ndata: {json.dumps(data)}\n\n"
+                except queue.Empty:
+                    # Send keep-alive ping to avoid connection drop
+                    yield ": keep-alive\n\n"
+        except GeneratorExit:
+            # Browser closed the connection or navigation occurred
+            pass
+        finally:
+            session.remove_subscriber(q)
+            
+    return Response(event_generator(), mimetype='text/event-stream')
 
 @app.route('/api/start', methods=['POST'])
 def start_session():
