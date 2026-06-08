@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tri-Color Film Auto-Compositor & Inverter</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="app-container" id="app-root">
+        <!-- Sidebar Navigation -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <span class="logo-icon">🎞️</span>
+                <div class="logo-text">
+                    <h1>FilmConvert</h1>
+                    <span class="logo-sub">RAW Suite</span>
+                </div>
+            </div>
+            
+            <nav class="sidebar-nav">
+                <button class="nav-btn active" id="nav-scanner-btn" onclick="switchTab('scanner')">
+                    <span class="nav-icon">🔥</span> Live Scanner
+                </button>
+                <button class="nav-btn" id="nav-batch-btn" onclick="switchTab('batch')">
+                    <span class="nav-icon">📦</span> Batch Processor
+                </button>
+                <button class="nav-btn" id="nav-gallery-btn" onclick="switchTab('gallery')">
+                    <span class="nav-icon">🖼️</span> Scan Gallery
+                </button>
+            </nav>
+
+            <div class="sidebar-footer">
+                <div class="status-summary">
+                    <span class="status-dot idle" id="summary-status-dot"></span>
+                    <span class="status-text" id="summary-status-text">System Idle</span>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Content Area -->
+        <main class="main-content">
+            <!-- TAB 1: LIVE SCANNER -->
+            <section class="tab-panel active" id="panel-scanner">
+                <div class="panel-header">
+                    <h2>Live Hot Folder Monitor</h2>
+                    <p>Automate RAW composite stacking and positive density inversion in real-time as you capture.</p>
+                </div>
+
+                <div class="grid-layout">
+                    <!-- Column 1: Setup & Controls -->
+                    <div class="column">
+                        <!-- Session Configuration Card -->
+                        <div class="card">
+                            <h3 class="card-title">1. Session Parameters</h3>
+                            <div class="form-group">
+                                <label for="scanner-root-dir">Scans Root Folder</label>
+                                <input type="text" id="scanner-root-dir" placeholder="e.g., C:/Users/Name/Pictures/Scans">
+                            </div>
+                            
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="scanner-stock">Film Stock</label>
+                                    <input type="text" id="scanner-stock" placeholder="e.g., KodakGold200" value="KodakGold200">
+                                </div>
+                                <div class="form-group size-small">
+                                    <label for="scanner-format">Format</label>
+                                    <input type="text" id="scanner-format" placeholder="e.g., 135" value="135">
+                                </div>
+                                <div class="form-group size-small">
+                                    <label for="scanner-roll">Roll #</label>
+                                    <input type="text" id="scanner-roll" placeholder="01" value="01">
+                                </div>
+                            </div>
+
+                            <div class="form-group">
+                                <label>Capture Mode</label>
+                                <div class="radio-toggle-group">
+                                    <label class="radio-toggle-label">
+                                        <input type="radio" name="scanner-mode" value="triplet" checked>
+                                        <div class="radio-button-card">
+                                            <span class="mode-emoji">📸</span>
+                                            <div class="mode-info">
+                                                <strong>Triplet Mode</strong>
+                                                <span>3x RAWs (R-G-B) per frame</span>
+                                            </div>
+                                        </div>
+                                    </label>
+                                    <label class="radio-toggle-label">
+                                        <input type="radio" name="scanner-mode" value="single">
+                                        <div class="radio-button-card">
+                                            <span class="mode-emoji">🎞️</span>
+                                            <div class="mode-info">
+                                                <strong>Single-Shot</strong>
+                                                <span>DNG/TIFF negative per frame</span>
+                                            </div>
+                                        </div>
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Processing Settings Card -->
+                        <div class="card">
+                            <h3 class="card-title">2. Processing Settings</h3>
+                            
+                            <div class="form-group slider-group">
+                                <div class="slider-header">
+                                    <label for="config-gamma">Gamma Correction</label>
+                                    <span class="slider-value" id="val-gamma">2.2</span>
+                                </div>
+                                <input type="range" id="config-gamma" min="1.0" max="3.0" step="0.1" value="2.2" oninput="updateSliderVal('gamma')">
+                                <span class="slider-desc">Gamma curve applied to lift midtones. (Default: 2.2)</span>
+                            </div>
+
+                            <div class="form-group slider-group">
+                                <div class="slider-header">
+                                    <label for="config-clip">Levels Clipping (%)</label>
+                                    <span class="slider-value" id="val-clip">0.1</span>
+                                </div>
+                                <input type="range" id="config-clip" min="0.0" max="2.0" step="0.05" value="0.1" oninput="updateSliderVal('clip')">
+                                <span class="slider-desc">White/Black point clip percentile to ignore dust. (Default: 0.1%)</span>
+                            </div>
+
+                            <div class="form-group slider-group">
+                                <div class="slider-header">
+                                    <label for="config-scurve">S-Curve Contrast</label>
+                                    <span class="slider-value" id="val-scurve">0.0</span>
+                                </div>
+                                <input type="range" id="config-scurve" min="0.0" max="1.0" step="0.05" value="0.0" oninput="updateSliderVal('scurve')">
+                                <span class="slider-desc">Contrast S-curve strength. Try 0.2 - 0.4 for punchy colors.</span>
+                            </div>
+
+                            <div class="form-group slider-group">
+                                <div class="slider-header">
+                                    <label for="config-margin">Ignore Outer Margins</label>
+                                    <span class="slider-value" id="val-margin">3%</span>
+                                </div>
+                                <input type="range" id="config-margin" min="0.0" max="0.3" step="0.01" value="0.03" oninput="updateSliderVal('margin')">
+                                <span class="slider-desc">Crop border fraction to ignore film holders during auto-levels.</span>
+                            </div>
+
+                            <div class="checkbox-grid">
+                                <label class="checkbox-container">
+                                    <input type="checkbox" id="config-autocrop">
+                                    <span class="checkmark"></span>
+                                    <div class="checkbox-text">
+                                        <strong>Auto-Crop Margins</strong>
+                                        <span>Crop outer margins from final output</span>
+                                    </div>
+                                </label>
+
+                                <label class="checkbox-container">
+                                    <input type="checkbox" id="config-global-levels">
+                                    <span class="checkmark"></span>
+                                    <div class="checkbox-text">
+                                        <strong>Global Levels Stretch</strong>
+                                        <span>Maintain color balance instead of per-channel stretching</span>
+                                    </div>
+                                </label>
+
+                                <label class="checkbox-container">
+                                    <input type="checkbox" id="config-neutralize">
+                                    <span class="checkmark"></span>
+                                    <div class="checkbox-text">
+                                        <strong>Neutralize Film Base</strong>
+                                        <span>Neutralize composite color cast during stacking</span>
+                                    </div>
+                                </label>
+
+                                <label class="checkbox-container">
+                                    <input type="checkbox" id="config-compress" checked>
+                                    <span class="checkmark"></span>
+                                    <div class="checkbox-text">
+                                        <strong>Lossless TIFF Compression</strong>
+                                        <span>Compress output composite & positive TIFFs</span>
+                                    </div>
+                                </label>
+                            </div>
+                        </div>
+
+                        <!-- Control Center Card -->
+                        <div class="card card-accent-run">
+                            <div class="control-actions">
+                                <button class="btn btn-primary btn-large" id="btn-toggle-monitor" onclick="toggleMonitor()">
+                                    ⚡ Start Monitoring Hot Folder
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Column 2: Status & Realtime Logs -->
+                    <div class="column">
+                        <!-- Active Session Info Card -->
+                        <div class="card status-panel-card">
+                            <h3 class="card-title">Live Session Monitor</h3>
+                            <div class="monitor-dashboard">
+                                <div class="indicator-group">
+                                    <div class="indicator-label">Status</div>
+                                    <div class="indicator-val" id="monitor-status-val">Idle</div>
+                                </div>
+                                <div class="indicator-group">
+                                    <div class="indicator-label">Active Session Path</div>
+                                    <div class="indicator-val text-truncate" id="monitor-path-val">None</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Console Log Card -->
+                        <div class="card console-card flex-grow">
+                            <div class="console-header">
+                                <h3 class="card-title">Event Logs</h3>
+                                <button class="btn btn-secondary btn-small" onclick="clearLogs()">Clear</button>
+                            </div>
+                            <div class="console-output" id="console-output">
+                                <div class="console-line text-muted">Ready to begin scanning session...</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- TAB 2: BATCH PROCESSOR -->
+            <section class="tab-panel" id="panel-batch">
+                <div class="panel-header">
+                    <h2>Manual Batch Processor</h2>
+                    <p>Process a whole roll of existing negatives in a folder all at once, instead of live-watching.</p>
+                </div>
+
+                <div class="grid-layout single-column-max">
+                    <div class="card">
+                        <h3 class="card-title">Batch Processing Config</h3>
+                        
+                        <div class="form-group">
+                            <label>Task Mode</label>
+                            <div class="task-toggle-group">
+                                <label class="task-option">
+                                    <input type="radio" name="batch-task" value="composite" checked onclick="updateBatchTaskDesc()">
+                                    <div class="task-card">
+                                        <h4>Composite RAWs</h4>
+                                        <p>Stack sequential triplets (.CR3/.RAF) in a directory into 16-bit linear TIFFs inside a 'Composites' subfolder.</p>
+                                    </div>
+                                </label>
+                                <label class="task-option">
+                                    <input type="radio" name="batch-task" value="invert" onclick="updateBatchTaskDesc()">
+                                    <div class="task-card">
+                                        <h4>Invert Negatives</h4>
+                                        <p>Perform density inversion, auto-color balancing, and curves on TIFF/DNG negatives inside a 'Positives' subfolder.</p>
+                                    </div>
+                                </label>
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="batch-input-path">Input Folder Path</label>
+                            <input type="text" id="batch-input-path" placeholder="Path to the directory containing images to process...">
+                            <span class="field-desc">Must be an absolute path on your computer.</span>
+                        </div>
+
+                        <!-- Mini settings panel for batch (reuses standard config) -->
+                        <div class="accordion-header" onclick="toggleBatchSettings()">
+                            <span>⚙️ Advanced Processing Parameters</span>
+                            <span id="batch-settings-arrow">▼</span>
+                        </div>
+                        
+                        <div class="accordion-content hidden" id="batch-settings-panel">
+                            <div class="grid-two-col">
+                                <div class="form-group slider-group">
+                                    <div class="slider-header">
+                                        <label for="batch-gamma">Gamma Correction</label>
+                                        <span class="slider-value" id="val-batch-gamma">2.2</span>
+                                    </div>
+                                    <input type="range" id="batch-gamma" min="1.0" max="3.0" step="0.1" value="2.2" oninput="updateSliderVal('batch-gamma')">
+                                </div>
+                                <div class="form-group slider-group">
+                                    <div class="slider-header">
+                                        <label for="batch-clip">Levels Clipping (%)</label>
+                                        <span class="slider-value" id="val-batch-clip">0.1</span>
+                                    </div>
+                                    <input type="range" id="batch-clip" min="0.0" max="2.0" step="0.05" value="0.1" oninput="updateSliderVal('batch-clip')">
+                                </div>
+                                <div class="form-group slider-group">
+                                    <div class="slider-header">
+                                        <label for="batch-scurve">S-Curve Contrast</label>
+                                        <span class="slider-value" id="val-batch-scurve">0.0</span>
+                                    </div>
+                                    <input type="range" id="batch-scurve" min="0.0" max="1.0" step="0.05" value="0.0" oninput="updateSliderVal('batch-scurve')">
+                                </div>
+                                <div class="form-group slider-group">
+                                    <div class="slider-header">
+                                        <label for="batch-margin">Ignore Outer Margins</label>
+                                        <span class="slider-value" id="val-batch-margin">3%</span>
+                                    </div>
+                                    <input type="range" id="batch-margin" min="0.0" max="0.3" step="0.01" value="0.03" oninput="updateSliderVal('batch-margin')">
+                                </div>
+                            </div>
+                            <div class="checkbox-grid">
+                                <label class="checkbox-container">
+                                    <input type="checkbox" id="batch-autocrop">
+                                    <span class="checkmark"></span>
+                                    <div class="checkbox-text">
+                                        <strong>Auto-Crop Margins</strong>
+                                    </div>
+                                </label>
+                                <label class="checkbox-container">
+                                    <input type="checkbox" id="batch-global-levels">
+                                    <span class="checkmark"></span>
+                                    <div class="checkbox-text">
+                                        <strong>Global Levels Stretch</strong>
+                                    </div>
+                                </label>
+                                <label class="checkbox-container">
+                                    <input type="checkbox" id="batch-neutralize">
+                                    <span class="checkmark"></span>
+                                    <div class="checkbox-text">
+                                        <strong>Neutralize Film Base</strong>
+                                    </div>
+                                </label>
+                                <label class="checkbox-container">
+                                    <input type="checkbox" id="batch-compress" checked>
+                                    <span class="checkmark"></span>
+                                    <div class="checkbox-text">
+                                        <strong>TIFF Compression (zlib)</strong>
+                                    </div>
+                                </label>
+                            </div>
+                        </div>
+
+                        <div class="control-actions" style="margin-top: 2rem;">
+                            <button class="btn btn-primary" id="btn-run-batch" onclick="runBatchJob()">
+                                🚀 Execute Batch Process
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Batch Progress Console -->
+                    <div class="card console-card" style="height: 300px;">
+                        <div class="console-header">
+                            <h3 class="card-title">Batch Progress Logs</h3>
+                        </div>
+                        <div class="console-output" id="batch-console-output">
+                            <div class="console-line text-muted">Ready to run batch job...</div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- TAB 3: SCAN GALLERY -->
+            <section class="tab-panel" id="panel-gallery">
+                <div class="panel-header" style="display: flex; justify-content: space-between; align-items: center;">
+                    <div>
+                        <h2>Scan Gallery</h2>
+                        <p>Browse positives generated during the current scanning session.</p>
+                    </div>
+                    <button class="btn btn-secondary" onclick="refreshFiles()">🔄 Refresh Files</button>
+                </div>
+
+                <div class="gallery-container">
+                    <div class="gallery-toolbar">
+                        <span class="toolbar-info" id="gallery-count-info">0 Positive Frames found in session</span>
+                    </div>
+                    
+                    <div class="gallery-grid" id="gallery-grid">
+                        <!-- Populated dynamically via JS -->
+                        <div class="empty-gallery-msg">
+                            No files available. Start monitoring a folder or refresh files to display scan outputs here.
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- Lightbox Modal for Gallery Images -->
+    <div class="lightbox" id="image-lightbox" onclick="closeLightbox()">
+        <span class="lightbox-close">&times;</span>
+        <div class="lightbox-content-wrapper" onclick="event.stopPropagation()">
+            <img class="lightbox-img" id="lightbox-img" src="" alt="Scan High Res Preview">
+            <div class="lightbox-meta">
+                <h4 id="lightbox-title">Frame_01_Positive.tiff</h4>
+                <p id="lightbox-desc">Size: 45MB | Path: C:/Users/...</p>
+                <div class="lightbox-actions">
+                    <a class="btn btn-secondary btn-small" id="lightbox-download-link" href="" target="_blank" download>Open Full Image</a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>

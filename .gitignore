@@ -19,3 +19,12 @@ Thumbs.db
 *.dng
 *.tiff
 *.tif
+
+# Flask / Environment secrets
+.env
+.flaskenv
+instance/
+
+# Log files
+*.log
+

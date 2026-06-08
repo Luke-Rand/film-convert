@@ -4,6 +4,12 @@ A suite of Python scripts designed to automate the process of combining individu
 
 ## Features
 
+### Web User Interface (`web_ui.py`)
+- **Visual Control Panel:** Set directories, select scanning modes, and fine-tune gamma, clipping, margin parameters, and tone curves interactively.
+- **Real-Time Feed:** Stream process log updates dynamically to an event console and browse output positive files in a session gallery.
+- **On-the-Fly Previews:** Dynamic resizing and rendering of 16-bit TIFF composites directly to standard JPEG in the browser without writing duplicate files to disk.
+- **Manual Batch Jobs:** Execute bulk compositing or inversions on-demand on existing film folders.
+
 ### Session Manager (`scanning_session.py`)
 - **Interactive Setup:** Prompts for film stock, format, and roll number to automatically generate organized directory structures.
 - **End-to-End Automation:** Runs a hot folder monitor that instantly composites RAW triplets as they are captured and pipes them directly into the inverter.
@@ -25,6 +31,7 @@ A suite of Python scripts designed to automate the process of combining individu
 
 - Python 3.7+
 - Required Python packages: `rawpy`, `numpy`, `tifffile`
+- Optional Web UI packages: `flask`, `pillow`
 
 ## Installation
 
@@ -49,9 +56,25 @@ A suite of Python scripts designed to automate the process of combining individu
 pip install rawpy numpy tifffile
 ```
 
+*(Optional) If you plan to use the Web UI, install its dependencies:*
+
+```bash
+pip install -r requirements-web.txt
+```
+
 ## Usage
 
-### 1. End-to-End Workflow (Recommended)
+### 1. Web User Interface (Recommended)
+
+Start the local web server to run the entire suite through your browser:
+
+```bash
+python web_ui.py
+```
+
+Open `http://127.0.0.1:5000` in your web browser. You can configure scan settings, start/stop hot folder monitoring, view real-time log outputs, run manual batch tasks, and view completed scans in the gallery.
+
+### 2. End-to-End CLI Workflow (Interactive)
 
 The session manager provides an interactive, fully automated pipeline.
 
@@ -68,7 +91,7 @@ As you shoot your RGB triplets into the `negatives` folder, the script will auto
 4. Save the final positive to the `positives` folder.
 5. Move the original RAWs to the `processed_raws` folder.
 
-### 2. Manual Compositing RAWs
+### 3. Manual Compositing RAWs
 
 The compositor script runs via the command line and requires the path to a directory containing your RAW files.
 
@@ -106,7 +129,7 @@ python compositor.py -i /path/to/your/raw/files --neutralize --compress
 - The total number of RAW files in the directory **must be divisible by 3**. If you have misfires or test shots in the folder, remove them before running the script so the sequence isn't thrown off.
 - The script expects distinct RGB monochromatic light sources. If a shot is heavily mixed or exposed incorrectly, auto-detection may fail.
 
-### 3. Manual Inverting Composites
+### 4. Manual Inverting Composites
 
 The inverter script takes your 16-bit composite TIFFs (or single RAW DNGs) and accurately inverts them, normalizes levels, and applies gamma and contrast curves.
 

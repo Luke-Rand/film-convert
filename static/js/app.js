@@ -1,0 +1,536 @@
+// Global State
+let currentTab = 'scanner';
+let systemStatus = 'idle';
+let logPollInterval = null;
+let statusPollInterval = null;
+let lastLogCount = 0;
+let activeSessionDirs = {};
+
+// On Load Initialization
+document.addEventListener('DOMContentLoaded', () => {
+    // Set default scanner path
+    const rootInput = document.getElementById('scanner-root-dir');
+    if (rootInput && !rootInput.value) {
+        rootInput.value = '~/Pictures/Scans';
+    }
+
+    // Load initial system status
+    fetchStatus();
+    
+    // Start status polling
+    statusPollInterval = setInterval(fetchStatus, 2000);
+});
+
+// Tab Navigation
+function switchTab(tabId) {
+    currentTab = tabId;
+    
+    // Update nav button active states
+    document.querySelectorAll('.nav-btn').forEach(btn => {
+        btn.classList.remove('active');
+    });
+    const activeBtn = document.getElementById(`nav-${tabId}-btn`);
+    if (activeBtn) activeBtn.classList.add('active');
+    
+    // Update panel active states
+    document.querySelectorAll('.tab-panel').forEach(panel => {
+        panel.classList.remove('active');
+    });
+    const activePanel = document.getElementById(`panel-${tabId}`);
+    if (activePanel) activePanel.classList.add('active');
+
+    // Perform tab specific actions
+    if (tabId === 'gallery') {
+        refreshFiles();
+    }
+}
+
+// Slider value displays
+function updateSliderVal(id) {
+    const slider = document.getElementById(`config-${id}`);
+    const valSpan = document.getElementById(`val-${id}`);
+    if (slider && valSpan) {
+        let val = slider.value;
+        if (id === 'margin') {
+            val = Math.round(val * 100) + '%';
+        }
+        valSpan.textContent = val;
+    }
+}
+
+// Double handle update batch values
+function updateSliderVal(id) {
+    if (id === 'gamma') {
+        document.getElementById('val-gamma').textContent = document.getElementById('config-gamma').value;
+    } else if (id === 'clip') {
+        document.getElementById('val-clip').textContent = document.getElementById('config-clip').value;
+    } else if (id === 'scurve') {
+        document.getElementById('val-scurve').textContent = document.getElementById('config-scurve').value;
+    } else if (id === 'margin') {
+        const val = parseFloat(document.getElementById('config-margin').value);
+        document.getElementById('val-margin').textContent = Math.round(val * 100) + '%';
+    } else if (id === 'batch-gamma') {
+        document.getElementById('val-batch-gamma').textContent = document.getElementById('batch-gamma').value;
+    } else if (id === 'batch-clip') {
+        document.getElementById('val-batch-clip').textContent = document.getElementById('batch-clip').value;
+    } else if (id === 'batch-scurve') {
+        document.getElementById('val-batch-scurve').textContent = document.getElementById('batch-scurve').value;
+    } else if (id === 'batch-margin') {
+        const val = parseFloat(document.getElementById('batch-margin').value);
+        document.getElementById('val-batch-margin').textContent = Math.round(val * 100) + '%';
+    }
+}
+
+// Toggle batch settings panel
+function toggleBatchSettings() {
+    const panel = document.getElementById('batch-settings-panel');
+    const arrow = document.getElementById('batch-settings-arrow');
+    if (panel.classList.contains('hidden')) {
+        panel.classList.remove('hidden');
+        arrow.textContent = '▲';
+    } else {
+        panel.classList.add('hidden');
+        arrow.textContent = '▼';
+    }
+}
+
+// Update description of batch task on radio select
+function updateBatchTaskDesc() {
+    // Just visual helpers inside index.html templates
+}
+
+// Fetch general system state
+function fetchStatus() {
+    fetch('/api/status')
+        .then(response => response.json())
+        .then(data => {
+            const prevStatus = systemStatus;
+            systemStatus = data.status;
+            activeSessionDirs = data.dirs;
+            
+            updateStatusUI(data);
+
+            // Handle transition changes
+            if (systemStatus === 'monitoring' || systemStatus === 'batch_processing') {
+                if (!logPollInterval) {
+                    // Start polling logs rapidly
+                    logPollInterval = setInterval(fetchLogs, 1000);
+                }
+            } else {
+                if (logPollInterval && prevStatus !== 'idle') {
+                    // Check logs one final time
+                    fetchLogs();
+                    clearInterval(logPollInterval);
+                    logPollInterval = null;
+                }
+            }
+        })
+        .catch(err => console.error("Error fetching status:", err));
+}
+
+// Update all UI elements representing state
+function updateStatusUI(data) {
+    // Summary status dot in sidebar
+    const dot = document.getElementById('summary-status-dot');
+    const text = document.getElementById('summary-status-text');
+    dot.className = `status-dot ${data.status}`;
+    
+    // Human readable text
+    let statusText = "System Idle";
+    if (data.status === 'monitoring') statusText = "Scanner Active";
+    if (data.status === 'batch_processing') statusText = "Running Batch Task";
+    text.textContent = statusText;
+
+    // Scanner Panel Active Status Dashboard
+    const statusVal = document.getElementById('monitor-status-val');
+    const pathVal = document.getElementById('monitor-path-val');
+    const toggleBtn = document.getElementById('btn-toggle-monitor');
+    
+    if (data.status === 'monitoring') {
+        statusVal.textContent = "Monitoring...";
+        statusVal.style.color = "var(--accent-green)";
+        pathVal.textContent = data.dirs.negatives || "None";
+        toggleBtn.textContent = "🛑 Stop Monitoring Session";
+        toggleBtn.className = "btn btn-primary btn-large monitoring-active";
+        disableInputs(true);
+    } else if (data.status === 'batch_processing') {
+        statusVal.textContent = "Processing Batch...";
+        statusVal.style.color = "var(--accent-orange)";
+        pathVal.textContent = "Manual Task";
+        toggleBtn.textContent = "System Busy (Batching)";
+        toggleBtn.className = "btn btn-secondary btn-large";
+        toggleBtn.disabled = true;
+        disableInputs(true);
+    } else {
+        statusVal.textContent = "Idle / Stopped";
+        statusVal.style.color = "var(--text-muted)";
+        pathVal.textContent = "None";
+        toggleBtn.textContent = "⚡ Start Monitoring Hot Folder";
+        toggleBtn.className = "btn btn-primary btn-large";
+        toggleBtn.disabled = false;
+        disableInputs(false);
+        
+        // Sync inputs from server configuration if not active
+        if (data.config) {
+            syncConfigToUI(data.config);
+        }
+    }
+}
+
+// Freeze forms when running
+function disableInputs(disabled) {
+    document.getElementById('scanner-root-dir').disabled = disabled;
+    document.getElementById('scanner-stock').disabled = disabled;
+    document.getElementById('scanner-format').disabled = disabled;
+    document.getElementById('scanner-roll').disabled = disabled;
+    document.getElementsByName('scanner-mode').forEach(rad => rad.disabled = disabled);
+    
+    // Sliders
+    document.getElementById('config-gamma').disabled = disabled;
+    document.getElementById('config-clip').disabled = disabled;
+    document.getElementById('config-scurve').disabled = disabled;
+    document.getElementById('config-margin').disabled = disabled;
+    
+    // Checkboxes
+    document.getElementById('config-autocrop').disabled = disabled;
+    document.getElementById('config-global-levels').disabled = disabled;
+    document.getElementById('config-neutralize').disabled = disabled;
+    document.getElementById('config-compress').disabled = disabled;
+}
+
+// Sync config from backend to HTML inputs
+function syncConfigToUI(config) {
+    // Only update if inputs are not currently active/dirty
+    if (document.activeElement.tagName === 'INPUT') return;
+
+    document.getElementById('config-gamma').value = config.gamma;
+    document.getElementById('config-clip').value = config.clip;
+    document.getElementById('config-scurve').value = config.scurve;
+    document.getElementById('config-margin').value = config.margin;
+    
+    document.getElementById('config-autocrop').checked = config.autocrop;
+    document.getElementById('config-global-levels').checked = config.global_levels;
+    document.getElementById('config-neutralize').checked = config.neutralize;
+    document.getElementById('config-compress').checked = config.compress_tiff;
+    
+    // Update labels
+    document.getElementById('val-gamma').textContent = config.gamma;
+    document.getElementById('val-clip').textContent = config.clip;
+    document.getElementById('val-scurve').textContent = config.scurve;
+    document.getElementById('val-margin').textContent = Math.round(config.margin * 100) + '%';
+}
+
+// Toggle Start/Stop monitoring
+function toggleMonitor() {
+    if (systemStatus === 'monitoring') {
+        // Stop it
+        fetch('/api/stop', { method: 'POST' })
+            .then(res => res.json())
+            .then(data => {
+                appendLogLine(`[Client] Stop request sent: ${data.message}`);
+                fetchStatus();
+            })
+            .catch(err => appendLogLine(`[Client Error] Failed to stop: ${err}`));
+    } else {
+        // Start it
+        const rootDir = document.getElementById('scanner-root-dir').value.trim();
+        const stock = document.getElementById('scanner-stock').value.trim();
+        const format = document.getElementById('scanner-format').value.trim();
+        const roll = document.getElementById('scanner-roll').value.trim();
+        
+        let mode = 'triplet';
+        document.getElementsByName('scanner-mode').forEach(rad => {
+            if (rad.checked) mode = rad.value;
+        });
+
+        if (!rootDir) {
+            alert("Please provide a root directory path.");
+            return;
+        }
+
+        const config = {
+            gamma: parseFloat(document.getElementById('config-gamma').value),
+            clip: parseFloat(document.getElementById('config-clip').value),
+            scurve: parseFloat(document.getElementById('config-scurve').value),
+            margin: parseFloat(document.getElementById('config-margin').value),
+            autocrop: document.getElementById('config-autocrop').checked,
+            global_levels: document.getElementById('config-global-levels').checked,
+            neutralize: document.getElementById('config-neutralize').checked,
+            compress_tiff: document.getElementById('config-compress').checked
+        };
+
+        const payload = {
+            root_dir: rootDir,
+            stock: stock,
+            format: format,
+            roll: roll,
+            mode: mode,
+            config: config
+        };
+
+        fetch('/api/start', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.success) {
+                appendLogLine(`[Client] Session monitor initialized successfully.`);
+            } else {
+                alert(`Error starting scanner: ${data.message}`);
+            }
+            fetchStatus();
+        })
+        .catch(err => appendLogLine(`[Client Error] Failed to start: ${err}`));
+    }
+}
+
+// Polling Logs from server
+function fetchLogs() {
+    fetch('/api/logs')
+        .then(res => res.json())
+        .then(data => {
+            const logs = data.logs;
+            if (logs.length > lastLogCount) {
+                const newLines = logs.slice(lastLogCount);
+                newLines.forEach(line => {
+                    appendLogLine(line);
+                });
+                lastLogCount = logs.length;
+            } else if (logs.length < lastLogCount) {
+                // Console cleared
+                lastLogCount = logs.length;
+            }
+        })
+        .catch(err => console.error("Error fetching logs:", err));
+}
+
+// Add a log entry to HTML output
+function appendLogLine(line) {
+    const consoleOut = document.getElementById('console-output');
+    const batchConsoleOut = document.getElementById('batch-console-output');
+    
+    // Choose which target console
+    let target = consoleOut;
+    if (systemStatus === 'batch_processing' && currentTab === 'batch') {
+        target = batchConsoleOut;
+    }
+
+    if (!target) return;
+
+    const div = document.createElement('div');
+    div.className = 'console-line';
+    
+    // Simple color highlighting based on line content
+    if (line.includes('SUCCESS') || line.includes('completed') || line.includes('complete')) {
+        div.classList.add('text-success');
+    } else if (line.includes('ERROR') || line.includes('Failed') || line.includes('!' * 10)) {
+        div.classList.add('text-error');
+    } else if (line.includes('WARNING') || line.includes('anomaly') || line.includes('?') * 10) {
+        div.classList.add('text-warning');
+    } else if (line.startsWith('[Client]')) {
+        div.classList.add('text-muted');
+    }
+
+    div.textContent = line;
+    target.appendChild(div);
+    
+    // Auto Scroll to bottom
+    target.scrollTop = target.scrollHeight;
+}
+
+// Clear system logs
+function clearLogs() {
+    fetch('/api/logs/clear', { method: 'POST' })
+        .then(res => res.json())
+        .then(data => {
+            if (data.success) {
+                const consoleOut = document.getElementById('console-output');
+                if (consoleOut) consoleOut.innerHTML = '';
+                const batchConsoleOut = document.getElementById('batch-console-output');
+                if (batchConsoleOut) batchConsoleOut.innerHTML = '';
+                lastLogCount = 0;
+            }
+        })
+        .catch(err => console.error(err));
+}
+
+// Execute batch processing task
+function runBatchJob() {
+    const inputPath = document.getElementById('batch-input-path').value.trim();
+    if (!inputPath) {
+        alert("Please provide an input directory path.");
+        return;
+    }
+
+    let taskType = 'composite';
+    document.getElementsByName('batch-task').forEach(rad => {
+        if (rad.checked) taskType = rad.value;
+    });
+
+    const config = {
+        gamma: parseFloat(document.getElementById('batch-gamma').value),
+        clip: parseFloat(document.getElementById('batch-clip').value),
+        scurve: parseFloat(document.getElementById('batch-scurve').value),
+        margin: parseFloat(document.getElementById('batch-margin').value),
+        autocrop: document.getElementById('batch-autocrop').checked,
+        global_levels: document.getElementById('batch-global-levels').checked,
+        neutralize: document.getElementById('batch-neutralize').checked,
+        compress_tiff: document.getElementById('batch-compress').checked
+    };
+
+    const payload = {
+        task_type: taskType,
+        input_path: inputPath,
+        config: config
+    };
+
+    // Clear batch console output
+    const batchConsoleOut = document.getElementById('batch-console-output');
+    if (batchConsoleOut) batchConsoleOut.innerHTML = '<div class="console-line text-muted">Submitting batch task...</div>';
+    
+    const runBtn = document.getElementById('btn-run-batch');
+    runBtn.disabled = true;
+    runBtn.textContent = "⏳ Running Task...";
+
+    fetch('/api/batch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+    })
+    .then(res => res.json())
+    .then(data => {
+        if (data.success) {
+            appendLogLine(`[Client] Batch job started. Status: ${data.message}`);
+        } else {
+            alert(`Error starting batch job: ${data.message}`);
+        }
+        
+        // Poll status to unlock buttons
+        const checkDoneInterval = setInterval(() => {
+            fetch('/api/status')
+                .then(res => res.json())
+                .then(statusData => {
+                    if (statusData.status !== 'batch_processing') {
+                        clearInterval(checkDoneInterval);
+                        runBtn.disabled = false;
+                        runBtn.textContent = "🚀 Execute Batch Process";
+                        fetchLogs();
+                    }
+                });
+        }, 1500);
+    })
+    .catch(err => {
+        alert(`Request failed: ${err}`);
+        runBtn.disabled = false;
+        runBtn.textContent = "🚀 Execute Batch Process";
+    });
+}
+
+// Refresh Positive Scans list and populate gallery
+function refreshFiles() {
+    const grid = document.getElementById('gallery-grid');
+    const countInfo = document.getElementById('gallery-count-info');
+    
+    if (!grid) return;
+    
+    grid.innerHTML = '<div class="empty-gallery-msg">Loading session files...</div>';
+    
+    fetch('/api/files')
+        .then(res => res.json())
+        .then(data => {
+            if (!data.success) {
+                grid.innerHTML = `<div class="empty-gallery-msg">${data.message || 'No active session. Please start monitoring or run a batch task.'}</div>`;
+                countInfo.textContent = '0 Positive Frames found in session';
+                return;
+            }
+            
+            const positives = data.positives;
+            countInfo.textContent = `${positives.length} Positive Frame(s) found in session`;
+            
+            if (positives.length === 0) {
+                grid.innerHTML = '<div class="empty-gallery-msg">No positive TIFF scans found yet. Triplets will appear here once processed.</div>';
+                return;
+            }
+            
+            grid.innerHTML = ''; // Clear loader
+            
+            positives.forEach(file => {
+                const card = document.createElement('div');
+                card.className = 'gallery-item';
+                card.onclick = () => openLightbox(file.name, file.path, file.size);
+                
+                const thumbContainer = document.createElement('div');
+                thumbContainer.className = 'thumbnail-container';
+                
+                const img = document.createElement('img');
+                img.className = 'thumbnail-img';
+                img.alt = file.name;
+                img.loading = 'lazy';
+                // Fetch dynamic thumbnail: limit size to 250px width for fast loading
+                img.src = `/api/preview?path=${encodeURIComponent(file.path)}&w=250`;
+                
+                thumbContainer.appendChild(img);
+                
+                const meta = document.createElement('div');
+                meta.className = 'item-meta';
+                
+                const title = document.createElement('div');
+                title.className = 'item-title';
+                title.textContent = file.name;
+                
+                const size = document.createElement('div');
+                size.className = 'item-size';
+                size.textContent = formatBytes(file.size);
+                
+                meta.appendChild(title);
+                meta.appendChild(size);
+                
+                card.appendChild(thumbContainer);
+                card.appendChild(meta);
+                
+                grid.appendChild(card);
+            });
+        })
+        .catch(err => {
+            grid.innerHTML = `<div class="empty-gallery-msg text-error">Failed to fetch files: ${err}</div>`;
+        });
+}
+
+// Human readable file size formatter
+function formatBytes(bytes, decimals = 1) {
+    if (bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const dm = decimals < 0 ? 0 : decimals;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+}
+
+// Lightbox modal view control
+function openLightbox(name, path, size) {
+    const box = document.getElementById('image-lightbox');
+    const img = document.getElementById('lightbox-img');
+    const title = document.getElementById('lightbox-title');
+    const desc = document.getElementById('lightbox-desc');
+    const dlLink = document.getElementById('lightbox-download-link');
+    
+    // Clear preview image while loading new one to avoid layout jumps
+    img.src = '';
+    title.textContent = name;
+    desc.textContent = `Size: ${formatBytes(size)} | Path: ${path}`;
+    
+    // Set dynamic source link
+    dlLink.href = `/api/preview?path=${encodeURIComponent(path)}`;
+    
+    box.classList.add('active');
+    
+    // Load high-resolution preview (800px width limit for responsive viewport loading)
+    img.src = `/api/preview?path=${encodeURIComponent(path)}&w=900`;
+}
+
+function closeLightbox() {
+    const box = document.getElementById('image-lightbox');
+    if (box) box.classList.remove('active');
+}
