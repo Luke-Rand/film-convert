@@ -58,7 +58,10 @@
                             <h3 class="card-title">1. Session Parameters</h3>
                             <div class="form-group">
                                 <label for="scanner-root-dir">Scans Root Folder</label>
-                                <input type="text" id="scanner-root-dir" placeholder="e.g., C:/Users/Name/Pictures/Scans">
+                                <div class="input-with-button">
+                                    <input type="text" id="scanner-root-dir" placeholder="e.g., C:/Users/Name/Pictures/Scans">
+                                    <button class="btn btn-secondary btn-input-action" type="button" onclick="openFolderBrowser('scanner-root-dir')" title="Browse folders">📁</button>
+                                </div>
                             </div>
                             
                             <div class="form-row">
@@ -256,7 +259,10 @@
 
                         <div class="form-group">
                             <label for="batch-input-path">Input Folder Path</label>
-                            <input type="text" id="batch-input-path" placeholder="Path to the directory containing images to process...">
+                            <div class="input-with-button">
+                                <input type="text" id="batch-input-path" placeholder="Path to the directory containing images to process...">
+                                <button class="btn btn-secondary btn-input-action" type="button" onclick="openFolderBrowser('batch-input-path')" title="Browse folders">📁</button>
+                            </div>
                             <span class="field-desc">Must be an absolute path on your computer.</span>
                         </div>
 
@@ -385,6 +391,31 @@
                 <div class="lightbox-actions">
                     <a class="btn btn-secondary btn-small" id="lightbox-download-link" href="" target="_blank" download>Open Full Image</a>
                 </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Folder Browser Modal -->
+    <div class="modal" id="folder-browser-modal" onclick="closeFolderBrowser()">
+        <div class="modal-content-wrapper" onclick="event.stopPropagation()">
+            <div class="modal-header">
+                <h3>Select Folder</h3>
+                <span class="modal-close" onclick="closeFolderBrowser()">&times;</span>
+            </div>
+            <div class="modal-body">
+                <div class="browser-breadcrumbs" id="browser-breadcrumbs">
+                    <!-- Dynamic breadcrumbs -->
+                </div>
+                <div class="browser-filter-bar">
+                    <input type="text" id="browser-filter-input" placeholder="Filter folders..." oninput="filterBrowserFolders()">
+                </div>
+                <div class="browser-folder-list" id="browser-folder-list">
+                    <!-- Dynamic folders list -->
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeFolderBrowser()">Cancel</button>
+                <button class="btn btn-primary" onclick="confirmFolderSelection()">Select Current Folder</button>
             </div>
         </div>
     </div>

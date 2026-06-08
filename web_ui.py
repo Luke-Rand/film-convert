@@ -549,6 +549,73 @@ def run_batch():
     success, msg = session.run_batch_job(task_type, input_path, config)
     return jsonify({"success": success, "message": msg})
 
+@app.route('/api/browse', methods=['GET'])
+def browse_directory():
+    path_str = request.args.get('path', '').strip()
+    is_windows = (os.name == 'nt')
+    
+    # List Windows drives if requested
+    if is_windows and (path_str == 'root'):
+        import string
+        import ctypes
+        drives = []
+        bitmask = ctypes.windll.kernel32.GetLogicalDrives()
+        for letter in string.ascii_uppercase:
+            if bitmask & 1:
+                drives.append(f"{letter}:\\")
+            bitmask >>= 1
+        return jsonify({
+            "current": "root",
+            "parent": "",
+            "drives": drives,
+            "folders": []
+        })
+
+    # Default to user home if empty
+    if not path_str:
+        path = Path.home()
+    else:
+        path = Path(path_str)
+
+    try:
+        abs_path = path.resolve()
+        
+        # List subfolders
+        folders = []
+        for item in abs_path.iterdir():
+            try:
+                if item.is_dir() and not item.name.startswith('.'):
+                    folders.append({
+                        "name": item.name,
+                        "path": str(item.absolute())
+                    })
+            except (PermissionError, FileNotFoundError):
+                pass
+                
+        folders.sort(key=lambda x: x["name"].lower())
+        
+        parent = ""
+        # If this is drive root (e.g. C:\) and on Windows, set parent to 'root' to go back to drives list
+        if is_windows and abs_path.parent == abs_path:
+            parent = "root"
+        elif abs_path.parent != abs_path:
+            parent = str(abs_path.parent)
+            
+        return jsonify({
+            "current": str(abs_path),
+            "parent": parent,
+            "drives": [],
+            "folders": folders
+        })
+    except Exception as e:
+        return jsonify({
+            "error": str(e),
+            "current": path_str,
+            "parent": "root" if is_windows else "",
+            "drives": [],
+            "folders": []
+        }), 400
+
 if __name__ == "__main__":
     # Start local Flask server
     print("\n" + "="*60)
