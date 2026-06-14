@@ -151,14 +151,24 @@ def process_triplet(group, output_filepath, neutralize_base, compress_tiff, alig
 
 def get_next_frame_number(directory):
     """Finds the next frame number based on existing files."""
-    existing = glob.glob(os.path.join(directory, "Frame_*_Composite.tiff"))
+    search_dirs = [directory]
+    for sub in ["Processed_RAWs", "Composites", "Positives", "positives", "processed_raws"]:
+        d = os.path.join(directory, sub)
+        if os.path.exists(d):
+            search_dirs.append(d)
+            
     max_num = 0
-    for f in existing:
-        try:
-            num = int(os.path.basename(f).split('_')[1])
-            if num > max_num: max_num = num
-        except:
-            pass
+    for d in search_dirs:
+        for entry in os.listdir(d):
+            if entry.startswith("Frame_"):
+                try:
+                    parts = entry.split('_')
+                    if len(parts) > 1:
+                        num = int(parts[1])
+                        if num > max_num:
+                            max_num = num
+                except (ValueError, IndexError):
+                    pass
     return max_num + 1
 
 def hot_folder_mode(directory_path, neutralize_base=False, compress_tiff=False, timeout=60, align_channels=False):

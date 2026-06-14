@@ -60,16 +60,26 @@ def setup_session():
     print(f"\n✅ Session initialized at: {session_dir}")
     return dirs, mode
 
-def get_next_frame_number(composites_dir):
-    """Figures out the next available frame number by looking at existing composite files."""
-    existing = glob.glob(os.path.join(composites_dir, "Frame_*_Composite.tiff"))
+def get_next_frame_number(dirs):
+    """Figures out the next available frame number by looking at existing files in negatives, processed, and positives."""
+    search_dirs = []
+    for key in ['negatives', 'processed', 'positives']:
+        d = dirs.get(key)
+        if d and os.path.exists(d):
+            search_dirs.append(d)
+            
     max_num = 0
-    for f in existing:
-        try:
-            num = int(os.path.basename(f).split('_')[1])
-            if num > max_num: max_num = num
-        except ValueError:
-            pass
+    for d in search_dirs:
+        for entry in os.listdir(d):
+            if entry.startswith("Frame_"):
+                try:
+                    parts = entry.split('_')
+                    if len(parts) > 1:
+                        num = int(parts[1])
+                        if num > max_num:
+                            max_num = num
+                except (ValueError, IndexError):
+                    pass
     return max_num + 1
 
 def run_triplet_pipeline(dirs):
@@ -79,7 +89,7 @@ def run_triplet_pipeline(dirs):
     print(f"Waiting for RGB RAW triplets. Press Ctrl+C to exit.\n")
     
     supported_exts = {'.cr3', '.raf'}
-    frame_number = get_next_frame_number(dirs['negatives'])
+    frame_number = get_next_frame_number(dirs)
     
     while True:
         try:

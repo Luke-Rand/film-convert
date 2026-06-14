@@ -187,15 +187,26 @@ class SessionManager:
         self.broadcast_status()
         return True, "Monitoring stopped successfully"
 
-    def get_next_frame_number(self, composites_dir):
-        existing = glob.glob(os.path.join(composites_dir, "Frame_*_Composite.tiff"))
+    def get_next_frame_number(self, negatives_dir):
+        search_dirs = [negatives_dir]
+        if self.dirs:
+            for key in ['processed', 'positives']:
+                d = self.dirs.get(key)
+                if d and os.path.exists(d):
+                    search_dirs.append(d)
+        
         max_num = 0
-        for f in existing:
-            try:
-                num = int(os.path.basename(f).split('_')[1])
-                if num > max_num: max_num = num
-            except ValueError:
-                pass
+        for d in search_dirs:
+            for entry in os.listdir(d):
+                if entry.startswith("Frame_"):
+                    try:
+                        parts = entry.split('_')
+                        if len(parts) > 1:
+                            num = int(parts[1])
+                            if num > max_num:
+                                max_num = num
+                    except (ValueError, IndexError):
+                        pass
         return max_num + 1
 
     def _monitor_loop(self):
