@@ -64,6 +64,8 @@ function fetchInitialLogs() {
             if (consoleOut) consoleOut.innerHTML = '';
             const batchConsoleOut = document.getElementById('batch-console-output');
             if (batchConsoleOut) batchConsoleOut.innerHTML = '';
+            const scanlightConsoleOut = document.getElementById('scanlight-console-output');
+            if (scanlightConsoleOut) scanlightConsoleOut.innerHTML = '';
             
             const logs = data.logs || [];
             logs.forEach(line => {
@@ -342,15 +344,24 @@ function toggleMonitor() {
 function appendLogLine(line) {
     const consoleOut = document.getElementById('console-output');
     const batchConsoleOut = document.getElementById('batch-console-output');
+    const scanlightConsoleOut = document.getElementById('scanlight-console-output');
     
     // Choose which target console
-    let target = consoleOut;
     if (systemStatus === 'batch_processing' && currentTab === 'batch') {
-        target = batchConsoleOut;
+        if (batchConsoleOut) {
+            appendLineToTarget(batchConsoleOut, line);
+        }
+    } else {
+        if (consoleOut) {
+            appendLineToTarget(consoleOut, line);
+        }
+        if (scanlightConsoleOut) {
+            appendLineToTarget(scanlightConsoleOut, line);
+        }
     }
+}
 
-    if (!target) return;
-
+function appendLineToTarget(target, line) {
     const div = document.createElement('div');
     div.className = 'console-line';
     
@@ -361,7 +372,7 @@ function appendLogLine(line) {
         div.classList.add('text-error');
     } else if (line.includes('WARNING') || line.includes('anomaly') || line.includes('?') * 10) {
         div.classList.add('text-warning');
-    } else if (line.startsWith('[Client]')) {
+    } else if (line.startsWith('[Client]') || line.startsWith('[Scanlight]')) {
         div.classList.add('text-muted');
     }
 
@@ -382,6 +393,8 @@ function clearLogs() {
                 if (consoleOut) consoleOut.innerHTML = '';
                 const batchConsoleOut = document.getElementById('batch-console-output');
                 if (batchConsoleOut) batchConsoleOut.innerHTML = '';
+                const scanlightConsoleOut = document.getElementById('scanlight-console-output');
+                if (scanlightConsoleOut) scanlightConsoleOut.innerHTML = '';
             }
         })
         .catch(err => console.error(err));

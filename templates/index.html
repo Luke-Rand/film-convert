@@ -481,6 +481,17 @@
                                 <button class="btn btn-secondary btn-channel-dot disable-on-sequence" id="btn-sl-ir" style="display: none;">IR</button>
                             </div>
                         </div>
+
+                        <!-- Console Log Card -->
+                        <div class="card console-card flex-grow" style="min-height: 300px;">
+                            <div class="console-header">
+                                <h3 class="card-title">Event Logs</h3>
+                                <button class="btn btn-secondary btn-small" onclick="clearLogs()">Clear</button>
+                            </div>
+                            <div class="console-output" id="scanlight-console-output">
+                                <div class="console-line text-muted">Ready to begin scanning session...</div>
+                            </div>
+                        </div>
                     </div>
 
                     <!-- Column 2: Presets & Automation -->
