@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Tri-Color Film Auto-Compositor & Inverter</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🎞️</text></svg>">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -30,6 +31,9 @@
                 </button>
                 <button class="nav-btn" id="nav-gallery-btn" onclick="switchTab('gallery')">
                     <span class="nav-icon">🖼️</span> Scan Gallery
+                </button>
+                <button class="nav-btn" id="nav-scanlight-btn" onclick="switchTab('scanlight')">
+                    <span class="nav-icon">💡</span> Scanlight
                 </button>
             </nav>
 
@@ -393,6 +397,204 @@
                     </div>
                 </div>
             </section>
+
+            <!-- TAB 4: SCANLIGHT CONTROLLER -->
+            <section class="tab-panel" id="panel-scanlight">
+                <div class="panel-header">
+                    <h2>Scanlight Controller</h2>
+                    <p>Manage the light source parameters, preset options, and trigger camera shutter release sequential runs.</p>
+                </div>
+
+                <!-- WebSerial Unsupported Warning Banner -->
+                <div id="scanlight-unsupported-banner" class="alert alert-error" style="display: none; margin-bottom: 1.5rem;">
+                    <strong>Browser Compatibility Error:</strong> WebSerial API is not supported on this browser. 
+                    Please use Google Chrome, Microsoft Edge, or another Chromium-based browser to connect to the Scanlight.
+                </div>
+
+                <!-- Main Layout Grid -->
+                <div class="grid-layout">
+                    <!-- Column 1: Connection & Manual Controls -->
+                    <div class="column">
+                        <!-- Connection status card -->
+                        <div class="card">
+                            <h3 class="card-title">1. Device Connection</h3>
+                            <div class="form-group flex-row-align">
+                                <button class="btn btn-primary btn-large" id="scanlight-connect-btn">
+                                    🔌 Connect Big Scanlight
+                                </button>
+                                <button class="btn btn-secondary disable-on-sequence" id="scanlight-dfu-btn" style="margin-top: 1rem; width: 100%; display: none;">
+                                    ⚡ Enter Firmware Upgrade (DFU)
+                                </button>
+                            </div>
+                            
+                            <!-- Low Power warning banner -->
+                            <div id="scanlight-low-power-banner" class="alert alert-error" style="display: none; margin-top: 1rem;">
+                                <strong>Insufficient Power:</strong> VBUS is low. Please plug the secondary USB-C port to an external power supply to enable the LEDs.
+                            </div>
+                        </div>
+
+                        <!-- Manual Control Card -->
+                        <div class="card disable-on-disconnected" id="scanlight-active-controls">
+                            <h3 class="card-title">2. Brightness Adjustment</h3>
+                            
+                            <div class="scanlight-glow-wrapper" style="position: relative; margin-bottom: 1.25rem;">
+                                <div id="scanlight-color-glow" class="color-glow-indicator"></div>
+                            </div>
+                            
+                            <!-- Red Slider -->
+                            <div class="form-group slider-group">
+                                <div class="slider-header">
+                                    <label for="scanlight-red-slider">Red Channel</label>
+                                    <input type="number" id="scanlight-red-val" min="0" max="255" value="255" class="num-input disable-on-sequence">
+                                </div>
+                                <input type="range" id="scanlight-red-slider" class="disable-on-sequence color-slider red-slider" min="0" max="255" value="255">
+                            </div>
+
+                            <!-- Green Slider -->
+                            <div class="form-group slider-group">
+                                <div class="slider-header">
+                                    <label for="scanlight-green-slider">Green Channel</label>
+                                    <input type="number" id="scanlight-green-val" min="0" max="255" value="255" class="num-input disable-on-sequence">
+                                </div>
+                                <input type="range" id="scanlight-green-slider" class="disable-on-sequence color-slider green-slider" min="0" max="255" value="255">
+                            </div>
+
+                            <!-- Blue Slider -->
+                            <div class="form-group slider-group">
+                                <div class="slider-header">
+                                    <label for="scanlight-blue-slider">Blue Channel</label>
+                                    <input type="number" id="scanlight-blue-val" min="0" max="255" value="255" class="num-input disable-on-sequence">
+                                </div>
+                                <input type="range" id="scanlight-blue-slider" class="disable-on-sequence color-slider blue-slider" min="0" max="255" value="255">
+                            </div>
+
+                            <label class="form-label-header">Quick Channels Selection</label>
+                            <div class="button-toggle-row">
+                                <button class="btn btn-secondary btn-channels disable-on-sequence" id="btn-sl-rgb">RGB</button>
+                                <button class="btn btn-secondary btn-channels disable-on-sequence" id="btn-sl-white">WHITE</button>
+                                <button class="btn btn-secondary btn-channels disable-on-sequence" id="btn-sl-off">OFF</button>
+                            </div>
+                            <div class="button-toggle-row" style="margin-top: 0.5rem;">
+                                <button class="btn btn-secondary btn-channel-dot disable-on-sequence" id="btn-sl-r">R</button>
+                                <button class="btn btn-secondary btn-channel-dot disable-on-sequence" id="btn-sl-g">G</button>
+                                <button class="btn btn-secondary btn-channel-dot disable-on-sequence" id="btn-sl-b">B</button>
+                                <button class="btn btn-secondary btn-channel-dot disable-on-sequence" id="btn-sl-ir" style="display: none;">IR</button>
+                            </div>
+                        </div>
+
+                        <!-- Console Log Card -->
+                        <div class="card console-card flex-grow" style="min-height: 300px;">
+                            <div class="console-header">
+                                <h3 class="card-title">Event Logs</h3>
+                                <button class="btn btn-secondary btn-small" onclick="clearLogs()">Clear</button>
+                            </div>
+                            <div class="console-output" id="scanlight-console-output">
+                                <div class="console-line text-muted">Ready to begin scanning session...</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Column 2: Presets & Automation -->
+                    <div class="column">
+                        <!-- Presets Card -->
+                        <div class="card disable-on-disconnected">
+                            <h3 class="card-title">3. RGB Color Presets</h3>
+                            <div class="form-group">
+                                <label for="scanlight-preset-select">Select Color Preset</label>
+                                <select id="scanlight-preset-select" class="select-presets disable-on-sequence">
+                                    <option value="">-- Choose Preset --</option>
+                                </select>
+                            </div>
+                            <div class="button-grid-presets">
+                                <button class="btn btn-secondary disable-on-sequence" id="btn-sl-preset-load">Load</button>
+                                <button class="btn btn-secondary disable-on-sequence" id="btn-sl-preset-create">Create</button>
+                                <button class="btn btn-secondary disable-on-sequence" id="btn-sl-preset-rename">Rename</button>
+                                <button class="btn btn-secondary disable-on-sequence" id="btn-sl-preset-delete">Delete</button>
+                            </div>
+                            
+                            <div style="margin-top: 1.5rem; display: flex; gap: 0.5rem; flex-wrap: wrap;">
+                                <button class="btn btn-secondary disable-on-sequence btn-small" id="btn-sl-default-write">Set as Default</button>
+                                <button class="btn btn-secondary disable-on-sequence btn-small" id="btn-sl-default-load">Load Default</button>
+                                <button class="btn btn-secondary disable-on-sequence btn-small" id="btn-sl-trim-open" style="display: none;">Brightness Trimming</button>
+                            </div>
+                        </div>
+
+                        <!-- Automation Panel -->
+                        <div class="card disable-on-disconnected">
+                            <h3 class="card-title">4. Automation Capture Sequences</h3>
+                            
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="scanlight-shutter-pulse">Shutter Length (s)</label>
+                                    <input type="number" id="scanlight-shutter-pulse" class="num-input disable-on-sequence" min="0.01" max="0.5" step="0.01" value="0.10">
+                                </div>
+                                <div class="form-group">
+                                    <label for="scanlight-shutter-delay">Post-Shutter Delay (s)</label>
+                                    <input type="number" id="scanlight-shutter-delay" class="num-input disable-on-sequence" min="0.1" max="12.75" step="0.05" value="1.00">
+                                </div>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="scanlight-post-seq-light">Post-Sequence Light State</label>
+                                <select id="scanlight-post-seq-light" class="select-presets disable-on-sequence">
+                                    <option value="off" selected>Turn Off</option>
+                                    <option value="rgb">Leave RGB On</option>
+                                    <option value="white">Leave White On</option>
+                                </select>
+                            </div>
+
+                            <label class="form-label-header">Run Sequence Mode</label>
+                            <div class="button-grid-auto">
+                                <button class="btn btn-secondary disable-on-sequence" id="btn-seq-rgb">Auto R,G,B</button>
+                                <button class="btn btn-secondary disable-on-sequence" id="btn-seq-rgbir" style="display: none;">Auto R,G,B,IR</button>
+                                <button class="btn btn-secondary disable-on-sequence" id="btn-seq-nwir" style="display: none;">Auto RGB,IR</button>
+                                <button class="btn btn-secondary disable-on-sequence" id="btn-seq-bwir" style="display: none;">Auto W,IR</button>
+                                <button class="btn btn-secondary disable-on-sequence" id="btn-seq-shutter-test">Test Shutter</button>
+                            </div>
+
+                            <div class="form-group" style="margin-top: 1.25rem; border-top: 1px solid var(--border-color); padding-top: 1rem;">
+                                <label class="form-label-header">Exposure Calibration</label>
+                                <button class="btn btn-secondary disable-on-sequence" id="btn-sl-calibrate" style="width: 100%; display: flex; align-items: center; justify-content: center; gap: 0.5rem; background-color: rgba(14, 165, 233, 0.08); border-color: rgba(14, 165, 233, 0.25); color: var(--accent-blue);">
+                                    ⚖️ Auto-Calibrate RGB Exposures
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Device Information Card -->
+                        <div class="card">
+                            <h3 class="card-title">Device Telemetry</h3>
+                            <div class="telemetry-info" id="scanlight-lbl-info" style="display: none;">
+                                <div class="telemetry-row">
+                                    <span>Hardware Model</span>
+                                    <strong id="scanlight-lbl-hw">--</strong>
+                                </div>
+                                <div class="telemetry-row">
+                                    <span>Firmware Version</span>
+                                    <strong id="scanlight-lbl-fw">--</strong>
+                                </div>
+                                <div class="telemetry-row">
+                                    <span>Input VBUS Voltage</span>
+                                    <strong id="scanlight-lbl-vbus">--</strong>
+                                </div>
+                                <div class="telemetry-row">
+                                    <span>LED Temperature</span>
+                                    <strong id="scanlight-lbl-temp">--</strong>
+                                </div>
+                            </div>
+                            <div class="telemetry-placeholder" id="scanlight-lbl-noinfo" style="text-align: center; color: var(--text-muted); font-size: 0.85rem; padding: 1rem 0;">
+                                Device disconnected. Plug in USB Serial connection to show metrics.
+                            </div>
+                            
+                            <div id="scanlight-power-warning" class="alert alert-warning" style="display: none; margin-top: 1rem;">
+                                ⚠️ Operating at reduced brightness. Use a USB-C power source with 9V 18W or higher output for full brightness.
+                            </div>
+                            <div id="scanlight-temp-warning" class="alert alert-error" style="display: none; margin-top: 1rem;">
+                                🚨 LED temperature high! Light will turn off automatically at 80°C.
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
         </main>
     </div>
 
@@ -436,6 +638,46 @@
         </div>
     </div>
 
+    <!-- Brightness Trimming Modal -->
+    <div class="modal" id="scanlight-trim-modal">
+        <div class="modal-content-wrapper" onclick="event.stopPropagation()">
+            <div class="modal-header">
+                <h3>Brightness Trimming</h3>
+                <span class="modal-close" onclick="scanlightController.closeTrimModal()">&times;</span>
+            </div>
+            <div class="modal-body">
+                <div class="form-row">
+                    <div class="form-group" style="flex: 1;">
+                        <label for="scanlight-trimR-val">Red Offset</label>
+                        <input type="number" id="scanlight-trimR-val" min="-127" max="127" value="0" class="num-input">
+                    </div>
+                    <div class="form-group" style="flex: 1;">
+                        <label for="scanlight-trimG-val">Green Offset</label>
+                        <input type="number" id="scanlight-trimG-val" min="-127" max="127" value="0" class="num-input">
+                    </div>
+                </div>
+                <div class="form-row" style="margin-top: 1rem;">
+                    <div class="form-group" style="flex: 1;">
+                        <label for="scanlight-trimB-val">Blue Offset</label>
+                        <input type="number" id="scanlight-trimB-val" min="-127" max="127" value="0" class="num-input">
+                    </div>
+                    <div class="form-group" style="flex: 1;">
+                        <label for="scanlight-trimW-val">White Offset</label>
+                        <input type="number" id="scanlight-trimW-val" min="-127" max="127" value="0" class="num-input">
+                    </div>
+                </div>
+                <p style="font-size: 0.75rem; color: var(--text-muted); margin-top: 1rem; line-height: 1.4;">
+                    Range for all trimming values is -127 to +127 (-50% to +50% drive strength). Offset trims the difference between left and right side LED PWM levels. Trimming offsets are saved in the light's nonvolatile memory.
+                </p>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" id="btn-sl-trim-cancel">Cancel</button>
+                <button class="btn btn-primary" id="btn-sl-trim-ok">Save Trimming</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/scanlight.js') }}"></script>
     <script src="{{ url_for('static', filename='js/app.js') }}"></script>
 </body>
 </html>

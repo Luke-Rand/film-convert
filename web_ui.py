@@ -118,13 +118,17 @@ class SessionManager:
     def is_safe_path(self, path):
         # Allow reading files that are within the current root folder or workspace
         try:
-            abs_path = os.path.abspath(path)
+            real_path = os.path.realpath(path)
             # Allow workspace folder and the configured root folder
-            workspace = os.path.abspath(".")
-            root = os.path.abspath(self.root_folder)
+            workspace = os.path.realpath(".")
+            root = os.path.realpath(self.root_folder)
+            
+            # On case-insensitive filesystems (like macOS and Windows), compare case-insensitively
+            if os.name == 'nt' or sys.platform == 'darwin':
+                return real_path.lower().startswith(workspace.lower()) or real_path.lower().startswith(root.lower())
             
             # Check if it starts with either
-            return abs_path.startswith(workspace) or abs_path.startswith(root)
+            return real_path.startswith(workspace) or real_path.startswith(root)
         except Exception:
             return False
 
@@ -250,13 +254,19 @@ class SessionManager:
                         try:
                             # 1. Composite (redirect stdout to web log)
                             with contextlib.redirect_stdout(redirector):
-                                process_triplet(
+                                r_mean, g_mean, b_mean = process_triplet(
                                     group=group,
                                     output_filepath=composite_filepath,
                                     neutralize_base=self.config["neutralize"],
                                     compress_tiff=self.config["compress_tiff"],
                                     align_channels=self.config["align_channels"]
                                 )
+                            
+                            self.broadcast("triplet_means", {
+                                "r_mean": float(r_mean),
+                                "g_mean": float(g_mean),
+                                "b_mean": float(b_mean)
+                            })
                             
                             # 2. Invert (redirect stdout to web log)
                             with contextlib.redirect_stdout(redirector):
@@ -711,6 +721,6 @@ if __name__ == "__main__":
     # Start local Flask server
     print("\n" + "="*60)
     print("STARTING FILM-CONVERT WEB UI")
-    print("Open http://127.0.0.1:5000 in your browser.")
+    print("Open http://127.0.0.1:5001 in your browser.")
     print("="*60 + "\n")
-    app.run(host="127.0.0.1", port=5000, debug=False)
+    app.run(host="127.0.0.1", port=5001, debug=False)
