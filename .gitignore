@@ -28,3 +28,6 @@ instance/
 # Log files
 *.log
 
+# Docker local data directory
+data/
+

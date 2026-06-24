@@ -719,8 +719,10 @@ def browse_directory():
 
 if __name__ == "__main__":
     # Start local Flask server
+    host = os.environ.get("HOST", "127.0.0.1")
+    port = int(os.environ.get("PORT", 5001))
     print("\n" + "="*60)
     print("STARTING FILM-CONVERT WEB UI")
-    print("Open http://127.0.0.1:5001 in your browser.")
+    print(f"Open http://{host}:{port} in your browser.")
     print("="*60 + "\n")
-    app.run(host="127.0.0.1", port=5001, debug=False)
+    app.run(host=host, port=port, debug=False)
