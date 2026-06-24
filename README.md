@@ -75,6 +75,30 @@ python web_ui.py
 
 Open `http://127.0.0.1:5001` in your web browser. You can configure scan settings, start/stop hot folder monitoring, view real-time log outputs, run manual batch tasks, and view completed scans in the gallery.
 
+#### Running with Docker (Alternative)
+
+If you prefer to run the application in a containerized environment, you can use Docker.
+
+##### Option A: Run with Docker Compose (Recommended)
+1. By default, Docker Compose mounts `./data` from your host machine into the container. Place your scan files in the `./data` folder, or modify the volume mapping in [docker-compose.yml](file:///Users/lukerand/Documents/repos/film-convert/docker-compose.yml) to point to your local film directory.
+2. Start the container:
+   ```bash
+   docker compose up --build
+   ```
+3. Open `http://localhost:5001` in your web browser.
+4. *Note: Inside the web interface, use `/data` as your root directory path to browse and select the mounted files.*
+
+##### Option B: Pull the Prebuilt Image from GHCR
+You can also run the prebuilt multi-architecture container image directly from GitHub Container Registry:
+```bash
+docker run -p 5001:5001 -v /path/to/your/scans:/data ghcr.io/luke-rand/film-convert:latest
+```
+Replace `/path/to/your/scans` with the absolute path of your scanning folders.
+
+##### WebSerial and USB Device Connections in Docker
+The **Scanlight** controller integration relies on the browser's WebSerial API which executes *client-side in your browser*. Therefore, running the backend inside Docker does not affect USB connectivity. However, remember that serial ports can only be opened by one tab/connection at a time. If you receive a `Failed to open port` error, make sure to close other browser tabs or host applications using the device and re-plug the USB connection.
+
+
 #### Scanlight Controller Integration (Optional)
 If you own the **Jackw01 Big Scanlight** or **Scanlight v4**, you can access the **Scanlight** tab to control the device directly:
 1. Connect the light to your computer via USB (using a Chromium-based browser like Google Chrome or Microsoft Edge).
