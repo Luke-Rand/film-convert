@@ -1147,3 +1147,173 @@ input[type="range"]::-webkit-slider-thumb:hover {
     font-size: 0.85rem;
 }
 
+/* --- SCANLIGHT CONTROLLER SPECIFIC STYLES --- */
+
+/* Alert components */
+.alert {
+    padding: 0.85rem 1.25rem;
+    border-radius: var(--radius-md);
+    font-size: 0.85rem;
+    line-height: 1.4;
+    border: 1px solid transparent;
+}
+.alert-error {
+    background-color: rgba(244, 63, 94, 0.08);
+    border-color: rgba(244, 63, 94, 0.2);
+    color: #fda4af;
+}
+.alert-warning {
+    background-color: rgba(249, 115, 22, 0.08);
+    border-color: rgba(249, 115, 22, 0.2);
+    color: #fed7aa;
+}
+
+/* Controller connection states */
+.disconnected-state .disable-on-disconnected {
+    opacity: 0.35;
+    pointer-events: none;
+    user-select: none;
+}
+.disabled-input {
+    opacity: 0.5;
+    pointer-events: none;
+}
+#scanlight-active-controls.disabled {
+    opacity: 0.35;
+    pointer-events: none;
+}
+
+/* Interactive Color glow representation */
+.scanlight-glow-wrapper {
+    height: 8px;
+    border-radius: var(--radius-sm);
+    background: rgba(255, 255, 255, 0.05);
+    overflow: visible;
+}
+.color-glow-indicator {
+    width: 100%;
+    height: 100%;
+    border-radius: var(--radius-sm);
+    transition: background 0.3s ease, box-shadow 0.3s ease;
+}
+
+/* Number inputs inside headers */
+.slider-header .num-input,
+.modal-body .num-input,
+.form-group .num-input {
+    background-color: var(--bg-input);
+    border: 1px solid var(--border-color);
+    color: var(--text-primary);
+    padding: 0.35rem 0.5rem;
+    border-radius: var(--radius-sm);
+    width: 65px;
+    text-align: right;
+    font-family: var(--font-mono);
+    font-size: 0.85rem;
+    transition: var(--transition-fast);
+}
+.slider-header .num-input:focus,
+.modal-body .num-input:focus,
+.form-group .num-input:focus {
+    outline: none;
+    border-color: var(--border-focus);
+}
+
+/* Preset selection elements */
+.select-presets {
+    width: 100%;
+    background-color: var(--bg-input);
+    border: 1px solid var(--border-color);
+    color: var(--text-primary);
+    padding: 0.65rem 0.85rem;
+    border-radius: var(--radius-md);
+    font-family: var(--font-sans);
+    font-size: 0.9rem;
+    transition: var(--transition-fast);
+    outline: none;
+}
+.select-presets:focus {
+    border-color: var(--border-focus);
+}
+
+/* Custom RGB color slider styling */
+.color-slider.red-slider::-webkit-slider-thumb {
+    background: var(--accent-red) !important;
+}
+.color-slider.green-slider::-webkit-slider-thumb {
+    background: var(--accent-green) !important;
+}
+.color-slider.blue-slider::-webkit-slider-thumb {
+    background: var(--accent-blue) !important;
+}
+
+/* Flex buttons and alignment */
+.form-label-header {
+    display: block;
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+    margin-bottom: 0.5rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-top: 1.25rem;
+}
+
+.button-toggle-row {
+    display: flex;
+    gap: 0.5rem;
+    width: 100%;
+}
+.button-toggle-row .btn-channels {
+    flex: 1;
+}
+.button-toggle-row .btn-channel-dot {
+    flex: 1;
+}
+
+.btn-highlight {
+    background-color: var(--accent-blue) !important;
+    border-color: var(--accent-blue) !important;
+    color: white !important;
+    box-shadow: 0 0 10px var(--accent-blue-glow);
+}
+
+.button-grid-presets {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 0.5rem;
+}
+.button-grid-presets .btn {
+    padding: 0.5rem 0.25rem;
+    font-size: 0.8rem;
+}
+
+.button-grid-auto {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.75rem;
+}
+
+/* Device metrics layout */
+.telemetry-info {
+    display: flex;
+    flex-direction: column;
+    gap: 0.65rem;
+    font-size: 0.85rem;
+}
+.telemetry-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+    padding-bottom: 0.4rem;
+}
+.telemetry-row span {
+    color: var(--text-secondary);
+}
+.telemetry-row strong {
+    font-family: var(--font-mono);
+    color: var(--text-primary);
+}
+
+
