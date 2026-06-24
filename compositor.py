@@ -148,6 +148,7 @@ def process_triplet(group, output_filepath, neutralize_base, compress_tiff, alig
     tifffile.imwrite(output_filepath, composite_rgb, photometric='rgb', compression=tiff_compression)
     
     print(f"  -> Saved composite to: {os.path.basename(output_filepath)}\n")
+    return float(r_mean), float(g_mean), float(b_mean)
 
 def get_next_frame_number(directory):
     """Finds the next frame number based on existing files."""

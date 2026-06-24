@@ -1,6 +1,7 @@
 // Global State
 let currentTab = 'scanner';
 let systemStatus = 'idle';
+window.systemStatus = 'idle';
 let activeSessionDirs = {};
 let eventSource = null;
 
@@ -31,6 +32,7 @@ function connectSSE() {
         try {
             const data = JSON.parse(event.data);
             systemStatus = data.status;
+            window.systemStatus = data.status;
             activeSessionDirs = data.dirs;
             updateStatusUI(data);
         } catch (err) {
@@ -44,6 +46,17 @@ function connectSSE() {
             appendLogLine(data.line);
         } catch (err) {
             console.error("Error parsing log SSE data:", err);
+        }
+    });
+
+    eventSource.addEventListener('triplet_means', (event) => {
+        try {
+            const data = JSON.parse(event.data);
+            if (window.onTripletMeansReceived) {
+                window.onTripletMeansReceived(data);
+            }
+        } catch (err) {
+            console.error("Error parsing triplet_means SSE data:", err);
         }
     });
 

@@ -254,13 +254,19 @@ class SessionManager:
                         try:
                             # 1. Composite (redirect stdout to web log)
                             with contextlib.redirect_stdout(redirector):
-                                process_triplet(
+                                r_mean, g_mean, b_mean = process_triplet(
                                     group=group,
                                     output_filepath=composite_filepath,
                                     neutralize_base=self.config["neutralize"],
                                     compress_tiff=self.config["compress_tiff"],
                                     align_channels=self.config["align_channels"]
                                 )
+                            
+                            self.broadcast("triplet_means", {
+                                "r_mean": float(r_mean),
+                                "g_mean": float(g_mean),
+                                "b_mean": float(b_mean)
+                            })
                             
                             # 2. Invert (redirect stdout to web log)
                             with contextlib.redirect_stdout(redirector):

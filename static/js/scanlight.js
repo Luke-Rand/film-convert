@@ -193,6 +193,29 @@ class ScanlightUIController {
     this.isSmallHW = false;
     this.isSequenceRunning = false;
     this.postSequenceLight = "off";
+    this._isCalibrating = false;
+  }
+
+  get isCalibrating() {
+    return this._isCalibrating;
+  }
+
+  set isCalibrating(val) {
+    this._isCalibrating = val;
+    const btn = document.getElementById("btn-sl-calibrate");
+    if (btn) {
+      if (val) {
+        btn.innerHTML = "⏹️ Cancel Calibration";
+        btn.style.backgroundColor = "rgba(239, 68, 68, 0.12)";
+        btn.style.borderColor = "rgba(239, 68, 68, 0.3)";
+        btn.style.color = "#f87171";
+      } else {
+        btn.innerHTML = "⚖️ Auto-Calibrate RGB Exposures";
+        btn.style.backgroundColor = "rgba(14, 165, 233, 0.08)";
+        btn.style.borderColor = "rgba(14, 165, 233, 0.25)";
+        btn.style.color = "var(--accent-blue)";
+      }
+    }
   }
 
   init() {
@@ -200,6 +223,12 @@ class ScanlightUIController {
     this.loadPresetsFromStorage();
     this.bindEvents();
     this.updateControlsState();
+    
+    // Sync calibration button state
+    this.isCalibrating = false;
+    
+    // Bind calibration event hook
+    window.onTripletMeansReceived = (data) => this.handleCalibrationData(data);
   }
 
   checkBrowserSupport() {
@@ -237,12 +266,14 @@ class ScanlightUIController {
       const valInput = document.getElementById(`scanlight-${c}-val`);
       
       slider?.addEventListener("input", (e) => {
+        this.isCalibrating = false;
         this[c] = parseInt(e.target.value);
         if (valInput) valInput.value = this[c];
         this.updateColor();
       });
       
       valInput?.addEventListener("input", (e) => {
+        this.isCalibrating = false;
         let val = parseInt(e.target.value);
         if (isNaN(val)) return;
         val = Math.min(Math.max(val, 0), 255);
@@ -252,6 +283,7 @@ class ScanlightUIController {
       });
       
       valInput?.addEventListener("change", (e) => {
+        this.isCalibrating = false;
         let val = parseInt(e.target.value);
         if (isNaN(val)) val = 255;
         val = Math.min(Math.max(val, 0), 255);
@@ -263,19 +295,20 @@ class ScanlightUIController {
     });
 
     // Quick presets channel triggers
-    document.getElementById("btn-sl-rgb")?.addEventListener("click", () => this.setEnabledChannels([1, 1, 1, 0, 0]));
-    document.getElementById("btn-sl-white")?.addEventListener("click", () => this.setEnabledChannels([0, 0, 0, 1, 0]));
-    document.getElementById("btn-sl-off")?.addEventListener("click", () => this.setEnabledChannels([0, 0, 0, 0, 0]));
-    document.getElementById("btn-sl-r")?.addEventListener("click", () => this.setEnabledChannels([1, 0, 0, 0, 0]));
-    document.getElementById("btn-sl-g")?.addEventListener("click", () => this.setEnabledChannels([0, 1, 0, 0, 0]));
-    document.getElementById("btn-sl-b")?.addEventListener("click", () => this.setEnabledChannels([0, 0, 1, 0, 0]));
-    document.getElementById("btn-sl-ir")?.addEventListener("click", () => this.setEnabledChannels([0, 0, 0, 0, 1]));
+    document.getElementById("btn-sl-rgb")?.addEventListener("click", () => { this.isCalibrating = false; this.setEnabledChannels([1, 1, 1, 0, 0]); });
+    document.getElementById("btn-sl-white")?.addEventListener("click", () => { this.isCalibrating = false; this.setEnabledChannels([0, 0, 0, 1, 0]); });
+    document.getElementById("btn-sl-off")?.addEventListener("click", () => { this.isCalibrating = false; this.setEnabledChannels([0, 0, 0, 0, 0]); });
+    document.getElementById("btn-sl-r")?.addEventListener("click", () => { this.isCalibrating = false; this.setEnabledChannels([1, 0, 0, 0, 0]); });
+    document.getElementById("btn-sl-g")?.addEventListener("click", () => { this.isCalibrating = false; this.setEnabledChannels([0, 1, 0, 0, 0]); });
+    document.getElementById("btn-sl-b")?.addEventListener("click", () => { this.isCalibrating = false; this.setEnabledChannels([0, 0, 1, 0, 0]); });
+    document.getElementById("btn-sl-ir")?.addEventListener("click", () => { this.isCalibrating = false; this.setEnabledChannels([0, 0, 0, 0, 1]); });
 
     // Preset options
     document.getElementById("scanlight-preset-select")?.addEventListener("change", (e) => {
+      this.isCalibrating = false;
       this.selectedPresetName = e.target.value;
     });
-    document.getElementById("btn-sl-preset-load")?.addEventListener("click", () => this.loadPreset());
+    document.getElementById("btn-sl-preset-load")?.addEventListener("click", () => { this.isCalibrating = false; this.loadPreset(); });
     document.getElementById("btn-sl-preset-create")?.addEventListener("click", () => this.createPreset());
     document.getElementById("btn-sl-preset-rename")?.addEventListener("click", () => this.renamePreset());
     document.getElementById("btn-sl-preset-delete")?.addEventListener("click", () => this.deletePreset());
@@ -323,9 +356,17 @@ class ScanlightUIController {
     document.getElementById("btn-seq-nwir")?.addEventListener("click", () => this.runSequence("SequenceNWIR"));
     document.getElementById("btn-seq-bwir")?.addEventListener("click", () => this.runSequence("SequenceBWIR"));
     document.getElementById("btn-seq-shutter-test")?.addEventListener("click", () => this.shutterTest());
+    document.getElementById("btn-sl-calibrate")?.addEventListener("click", () => {
+      if (this.isCalibrating) {
+        this.cancelCalibration();
+      } else {
+        this.startCalibration();
+      }
+    });
   }
 
   async toggleConnection() {
+    this.isCalibrating = false;
     if (this.connected) {
       this.log("[Scanlight] Disconnecting from device...");
       await this.protocol.disconnect();
@@ -542,8 +583,12 @@ class ScanlightUIController {
     }
   }
 
-  async runSequence(sequence) {
+  async runSequence(sequence, isCalibration = false) {
     if (!this.connected || this.isSequenceRunning) return;
+    
+    if (!isCalibration) {
+      this.isCalibrating = false;
+    }
     
     this.isSequenceRunning = true;
     this.disableControlTriggers(true);
@@ -594,6 +639,137 @@ class ScanlightUIController {
     this.log("[Scanlight] Triggering test camera shutter pulse...");
     const pulse10ms = Math.min(Math.max(Math.round(this.shutterPulseLength * 100), 1), 255);
     await this.protocol.sendPacket(this.protocol.PKT_H2D_SHUTTER_PULSE, [pulse10ms]);
+  }
+
+  async startCalibration() {
+    if (!this.connected) {
+      alert("Scanlight is not connected. Please connect the device first.");
+      return;
+    }
+    
+    const dot = document.getElementById('summary-status-dot');
+    const isMonitoring = (window.systemStatus === 'monitoring') || (dot && dot.classList.contains('monitoring'));
+    if (!isMonitoring) {
+      alert("Folder monitoring is not active. Please start the monitoring session in the 'Live Scanner' tab before calibrating.");
+      this.log("[Scanlight] Calibration aborted: Monitoring session is not active.");
+      return;
+    }
+    
+    if (!confirm("Start Auto-Calibration? This will run a test RGB exposure capture at reference power (150) to measure exposure levels and calibrate the optimal light balance.")) {
+      return;
+    }
+    
+    this.log("[Scanlight] Starting Auto-Calibration...");
+    this.isCalibrating = true;
+    
+    // Set colors to reference power 150
+    this.red = 150;
+    this.green = 150;
+    this.blue = 150;
+    
+    document.getElementById("scanlight-red-slider").value = 150;
+    document.getElementById("scanlight-red-val").value = 150;
+    document.getElementById("scanlight-green-slider").value = 150;
+    document.getElementById("scanlight-green-val").value = 150;
+    document.getElementById("scanlight-blue-slider").value = 150;
+    document.getElementById("scanlight-blue-val").value = 150;
+    
+    // Update color glow and light configuration
+    this.updateColor();
+    
+    // Run the RGB sequence
+    try {
+      await this.runSequence("SequenceRGB", true);
+      this.log("[Scanlight] Calibration sequence complete. Waiting for image analysis results...");
+    } catch (err) {
+      this.isCalibrating = false;
+      this.log(`[Scanlight Error] Calibration sequence failed: ${err.message}`);
+    }
+  }
+
+  cancelCalibration() {
+    this.log("[Scanlight] Calibration canceled by user.");
+    this.isCalibrating = false;
+    this.isSequenceRunning = false;
+    this.disableControlTriggers(false);
+    
+    if (this.connected) {
+      if (this.postSequenceLight === "rgb") {
+        this.setEnabledChannels([1, 1, 1, 0, 0]);
+      } else if (this.postSequenceLight === "white") {
+        this.setEnabledChannels([0, 0, 0, 1, 0]);
+      } else {
+        this.setEnabledChannels([0, 0, 0, 0, 0]);
+      }
+    }
+    
+    alert("Calibration canceled.");
+  }
+
+  handleCalibrationData(data) {
+    if (!this.isCalibrating) return;
+    
+    this.log(`[Scanlight] Received exposure means from composite analysis: R=${data.r_mean.toFixed(0)}, G=${data.g_mean.toFixed(0)}, B=${data.b_mean.toFixed(0)}`);
+    
+    const r_mean = data.r_mean;
+    const g_mean = data.g_mean;
+    const b_mean = data.b_mean;
+    
+    // Check if means are valid
+    if (r_mean <= 0 || g_mean <= 0 || b_mean <= 0) {
+      this.log("[Scanlight Error] Invalid channel means received. Cannot calibrate.");
+      alert("Calibration failed: One or more channel exposure means are zero. Please ensure your camera is taking pictures and files are being processed.");
+      this.isCalibrating = false;
+      return;
+    }
+    
+    const targetExposure = 55000;
+    const currentPower = 150;
+    
+    // Proportional scaling: targetPower = currentPower * (targetExposure / mean)
+    let r_target = currentPower * (targetExposure / r_mean);
+    let g_target = currentPower * (targetExposure / g_mean);
+    let b_target = currentPower * (targetExposure / b_mean);
+    
+    this.log(`[Scanlight] Calculated raw targets: R=${r_target.toFixed(1)}, G=${g_target.toFixed(1)}, B=${b_target.toFixed(1)}`);
+    
+    // Handling saturation:
+    // If any channel target exceeds 255, cap the highest channel at 255
+    // and scale down other channels proportionally to maintain white balance.
+    const maxTarget = Math.max(r_target, g_target, b_target);
+    if (maxTarget > 255) {
+      const scale = 255 / maxTarget;
+      r_target *= scale;
+      g_target *= scale;
+      b_target *= scale;
+      this.log(`[Scanlight Warning] Camera exposure is too low (underexposed). Even at maximum LED power (255), the target channel exposure of 55,000 could not be reached. Consider increasing camera exposure time, opening the lens aperture, or increasing ISO to avoid noise.`);
+      this.log(`[Scanlight] Exposure targets capped. Scaling channels down by factor of ${scale.toFixed(3)} to preserve color balance.`);
+    }
+    
+    // Constrain results between 0 and 255, rounding to integers
+    this.red = Math.min(Math.max(Math.round(r_target), 0), 255);
+    this.green = Math.min(Math.max(Math.round(g_target), 0), 255);
+    this.blue = Math.min(Math.max(Math.round(b_target), 0), 255);
+    
+    // Update inputs and sliders in UI
+    document.getElementById("scanlight-red-slider").value = this.red;
+    document.getElementById("scanlight-red-val").value = this.red;
+    document.getElementById("scanlight-green-slider").value = this.green;
+    document.getElementById("scanlight-green-val").value = this.green;
+    document.getElementById("scanlight-blue-slider").value = this.blue;
+    document.getElementById("scanlight-blue-val").value = this.blue;
+    
+    // Reset calibration state
+    this.isCalibrating = false;
+    
+    // Turn the light back on in RGB mode
+    this.setEnabledChannels([1, 1, 1, 0, 0]);
+    this.updateColor();
+    
+    this.log(`[Scanlight] Calibration complete! Optimal RGB values set to: R=${this.red}, G=${this.green}, B=${this.blue}`);
+    
+    // Alert the user
+    alert(`Calibration complete!\nOptimal RGB values set to:\nRed: ${this.red}\nGreen: ${this.green}\nBlue: ${this.blue}`);
   }
 
   async loadDefault() {
@@ -802,6 +978,23 @@ class ScanlightUIController {
         el.classList.remove("disabled-input");
       }
     });
+
+    // Handle calibration button override
+    const btn = document.getElementById("btn-sl-calibrate");
+    if (btn) {
+      if (disable) {
+        if (this.isCalibrating) {
+          btn.disabled = false;
+          btn.classList.remove("disabled-input");
+        } else {
+          btn.disabled = true;
+          btn.classList.add("disabled-input");
+        }
+      } else {
+        btn.disabled = false;
+        btn.classList.remove("disabled-input");
+      }
+    }
   }
 }
 

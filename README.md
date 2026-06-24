@@ -9,6 +9,7 @@ A suite of Python scripts designed to automate the process of combining individu
 - **Real-Time Feed:** Stream process log updates dynamically to an event console and browse output positive files in a session gallery.
 - **On-the-Fly Previews:** Dynamic resizing and rendering of 16-bit TIFF composites directly to standard JPEG in the browser without writing duplicate files to disk.
 - **Manual Batch Jobs:** Execute bulk compositing or inversions on-demand on existing film folders.
+- **Scanlight Controller (Optional):** Direct integration with the Jackw01 Big Scanlight and Scanlight v4 using the browser's WebSerial API. Adjust brightness, manage local presets, calibrate balance offsets, and run automated sequential captures.
 
 ### Session Manager (`scanning_session.py`)
 - **Interactive Setup:** Prompts for film stock, format, and roll number to automatically generate organized directory structures.
@@ -72,7 +73,22 @@ Start the local web server to run the entire suite through your browser:
 python web_ui.py
 ```
 
-Open `http://127.0.0.1:5000` in your web browser. You can configure scan settings, start/stop hot folder monitoring, view real-time log outputs, run manual batch tasks, and view completed scans in the gallery.
+Open `http://127.0.0.1:5001` in your web browser. You can configure scan settings, start/stop hot folder monitoring, view real-time log outputs, run manual batch tasks, and view completed scans in the gallery.
+
+#### Scanlight Controller Integration (Optional)
+If you own the **Jackw01 Big Scanlight** or **Scanlight v4**, you can access the **Scanlight** tab to control the device directly:
+1. Connect the light to your computer via USB (using a Chromium-based browser like Google Chrome or Microsoft Edge).
+2. Click **Connect Big Scanlight** to initialize communication. The device metrics (hardware model, firmware, VBUS input voltage, and temperature) will load in real-time.
+3. Manually adjust channel outputs, select quick presets (RGB, White, Off, etc.), or save settings into local storage presets.
+4. Set shutter pulse length, post-shutter delays, and sequence preferences (e.g. leaving RGB/White on or turning off post-run), then click any sequence button (like **Auto R,G,B**) to automatically capture sequential frames. The stacking logs will stream to the logs console in real-time.
+5. **Exposure Auto-Calibration:** You can automatically detect optimal RGB channel brightness values:
+   * Start a folder monitoring session on the **Live Scanner** tab.
+   * Go to the **Scanlight** tab and click **Auto-Calibrate RGB Exposures**.
+   * The controller runs a test RGB sequence at a reference power level of 150.
+   * The compositor measures the captured RAW frames' average channel intensity (0-65,535 in 16-bit linear RAW).
+   * It calculates the proportional scaling factors to achieve a target exposure level of 55,000.
+   * If any channel exceeds the maximum LED value of 255 (meaning camera settings are too dark), the highest channel is capped at 255 and other channels are scaled proportionally to preserve correct color balance, and a warning is logged to the console.
+   * The new calibrated values are applied to your active Red, Green, and Blue sliders.
 
 ### 2. End-to-End CLI Workflow (Interactive)
 
@@ -160,3 +176,7 @@ python inverter.py -i /path/to/your/Composites --compress --scurve 0.3 --autocro
 | `--margin` | `-m` | Fraction of outer edge to ignore when calculating levels (default: `0.03` = 3%). Prevents film holders from skewing brightness. |
 | `--autocrop` | `-a` | Physically crop off the outer margins defined by `--margin` from the final saved image. |
 | `--global-levels` | | Stretch levels globally instead of per-channel. Use this if you relied on the compositor's neutralization and want to perfectly maintain that color balance. |
+
+## Credits & Attributions
+
+- The Scanlight control protocols, automatic sequence patterns, and device command structures are adapted from the official [Scanlight Project](https://github.com/jackw01/scanlight) created by [jackw01](https://github.com/jackw01). This feature is designed to interface with the Big Scanlight / Scanlight v4 hardware.
