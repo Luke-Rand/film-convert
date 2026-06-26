@@ -281,6 +281,12 @@ function syncConfigToUI(config) {
     document.getElementById('config-compress').checked = config.compress_tiff;
     document.getElementById('config-align-channels').checked = config.align_channels;
     
+    // Monochrome settings
+    const isMono = config.monochrome || false;
+    document.getElementById('config-monochrome').checked = isMono;
+    document.getElementById('config-monochrome-channel').value = config.monochrome_channel || 'luminance';
+    document.getElementById('config-monochrome-channel-group').style.display = isMono ? 'block' : 'none';
+    
     // Update labels
     document.getElementById('val-gamma').textContent = config.gamma;
     document.getElementById('val-clip').textContent = config.clip;
@@ -324,7 +330,9 @@ function toggleMonitor() {
             global_levels: document.getElementById('config-global-levels').checked,
             neutralize: document.getElementById('config-neutralize').checked,
             compress_tiff: document.getElementById('config-compress').checked,
-            align_channels: document.getElementById('config-align-channels').checked
+            align_channels: document.getElementById('config-align-channels').checked,
+            monochrome: document.getElementById('config-monochrome').checked,
+            monochrome_channel: document.getElementById('config-monochrome-channel').value
         };
 
         const payload = {
@@ -435,7 +443,9 @@ function runBatchJob() {
         global_levels: document.getElementById('batch-global-levels').checked,
         neutralize: document.getElementById('batch-neutralize').checked,
         compress_tiff: document.getElementById('batch-compress').checked,
-        align_channels: document.getElementById('batch-align-channels').checked
+        align_channels: document.getElementById('batch-align-channels').checked,
+        monochrome: document.getElementById('batch-monochrome').checked,
+        monochrome_channel: document.getElementById('batch-monochrome-channel').value
     };
 
     const payload = {

@@ -27,6 +27,7 @@ A suite of Python scripts designed to automate the process of combining individu
 - **Accurate Density Inversion:** Uses true mathematical division for linear data, maintaining contrast across highlights and shadows.
 - **Auto-Levels & Tone Curve Control:** Removes remaining color casts (per-channel clipping), applies a viewing gamma (default 2.2), and supports optional photographic S-curves for punchy contrast.
 - **Auto-Cropping:** Option to physically crop or just ignore film holder borders during auto-level calculation.
+- **Black & White (Monochrome) Inversion:** Convert RGB scans to high-quality single-channel grayscale positives using weighted luminance, average, or single-channel extraction. Handles native single-channel inputs automatically.
 
 ## Prerequisites
 
@@ -170,6 +171,14 @@ python compositor.py -i /path/to/your/raw/files --neutralize --compress
 - The total number of RAW files in the directory **must be divisible by 3**. If you have misfires or test shots in the folder, remove them before running the script so the sequence isn't thrown off.
 - The script expects distinct RGB monochromatic light sources. If a shot is heavily mixed or exposed incorrectly, auto-detection may fail.
 
+### Black & White Film Scanning Best Practices
+
+When converting black and white film negatives, selecting the correct channel extraction method depends on your light source and hardware:
+
+* **Green Channel Method (Recommended for Bayer Sensors):** Digital camera sensors have double the density of green pixels compared to red or blue. Extracting only the green channel (`green`) yields the highest native spatial resolution, avoids demosaicing interpolation artifacts, and minimizes lens chromatic aberrations.
+* **Using RGB Monochromatic Light (e.g. Scanlight):** If your light source allows individual color channel adjustment, illuminate **only the Green LED** and scan in **Single-Shot** mode. Discarding Red and Blue completely eliminates color fringing and channel crosstalk.
+* **Using Standard White Light:** If scanning with a static white light pad, you can still use the **Green Channel** extraction method for maximum resolution. Alternatively, use the **Luminance** (`luminance`) method to combine channels into a traditional panchromatic tonal range.
+
 ### 4. Manual Inverting Composites
 
 The inverter script takes your 16-bit composite TIFFs (or single RAW DNGs) and accurately inverts them, normalizes levels, and applies gamma and contrast curves.
@@ -200,6 +209,8 @@ python inverter.py -i /path/to/your/Composites --compress --scurve 0.3 --autocro
 | `--margin` | `-m` | Fraction of outer edge to ignore when calculating levels (default: `0.03` = 3%). Prevents film holders from skewing brightness. |
 | `--autocrop` | `-a` | Physically crop off the outer margins defined by `--margin` from the final saved image. |
 | `--global-levels` | | Stretch levels globally instead of per-channel. Use this if you relied on the compositor's neutralization and want to perfectly maintain that color balance. |
+| `--monochrome` / `--bw` | | Convert output composite to monochrome / black and white positive. |
+| `--monochrome-channel` / `--bw-channel` | | Method to convert RGB to monochrome: `luminance` (standard weighted), `average`, `red`, `green` (recommended), or `blue`. |
 
 ## Credits & Attributions
 

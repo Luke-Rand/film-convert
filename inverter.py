@@ -5,7 +5,7 @@ import tifffile
 import argparse
 import rawpy
 
-def process_positives(input_path, output_dir=None, clip=0.1, gamma=2.2, compress_tiff=False, global_levels=False, ignore_margin=0.15, scurve=0.0, autocrop=False):
+def process_positives(input_path, output_dir=None, clip=0.1, gamma=2.2, compress_tiff=False, global_levels=False, ignore_margin=0.15, scurve=0.0, autocrop=False, monochrome=False, monochrome_channel="luminance"):
     """
     Processes 16-bit TIFF/DNG files: inverts, normalizes, applies gamma, crops, and saves.
     """
@@ -78,6 +78,23 @@ def process_positives(input_path, output_dir=None, clip=0.1, gamma=2.2, compress
             # Convert to float32
             img_float = img.astype(np.float32)
             
+            # --- STEP 0: MONOCHROME CONVERSION ---
+            is_monochrome = monochrome or (img_float.ndim == 2) or (img_float.ndim == 3 and img_float.shape[2] == 1)
+            
+            if is_monochrome and img_float.ndim == 3 and img_float.shape[2] > 1:
+                print(f"  -> Converting to monochrome using channel: {monochrome_channel}...")
+                if monochrome_channel == "red":
+                    img_float = img_float[:, :, 0]
+                elif monochrome_channel == "green":
+                    img_float = img_float[:, :, 1]
+                elif monochrome_channel == "blue":
+                    img_float = img_float[:, :, 2]
+                elif monochrome_channel == "average":
+                    img_float = np.mean(img_float, axis=2)
+                else: # "luminance" or fallback
+                    img_float = 0.299 * img_float[:, :, 0] + 0.587 * img_float[:, :, 1] + 0.114 * img_float[:, :, 2]
+
+            # --- STEP 1: INVERSION ---
             # True linear inversion: use division instead of subtraction for film density.
             # Set minimum value to 1.0 to avoid division by zero.
             img_float = 1.0 / np.maximum(img_float, 1.0)
@@ -99,7 +116,7 @@ def process_positives(input_path, output_dir=None, clip=0.1, gamma=2.2, compress
                 
             print(f"  -> Normalizing levels (clip={clip}%)...")
             
-            if global_levels:
+            if global_levels or is_monochrome:
                 # Global normalization
                 p_low = np.percentile(analysis_region, clip)
                 p_high = np.percentile(analysis_region, 100 - clip)
@@ -158,7 +175,8 @@ def process_positives(input_path, output_dir=None, clip=0.1, gamma=2.2, compress
             
             # Set up compression
             tiff_compression = 'zlib' if compress_tiff else None
-            tifffile.imwrite(output_filepath, final_img, photometric='rgb', compression=tiff_compression)
+            photometric = 'minisblack' if is_monochrome else 'rgb'
+            tifffile.imwrite(output_filepath, final_img, photometric=photometric, compression=tiff_compression)
             
             print(f"  -> Saved positive to: {out_filename}\n")
             
@@ -187,6 +205,11 @@ if __name__ == "__main__":
                         help="Physically crop off the outer margins defined by --margin from the final saved image.")
     parser.add_argument("--global-levels", action="store_true",
                         help="Stretch levels globally instead of per-channel. Use this if you relied on the compositor's neutralization and want to perfectly maintain that color balance.")
+    parser.add_argument("--monochrome", "--bw", action="store_true",
+                        help="Convert output composite to monochrome / black and white positive")
+    parser.add_argument("--monochrome-channel", "--bw-channel", type=str, default="luminance",
+                        choices=["luminance", "average", "red", "green", "blue"],
+                        help="Method to convert RGB to monochrome. Default: luminance (weighted). 'green' is recommended for high resolution on standard Bayer sensors.")
     
     args = parser.parse_args()
     
@@ -198,5 +221,7 @@ if __name__ == "__main__":
         global_levels=args.global_levels,
         ignore_margin=args.margin,
         scurve=args.scurve,
-        autocrop=args.autocrop
+        autocrop=args.autocrop,
+        monochrome=args.monochrome,
+        monochrome_channel=args.monochrome_channel
     )

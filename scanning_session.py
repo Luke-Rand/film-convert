@@ -42,6 +42,13 @@ def setup_session():
     fmt = input("Format (e.g., 135, 120): ").strip() 
     roll = input("Roll Number (e.g., 02): ").strip().zfill(2)
     
+    is_monochrome = input("Is this a Black & White film session? (y/n) [default: n]: ").strip().lower() == 'y'
+    monochrome_channel = "luminance"
+    if is_monochrome:
+        monochrome_channel = input("Choose monochrome conversion channel (luminance, average, red, green, blue) [default: luminance]: ").strip().lower()
+        if monochrome_channel not in ["luminance", "average", "red", "green", "blue"]:
+            monochrome_channel = "luminance"
+            
     folder_name = f"{stock}-{fmt}-{roll}"
     session_dir = os.path.join(root_folder, folder_name)
     
@@ -58,7 +65,7 @@ def setup_session():
         os.makedirs(d, exist_ok=True)
         
     print(f"\n✅ Session initialized at: {session_dir}")
-    return dirs, mode
+    return dirs, mode, is_monochrome, monochrome_channel
 
 def get_next_frame_number(dirs):
     """Figures out the next available frame number by looking at existing files in negatives, processed, and positives."""
@@ -82,7 +89,7 @@ def get_next_frame_number(dirs):
                     pass
     return max_num + 1
 
-def run_triplet_pipeline(dirs):
+def run_triplet_pipeline(dirs, is_mono, mono_chan):
     """Watches for RAW triplets, composites them, and inverts them."""
     print(f"\n🔥 TRIPLET PIPELINE ACTIVE 🔥")
     print(f"Monitoring: {dirs['negatives']}")
@@ -132,7 +139,9 @@ def run_triplet_pipeline(dirs):
                         global_levels=False,
                         ignore_margin=0.03,
                         scurve=0.0,
-                        autocrop=False
+                        autocrop=False,
+                        monochrome=is_mono,
+                        monochrome_channel=mono_chan
                     )
                     
                     # 3. Move original RAWs and intermediate composite out of the hot folder
@@ -158,7 +167,7 @@ def run_triplet_pipeline(dirs):
             print("\nExiting scanning session.")
             break
 
-def run_single_shot_pipeline(dirs):
+def run_single_shot_pipeline(dirs, is_mono, mono_chan):
     """Watches for single DNG/TIFF negatives and inverts them."""
     print(f"\n🔥 SINGLE-SHOT PIPELINE ACTIVE 🔥")
     print(f"Monitoring: {dirs['negatives']}")
@@ -197,7 +206,9 @@ def run_single_shot_pipeline(dirs):
                         global_levels=False, 
                         ignore_margin=0.03,
                         scurve=0.0,          
-                        autocrop=False
+                        autocrop=False,
+                        monochrome=is_mono,
+                        monochrome_channel=mono_chan
                     )
                     
                     # Move the original negative out of the hot folder
@@ -215,16 +226,16 @@ def run_single_shot_pipeline(dirs):
             print("\nExiting scanning session.")
             break
 
-def run_pipeline(dirs, mode):
+def run_pipeline(dirs, mode, is_mono, mono_chan):
     """Dispatches to the correct pipeline based on user's choice."""
     if mode == 'triplet':
-        run_triplet_pipeline(dirs)
+        run_triplet_pipeline(dirs, is_mono, mono_chan)
     elif mode == 'single':
-        run_single_shot_pipeline(dirs)
+        run_single_shot_pipeline(dirs, is_mono, mono_chan)
 
 if __name__ == "__main__":
     try:
-        session_dirs, mode = setup_session()
-        run_pipeline(session_dirs, mode)
+        session_dirs, mode, is_mono, mono_chan = setup_session()
+        run_pipeline(session_dirs, mode, is_mono, mono_chan)
     except KeyboardInterrupt:
         print("\nSession setup cancelled.")
