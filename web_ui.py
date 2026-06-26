@@ -53,7 +53,9 @@ class SessionManager:
             "global_levels": False,
             "compress_tiff": True,
             "neutralize": False,  # compositor neutralization
-            "align_channels": False
+            "align_channels": False,
+            "monochrome": False,
+            "monochrome_channel": "luminance"
         }
         self.logs = deque(maxlen=1000)
         self.monitor_thread = None
@@ -279,7 +281,9 @@ class SessionManager:
                                     global_levels=self.config["global_levels"],
                                     ignore_margin=self.config["margin"],
                                     scurve=self.config["scurve"],
-                                    autocrop=self.config["autocrop"]
+                                    autocrop=self.config["autocrop"],
+                                    monochrome=self.config.get("monochrome", False),
+                                    monochrome_channel=self.config.get("monochrome_channel", "luminance")
                                 )
                             
                             # 3. Move files
@@ -328,7 +332,9 @@ class SessionManager:
                                     global_levels=self.config["global_levels"],
                                     ignore_margin=self.config["margin"],
                                     scurve=self.config["scurve"],
-                                    autocrop=self.config["autocrop"]
+                                    autocrop=self.config["autocrop"],
+                                    monochrome=self.config.get("monochrome", False),
+                                    monochrome_channel=self.config.get("monochrome_channel", "luminance")
                                 )
                             
                             shutil.move(filepath, os.path.join(self.dirs['processed'], filename))
@@ -423,7 +429,9 @@ class SessionManager:
                             global_levels=self.config["global_levels"],
                             ignore_margin=self.config["margin"],
                             scurve=self.config["scurve"],
-                            autocrop=self.config["autocrop"]
+                            autocrop=self.config["autocrop"],
+                            monochrome=self.config.get("monochrome", False),
+                            monochrome_channel=self.config.get("monochrome_channel", "luminance")
                         )
                     self.log("Batch inversion complete!")
                     

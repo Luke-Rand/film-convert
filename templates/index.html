@@ -195,6 +195,27 @@
                                         <span>Correct minor camera shift between exposures</span>
                                     </div>
                                 </label>
+
+                                <label class="checkbox-container">
+                                    <input type="checkbox" id="config-monochrome" onchange="document.getElementById('config-monochrome-channel-group').style.display = this.checked ? 'block' : 'none'">
+                                    <span class="checkmark"></span>
+                                    <div class="checkbox-text">
+                                        <strong>Monochrome (B&W) Inversion</strong>
+                                        <span>Process image in grayscale mode for B&W film</span>
+                                    </div>
+                                </label>
+                            </div>
+
+                            <div class="form-group" id="config-monochrome-channel-group" style="display: none; margin-top: 1rem; border-top: 1px solid var(--border-color); padding-top: 1rem;">
+                                <label for="config-monochrome-channel">B&W Conversion Channel / Method</label>
+                                <select id="config-monochrome-channel" class="select-presets">
+                                    <option value="luminance" selected>Luminance (Weighted R+G+B) - Standard</option>
+                                    <option value="average">Average (Equal Mix R+G+B)</option>
+                                    <option value="green">Green Channel (Recommended for Sharpness)</option>
+                                    <option value="red">Red Channel</option>
+                                    <option value="blue">Blue Channel</option>
+                                </select>
+                                <span class="slider-desc">Specify how the RGB channels are mixed or extracted into monochrome.</span>
                             </div>
                         </div>
 
@@ -352,6 +373,24 @@
                                         <strong>Align RGB Channels</strong>
                                     </div>
                                 </label>
+                                <label class="checkbox-container">
+                                    <input type="checkbox" id="batch-monochrome" onchange="document.getElementById('batch-monochrome-channel-group').style.display = this.checked ? 'block' : 'none'">
+                                    <span class="checkmark"></span>
+                                    <div class="checkbox-text">
+                                        <strong>Monochrome (B&W)</strong>
+                                    </div>
+                                </label>
+                            </div>
+
+                            <div class="form-group" id="batch-monochrome-channel-group" style="display: none; margin-top: 1rem; border-top: 1px solid var(--border-color); padding-top: 1rem;">
+                                <label for="batch-monochrome-channel">B&W Conversion Channel / Method</label>
+                                <select id="batch-monochrome-channel" class="select-presets">
+                                    <option value="luminance" selected>Luminance (Weighted R+G+B) - Standard</option>
+                                    <option value="average">Average (Equal Mix R+G+B)</option>
+                                    <option value="green">Green Channel (Recommended for Sharpness)</option>
+                                    <option value="red">Red Channel</option>
+                                    <option value="blue">Blue Channel</option>
+                                </select>
                             </div>
                         </div>
 
