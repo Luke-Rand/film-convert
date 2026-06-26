@@ -223,12 +223,144 @@ class ScanlightUIController {
     this.loadPresetsFromStorage();
     this.bindEvents();
     this.updateControlsState();
+    this.initializeCustomSpinners();
     
     // Sync calibration button state
     this.isCalibrating = false;
     
     // Bind calibration event hook
     window.onTripletMeansReceived = (data) => this.handleCalibrationData(data);
+  }
+
+  initializeCustomSpinners() {
+    document.querySelectorAll(".num-input").forEach(input => {
+      // Avoid double wrapping if initialized twice
+      if (input.parentNode.classList.contains("num-input-wrapper")) return;
+
+      const wrapper = document.createElement("div");
+      wrapper.className = "num-input-wrapper";
+      
+      input.parentNode.insertBefore(wrapper, input);
+      wrapper.appendChild(input);
+
+      const spin = document.createElement("div");
+      spin.className = "num-input-spin";
+
+      const upBtn = document.createElement("button");
+      upBtn.type = "button";
+      upBtn.className = "spin-up";
+      upBtn.innerHTML = `<svg viewBox="0 0 24 24" width="10" height="10" stroke="currentColor" stroke-width="3.5" fill="none" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"></polyline></svg>`;
+
+      const downBtn = document.createElement("button");
+      downBtn.type = "button";
+      downBtn.className = "spin-down";
+      downBtn.innerHTML = `<svg viewBox="0 0 24 24" width="10" height="10" stroke="currentColor" stroke-width="3.5" fill="none" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>`;
+
+      spin.appendChild(upBtn);
+      spin.appendChild(downBtn);
+      wrapper.appendChild(spin);
+
+      const step = parseFloat(input.getAttribute("step")) || 1;
+      const min = input.getAttribute("min") !== null ? parseFloat(input.getAttribute("min")) : -Infinity;
+      const max = input.getAttribute("max") !== null ? parseFloat(input.getAttribute("max")) : Infinity;
+
+      const changeVal = (delta) => {
+        if (input.disabled || input.classList.contains("disabled-input")) return;
+        
+        let val = parseFloat(input.value);
+        if (isNaN(val)) val = min !== -Infinity ? min : 0;
+        let newVal = val + delta;
+
+        // Resolve floating point precision issues
+        const decimals = (step.toString().split('.')[1] || '').length;
+        if (decimals > 0) {
+          newVal = parseFloat(newVal.toFixed(decimals));
+        }
+
+        newVal = Math.min(Math.max(newVal, min), max);
+        input.value = newVal;
+
+        // Dispatch input & change events for reactive bindings
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+        input.dispatchEvent(new Event("change", { bubbles: true }));
+      };
+
+      let holdTimeout = null;
+      let holdInterval = null;
+      let holdTriggered = false;
+
+      const startHold = (delta) => {
+        stopHold();
+        if (input.disabled || input.classList.contains("disabled-input")) return;
+        holdTriggered = false;
+
+        holdTimeout = setTimeout(() => {
+          holdTriggered = true;
+          holdInterval = setInterval(() => {
+            if (input.disabled || input.classList.contains("disabled-input")) {
+              stopHold();
+              return;
+            }
+            changeVal(delta);
+          }, 60);
+        }, 350);
+      };
+
+      const stopHold = () => {
+        if (holdTimeout) {
+          clearTimeout(holdTimeout);
+          holdTimeout = null;
+        }
+        if (holdInterval) {
+          clearInterval(holdInterval);
+          holdInterval = null;
+        }
+      };
+
+      upBtn.tabIndex = "-1";
+      downBtn.tabIndex = "-1";
+
+      // Mouse Events
+      upBtn.addEventListener("mousedown", (e) => {
+        if (e.button === 0) startHold(step);
+      });
+      upBtn.addEventListener("mouseup", stopHold);
+      upBtn.addEventListener("mouseleave", stopHold);
+
+      downBtn.addEventListener("mousedown", (e) => {
+        if (e.button === 0) startHold(-step);
+      });
+      downBtn.addEventListener("mouseup", stopHold);
+      downBtn.addEventListener("mouseleave", stopHold);
+
+      // Touch Events
+      upBtn.addEventListener("touchstart", () => startHold(step), { passive: true });
+      upBtn.addEventListener("touchend", stopHold);
+      upBtn.addEventListener("touchcancel", stopHold);
+
+      downBtn.addEventListener("touchstart", () => startHold(-step), { passive: true });
+      downBtn.addEventListener("touchend", stopHold);
+      downBtn.addEventListener("touchcancel", stopHold);
+
+      // Click event fallback / absorption
+      upBtn.addEventListener("click", (e) => {
+        e.preventDefault();
+        if (holdTriggered) {
+          holdTriggered = false;
+          return;
+        }
+        changeVal(step);
+      });
+
+      downBtn.addEventListener("click", (e) => {
+        e.preventDefault();
+        if (holdTriggered) {
+          holdTriggered = false;
+          return;
+        }
+        changeVal(-step);
+      });
+    });
   }
 
   checkBrowserSupport() {
