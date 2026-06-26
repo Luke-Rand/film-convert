@@ -1219,6 +1219,97 @@ input[type="range"]::-webkit-slider-thumb:hover {
     border-color: var(--border-focus);
 }
 
+/* Custom spin buttons support */
+.num-input-wrapper {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    width: 78px;
+}
+
+.slider-header .num-input-wrapper .num-input,
+.modal-body .num-input-wrapper .num-input,
+.form-group .num-input-wrapper .num-input {
+    width: 100% !important;
+    padding-right: 25px !important;
+    padding-left: 0.35rem !important;
+    text-align: right;
+    box-sizing: border-box;
+}
+
+/* Hide standard spin buttons */
+.num-input::-webkit-outer-spin-button,
+.num-input::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+.num-input[type=number] {
+    -moz-appearance: textfield;
+}
+
+.num-input-spin {
+    position: absolute;
+    right: 1px;
+    top: 1px;
+    bottom: 1px;
+    width: 20px;
+    display: flex;
+    flex-direction: column;
+    border-left: 1px solid var(--border-color);
+    background-color: rgba(255, 255, 255, 0.01);
+    border-top-right-radius: var(--radius-sm);
+    border-bottom-right-radius: var(--radius-sm);
+    overflow: hidden;
+    transition: border-color var(--transition-fast);
+}
+
+.num-input:focus ~ .num-input-spin {
+    border-left-color: var(--border-focus);
+}
+
+.num-input-spin button {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 50%;
+    width: 100%;
+    border: none;
+    background: transparent;
+    color: var(--text-secondary);
+    cursor: pointer;
+    padding: 0;
+    transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.num-input-spin button:hover {
+    background-color: rgba(255, 255, 255, 0.08);
+    color: var(--text-primary);
+}
+
+.num-input-spin button:active {
+    background-color: rgba(255, 255, 255, 0.15);
+}
+
+.num-input-spin .spin-up {
+    border-bottom: 1px solid var(--border-color);
+}
+
+.num-input:focus ~ .num-input-spin .spin-up {
+    border-bottom-color: var(--border-focus);
+}
+
+.num-input:disabled ~ .num-input-spin button,
+.num-input.disabled-input ~ .num-input-spin button {
+    opacity: 0.3;
+    cursor: not-allowed;
+    pointer-events: none;
+}
+
+.num-input:disabled ~ .num-input-spin,
+.num-input.disabled-input ~ .num-input-spin {
+    border-left-color: var(--border-color) !important;
+}
+
 /* Preset selection elements */
 .select-presets {
     width: 100%;
