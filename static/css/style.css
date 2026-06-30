@@ -557,6 +557,17 @@ input[type="range"]::-webkit-slider-thumb:hover {
     border-color: var(--text-secondary);
 }
 
+.btn-danger {
+    background-color: rgba(200, 40, 40, 0.25);
+    border-color: rgba(220, 60, 60, 0.6);
+    color: #ff7070;
+}
+
+.btn-danger:hover {
+    background-color: rgba(200, 40, 40, 0.4);
+    border-color: rgba(220, 60, 60, 0.9);
+}
+
 .btn-large {
     padding: 1rem 1.5rem;
     font-size: 1rem;
@@ -1406,5 +1417,196 @@ input[type="range"]::-webkit-slider-thumb:hover {
     font-family: var(--font-mono);
     color: var(--text-primary);
 }
+/* 3-Column Workspace Layout for Live Capture Studio */
+.grid-layout-3 {
+    display: grid;
+    grid-template-columns: 1.3fr 0.95fr 0.95fr;
+    gap: 1.5rem;
+    min-height: 0;
+}
 
+@media (max-width: 1200px) {
+    .grid-layout-3 {
+        grid-template-columns: 1fr;
+    }
+}
 
+/* Live View Elements */
+.liveview-card {
+    display: flex;
+    flex-direction: column;
+}
+
+.liveview-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.75rem;
+}
+
+.liveview-controls-header {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+}
+
+.liveview-container {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 4 / 3;
+    background: #090d16;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.liveview-container img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+}
+
+.liveview-placeholder {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-muted);
+}
+
+.placeholder-content {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.placeholder-icon {
+    font-size: 2rem;
+    opacity: 0.5;
+}
+
+/* Badges for Camera Status */
+.camera-badge {
+    padding: 0.2rem 0.5rem;
+    border-radius: 4px;
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.badge-simulated {
+    background: rgba(245, 158, 11, 0.15);
+    color: #f59e0b;
+    border: 1px solid rgba(245, 158, 11, 0.3);
+}
+
+.badge-connected {
+    background: rgba(16, 185, 129, 0.15);
+    color: #10b981;
+    border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
+.badge-disconnected {
+    background: rgba(239, 68, 68, 0.15);
+    color: #ef4444;
+    border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+/* Switches (iOS style) */
+.switch-container {
+    position: relative;
+    display: inline-block;
+    width: 2.2rem;
+    height: 1.25rem;
+}
+
+.switch-container input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+
+.switch-slider {
+    position: absolute;
+    cursor: pointer;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: #334155;
+    transition: .3s;
+    border-radius: 20px;
+}
+
+.switch-slider:before {
+    position: absolute;
+    content: "";
+    height: 0.95rem;
+    width: 0.95rem;
+    left: 0.15rem;
+    bottom: 0.15rem;
+    background-color: white;
+    transition: .3s;
+    border-radius: 50%;
+}
+
+input:checked + .switch-slider {
+    background-color: var(--accent-blue);
+}
+
+input:checked + .switch-slider:before {
+    transform: translateX(0.95rem);
+}
+
+.switch-label {
+    font-size: 0.8rem;
+    font-weight: 500;
+    color: var(--text-secondary);
+}
+
+/* Histogram styling */
+.histogram-canvas {
+    width: 100%;
+    height: 120px;
+    background: #070a13;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    display: block;
+}
+
+.btn-capture {
+    background: linear-gradient(135deg, var(--accent-blue) 0%, #1d4ed8 100%);
+    box-shadow: 0 4px 12px var(--accent-blue-glow);
+    transition: var(--transition-normal);
+}
+
+.btn-capture:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 6px 16px var(--accent-blue-glow);
+}
+
+/* Mini layouts */
+.checkbox-grid-mini {
+    margin: 0.75rem 0;
+}
+
+.checkbox-container-mini span {
+    color: var(--text-secondary);
+}
+
+.card-header-with-action {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.75rem;
+}
+
+.card-header-with-action h3 {
+    margin: 0;
+}

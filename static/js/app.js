@@ -18,6 +18,9 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // Connect to real-time event stream
     connectSSE();
+
+    // Initialize Camera UI
+    initCameraUI();
 });
 
 // Real-Time Server-Sent Events (SSE) Connection
@@ -110,6 +113,22 @@ function switchTab(tabId) {
     if (tabId === 'gallery') {
         refreshFiles();
     }
+    
+    // Camera live view tab management
+    if (tabId === 'scanner') {
+        initCameraUI();
+    } else {
+        // Auto-pause live view when switching away to preserve camera battery
+        const toggle = document.getElementById('camera-liveview-toggle');
+        if (toggle && toggle.checked) {
+            toggle.checked = false;
+            toggleCameraLiveview(false);
+        }
+        if (cameraStatusInterval) {
+            clearInterval(cameraStatusInterval);
+            cameraStatusInterval = null;
+        }
+    }
 }
 
 // Slider value displays
@@ -160,6 +179,19 @@ function toggleBatchSettings() {
         arrow.textContent = '▼';
     }
 }
+
+function toggleScannerSettings() {
+    const panel = document.getElementById('scanner-settings-panel');
+    const arrow = document.getElementById('scanner-settings-arrow');
+    if (panel.classList.contains('hidden')) {
+        panel.classList.remove('hidden');
+        arrow.textContent = '▲';
+    } else {
+        panel.classList.add('hidden');
+        arrow.textContent = '▼';
+    }
+}
+
 
 // Update description of batch task on radio select
 function updateBatchTaskDesc() {
@@ -241,6 +273,9 @@ function updateStatusUI(data) {
             runBtn.textContent = "🚀 Execute Batch Process";
         }
     }
+    
+    // Sync mini light controls status
+    syncMiniScanlightUI();
 }
 
 // Freeze forms when running
@@ -869,4 +904,456 @@ function confirmFolderSelection() {
         input.dispatchEvent(new Event('change', { bubbles: true }));
     }
     closeFolderBrowser();
+}
+
+// ==========================================
+// CAMERA LIVE VIEW & HISTOGRAM MODULE
+// ==========================================
+
+let isLiveviewActive = false;
+let histogramCanvas = null;
+let histogramCtx = null;
+let liveviewImg = null;
+let offscreenCanvas = null;
+let offscreenCtx = null;
+let liveviewTimeout = null;
+let cameraStatusInterval = null;
+
+// Initialize camera controls and fetch status
+function initCameraUI() {
+    histogramCanvas = document.getElementById('camera-histogram-canvas');
+    if (histogramCanvas) {
+        histogramCtx = histogramCanvas.getContext('2d');
+    }
+    
+    liveviewImg = document.getElementById('camera-liveview-img');
+    
+    // Create high-performance offscreen canvas for sampling
+    offscreenCanvas = document.createElement('canvas');
+    offscreenCtx = offscreenCanvas.getContext('2d');
+
+    // Always reset live view toggle to OFF on init — the server starts with live view off
+    // and we don't want a stale checked state from a previous page load.
+    const toggle = document.getElementById('camera-liveview-toggle');
+    if (toggle && toggle.checked) {
+        toggle.checked = false;
+    }
+    if (isLiveviewActive) {
+        isLiveviewActive = false;
+        if (liveviewTimeout) { clearTimeout(liveviewTimeout); liveviewTimeout = null; }
+        const img = document.getElementById('camera-liveview-img');
+        const placeholder = document.getElementById('liveview-placeholder');
+        if (img) img.style.display = 'none';
+        if (placeholder) placeholder.style.display = 'flex';
+    }
+    
+    // Sync Mini Scanlight sliders with Scanlight tab controllers if available
+    syncMiniScanlightUI();
+
+    // Fetch active camera property dropdowns
+    fetchCameraStatus();
+    
+    // Poll camera status every 3 seconds to sync physical dials and connection changes
+    if (cameraStatusInterval) clearInterval(cameraStatusInterval);
+    cameraStatusInterval = setInterval(fetchCameraStatus, 3000);
+}
+
+
+// Fetch camera connection status and configure properties
+function fetchCameraStatus() {
+    fetch('/api/camera/status')
+        .then(res => res.json())
+        .then(data => {
+            const badge = document.getElementById('camera-status-badge');
+            if (badge) {
+                badge.className = 'camera-badge';
+                if (!data.connected) {
+                    badge.classList.add('badge-disconnected');
+                    badge.textContent = 'Disconnected';
+                } else if (data.simulated) {
+                    badge.classList.add('badge-simulated');
+                    badge.textContent = 'Simulated';
+                } else {
+                    badge.classList.add('badge-connected');
+                    badge.textContent = 'Connected';
+                }
+            }
+
+            // Populate property selects
+            populateCameraSelect('camera-iso-select', data.settings.iso, data.choices.iso);
+            populateCameraSelect('camera-aperture-select', data.settings.aperture, data.choices.aperture);
+            populateCameraSelect('camera-shutter-select', data.settings.shutterspeed, data.choices.shutterspeed);
+        })
+        .catch(err => console.error("Error fetching camera status:", err));
+}
+
+function populateCameraSelect(elemId, activeVal, choices) {
+    const select = document.getElementById(elemId);
+    if (!select) return;
+    
+    // Save current selection if active to avoid cursor reset during polling
+    const userVal = select.value;
+    select.innerHTML = '';
+    
+    if (!choices || choices.length === 0) {
+        const opt = document.createElement('option');
+        opt.value = activeVal || '';
+        opt.textContent = activeVal || 'Not Supported';
+        select.appendChild(opt);
+        select.disabled = true;
+        return;
+    }
+    
+    select.disabled = false;
+    choices.forEach(val => {
+        const opt = document.createElement('option');
+        opt.value = val;
+        opt.textContent = val;
+        // Prefer user selection if still valid, otherwise fall back to backend state
+        const targetVal = (userVal && choices.includes(userVal)) ? userVal : activeVal;
+        if (targetVal && val.toString().toLowerCase() === targetVal.toString().toLowerCase()) {
+            opt.selected = true;
+        }
+        select.appendChild(opt);
+    });
+}
+
+// Update camera properties on backend
+function setCameraConfig(name, value) {
+    if (!value) return;
+    appendLogLine(`[Client] Updating camera ${name} to ${value}...`);
+    
+    fetch('/api/camera/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: name, value: value })
+    })
+    .then(res => res.json())
+    .then(data => {
+        if (data.success) {
+            appendLogLine(`[Client] Camera ${name} updated successfully.`);
+            fetchCameraStatus(); // refresh values
+        } else {
+            appendLogLine(`[Client] Error updating camera ${name}: ${data.message}`);
+            alert(`Error: ${data.message}`);
+        }
+    })
+    .catch(err => console.error("Error updating config:", err));
+}
+
+// Toggle Live View streaming state
+function toggleCameraLiveview(active) {
+    isLiveviewActive = active;
+    
+    const img = document.getElementById('camera-liveview-img');
+    const placeholder = document.getElementById('liveview-placeholder');
+    
+    fetch('/api/camera/toggle_liveview', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ active: active })
+    })
+    .then(res => res.json())
+    .then(data => {
+        if (!data.success) {
+            console.error("Failed to toggle live view state on server.");
+            return;
+        }
+        
+        if (active) {
+            if (placeholder) placeholder.style.display = 'none';
+            if (img) img.style.display = 'block';
+            
+            // Start the static polling loop to get real-time frames
+            if (liveviewTimeout) clearTimeout(liveviewTimeout);
+            pollLiveviewFrame();
+        } else {
+            if (img) {
+                img.style.display = 'none';
+                img.src = '';
+            }
+            if (placeholder) placeholder.style.display = 'flex';
+            if (liveviewTimeout) {
+                clearTimeout(liveviewTimeout);
+                liveviewTimeout = null;
+            }
+            clearHistogramCanvas();
+        }
+    })
+    .catch(err => console.error("Error toggling live view:", err));
+}
+
+// Polling live view static frame loop (solves MJPEG canvas update bugs)
+function pollLiveviewFrame() {
+    if (!isLiveviewActive) return;
+    
+    const img = document.getElementById('camera-liveview-img');
+    if (!img) return;
+    
+    const startTime = Date.now();
+    
+    // Create temporary image object to load the frame fully before displaying
+    const tempImg = new Image();
+    tempImg.onload = () => {
+        if (!isLiveviewActive) return;
+        
+        // Update visible image element
+        img.src = tempImg.src;
+        
+        // Draw onto offscreen canvas for real-time pixel extraction
+        offscreenCanvas.width = 128;
+        offscreenCanvas.height = 96;
+        offscreenCtx.drawImage(tempImg, 0, 0, 128, 96);
+        
+        try {
+            const imgData = offscreenCtx.getImageData(0, 0, 128, 96);
+            const pixels = imgData.data;
+            
+            const rHist = new Array(256).fill(0);
+            const gHist = new Array(256).fill(0);
+            const bHist = new Array(256).fill(0);
+            
+            for (let i = 0; i < pixels.length; i += 4) {
+                rHist[pixels[i]]++;
+                gHist[pixels[i+1]]++;
+                bHist[pixels[i+2]]++;
+            }
+            
+            renderRGBHistogram(rHist, gHist, bHist);
+        } catch (e) {
+            console.error("Histogram parsing failed:", e);
+        }
+        
+        // Schedule next frame poll at ~25 FPS
+        const elapsed = Date.now() - startTime;
+        const delay = Math.max(5, 40 - elapsed);
+        liveviewTimeout = setTimeout(pollLiveviewFrame, delay);
+    };
+    
+    tempImg.onerror = () => {
+        if (!isLiveviewActive) return;
+        // Retry shortly after error
+        liveviewTimeout = setTimeout(pollLiveviewFrame, 500);
+    };
+    
+    // Append timestamp cache-buster to fetch fresh frame
+    tempImg.src = '/api/camera/frame?t=' + Date.now();
+}
+
+// Manual raw image capture
+function triggerCameraCapture() {
+    const btn = document.getElementById('btn-camera-capture');
+    if (btn) btn.disabled = true;
+    
+    appendLogLine("[Client] Triggering capture command...");
+    
+    fetch('/api/camera/capture', { method: 'POST' })
+    .then(res => res.json())
+    .then(data => {
+        if (data.success) {
+            appendLogLine(`[Client] Capture completed. Saved to: ${data.path}`);
+        } else {
+            appendLogLine(`[Client] Capture failed: ${data.message}`);
+            alert(`Capture error: ${data.message}`);
+        }
+    })
+    .catch(err => {
+        console.error("Capture trigger error:", err);
+        appendLogLine(`[Client] Network error during capture trigger.`);
+    })
+    .finally(() => {
+        if (btn) btn.disabled = false;
+    });
+}
+
+function renderRGBHistogram(rHist, gHist, bHist) {
+    if (!histogramCtx || !histogramCanvas) return;
+    
+    const w = histogramCanvas.width;
+    const h = histogramCanvas.height;
+    
+    // Clear canvas
+    histogramCtx.clearRect(0, 0, w, h);
+    
+    // Find maximum count for scaling
+    const maxVal = Math.max(...rHist, ...gHist, ...bHist) || 1;
+    
+    // Setup composite screen blending to draw overlapping semi-transparent channel graphs
+    histogramCtx.globalCompositeOperation = 'screen';
+    
+    const channels = [
+        { data: rHist, fill: 'rgba(239, 68, 68, 0.35)', stroke: '#ef4444' }, // Red
+        { data: gHist, fill: 'rgba(34, 197, 94, 0.35)', stroke: '#22c55e' }, // Green
+        { data: bHist, fill: 'rgba(59, 130, 246, 0.35)', stroke: '#3b82f6' }  // Blue
+    ];
+    
+    channels.forEach(ch => {
+        histogramCtx.beginPath();
+        histogramCtx.moveTo(0, h);
+        
+        for (let x = 0; x < 256; x++) {
+            const val = ch.data[x];
+            const px = (x / 255) * w;
+            const py = h - (val / maxVal) * (h - 10);
+            histogramCtx.lineTo(px, py);
+        }
+        
+        histogramCtx.lineTo(w, h);
+        histogramCtx.closePath();
+        
+        // Fill area
+        histogramCtx.fillStyle = ch.fill;
+        histogramCtx.fill();
+        
+        // Draw path outline
+        histogramCtx.lineWidth = 1.5;
+        histogramCtx.strokeStyle = ch.stroke;
+        histogramCtx.stroke();
+    });
+    
+    // Reset blending mode
+    histogramCtx.globalCompositeOperation = 'source-over';
+}
+
+function clearHistogramCanvas() {
+    if (histogramCtx && histogramCanvas) {
+        histogramCtx.clearRect(0, 0, histogramCanvas.width, histogramCanvas.height);
+    }
+}
+
+// Sync Mini-Scanlight UI with active global ScanlightController
+function syncMiniScanlightUI() {
+    const statusText = document.getElementById('mini-sl-status-text');
+    if (!statusText) return;
+    
+    const isConnected = window.scanlightController && window.scanlightController.connected;
+    
+    if (isConnected) {
+        statusText.innerHTML = 'Status: <span style="color: var(--accent-green); font-weight: 600;">Connected</span>';
+        document.getElementById('btn-mini-sl-connect').textContent = 'Disconnect';
+    } else {
+        statusText.innerHTML = 'Status: <span style="color: var(--accent-red); font-weight: 600;">Disconnected</span>';
+        document.getElementById('btn-mini-sl-connect').textContent = 'Connect Light';
+    }
+    
+    if (window.scanlightController) {
+        // Sync values
+        const r = window.scanlightController.red;
+        const g = window.scanlightController.green;
+        const b = window.scanlightController.blue;
+        
+        const rEl = document.getElementById('mini-sl-red');
+        if (rEl) {
+            rEl.value = r;
+            document.getElementById('val-mini-sl-red').textContent = r;
+        }
+        
+        const gEl = document.getElementById('mini-sl-green');
+        if (gEl) {
+            gEl.value = g;
+            document.getElementById('val-mini-sl-green').textContent = g;
+        }
+        
+        const bEl = document.getElementById('mini-sl-blue');
+        if (bEl) {
+            bEl.value = b;
+            document.getElementById('val-mini-sl-blue').textContent = b;
+        }
+    }
+}
+
+function toggleMiniScanlightConnection() {
+    if (window.scanlightController) {
+        window.scanlightController.toggleConnection()
+            .then(() => {
+                setTimeout(syncMiniScanlightUI, 100);
+            })
+            .catch(err => {
+                alert("Scanlight connection failed: " + err);
+                syncMiniScanlightUI();
+            });
+    } else {
+        alert("Scanlight controller script is not loaded.");
+    }
+}
+
+function updateMiniScanlightColor(channel, value) {
+    document.getElementById(`val-mini-sl-${channel}`).textContent = value;
+    
+    if (window.scanlightController) {
+        window.scanlightController[channel] = parseInt(value);
+        
+        // Sync slider in main scanlight tab if present
+        const mainSlider = document.getElementById(`scanlight-${channel}-slider`);
+        const mainInput = document.getElementById(`scanlight-${channel}-val`);
+        if (mainSlider) mainSlider.value = value;
+        if (mainInput) mainInput.value = value;
+        
+        window.scanlightController.updateColor();
+        
+        // Notify mock backend for simulated camera shifts
+        fetch('/api/camera/update_mock_leds', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                red: window.scanlightController.red,
+                green: window.scanlightController.green,
+                blue: window.scanlightController.blue
+            })
+        }).catch(err => console.error(err));
+    }
+}
+
+function applyMiniScanlightPreset(channels) {
+    if (window.scanlightController) {
+        window.scanlightController.setEnabledChannels(channels);
+        setTimeout(syncMiniScanlightUI, 50);
+        
+        // Notify mock backend for simulated camera shifts
+        fetch('/api/camera/update_mock_leds', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                red: window.scanlightController.red * channels[0],
+                green: window.scanlightController.green * channels[1],
+                blue: window.scanlightController.blue * channels[2]
+            })
+        }).catch(err => console.error(err));
+    }
+}
+
+function runMiniScanlightSequence(sequenceName) {
+    if (!window.scanlightController) {
+        alert('Scanlight controller script is not loaded.');
+        return;
+    }
+    if (!window.scanlightController.connected) {
+        alert('Scanlight is not connected. Please connect the light first.');
+        return;
+    }
+    if (window.scanlightController.isSequenceRunning) {
+        // Cancel if already running
+        window.scanlightController.isSequenceRunning = false;
+        return;
+    }
+    const btn = document.getElementById('btn-mini-seq-rgb');
+    if (btn) {
+        btn.textContent = '⏹ Stop Sequence';
+        btn.classList.add('btn-danger');
+        btn.classList.remove('btn-primary');
+    }
+    window.scanlightController.runSequence(sequenceName)
+        .finally(() => {
+            if (btn) {
+                btn.textContent = '▶ Auto R → G → B';
+                btn.classList.remove('btn-danger');
+                btn.classList.add('btn-primary');
+            }
+            syncMiniScanlightUI();
+        });
+}
+
+function updateScannerModeUI(value) {
+    // Sync to backend config trigger
+    appendLogLine(`[Client] Changed capture mode to: ${value}`);
 }

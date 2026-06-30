@@ -1130,8 +1130,10 @@ class ScanlightUIController {
   }
 }
 
-// Instantiate global scanlight controller
+// Instantiate global scanlight controller and expose on window for app.js
 const scanlightController = new ScanlightUIController();
+window.scanlightController = scanlightController;
+
 
 document.addEventListener("DOMContentLoaded", () => {
   scanlightController.init();
