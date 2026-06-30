@@ -62,6 +62,7 @@
                             <div class="liveview-header">
                                 <h3 class="card-title">Live View</h3>
                                 <div class="liveview-controls-header">
+                                    <button class="btn btn-secondary btn-small" id="btn-margin-overlay" onclick="toggleMarginOverlay()" title="Toggle margin overlay" style="font-size: 0.7rem; padding: 0.2rem 0.5rem;">📐 Margins</button>
                                     <span class="camera-badge badge-simulated" id="camera-status-badge">Simulated</span>
                                     <label class="switch-container">
                                         <input type="checkbox" id="camera-liveview-toggle" onchange="toggleCameraLiveview(this.checked)">
@@ -73,6 +74,8 @@
                             
                             <div class="liveview-container">
                                 <img id="camera-liveview-img" src="" alt="Camera Live View Feed" style="display: none;">
+                                <!-- Margin overlay: inset box-shadow covers the ignored outer margin area -->
+                                <div id="margin-overlay" class="margin-overlay" style="display: none;"></div>
                                 <div id="liveview-placeholder" class="liveview-placeholder">
                                     <div class="placeholder-content">
                                         <span class="placeholder-icon">📷</span>
@@ -295,7 +298,8 @@
                                         <label for="config-margin">Ignore Outer Margins</label>
                                         <span class="slider-value" id="val-margin">3%</span>
                                     </div>
-                                    <input type="range" id="config-margin" min="0.0" max="0.3" step="0.01" value="0.03" oninput="updateSliderVal('margin')">
+                                    <input type="range" id="config-margin" min="0.0" max="0.3" step="0.01" value="0.03" oninput="updateSliderVal('margin'); updateMarginOverlay();">
+
                                 </div>
                             </div>
                             <div class="checkbox-grid" style="margin-top: 0.5rem;">

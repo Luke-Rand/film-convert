@@ -167,6 +167,95 @@ function updateSliderVal(id) {
     }
 }
 
+// --- Margin Overlay ---
+let marginOverlayVisible = false;
+
+function toggleMarginOverlay() {
+    marginOverlayVisible = !marginOverlayVisible;
+    const overlay = document.getElementById('margin-overlay');
+    const btn = document.getElementById('btn-margin-overlay');
+    if (!overlay) return;
+    if (marginOverlayVisible) {
+        updateMarginOverlay();
+        overlay.style.display = 'block';
+        if (btn) btn.classList.add('overlay-active');
+    } else {
+        overlay.style.display = 'none';
+        if (btn) btn.classList.remove('overlay-active');
+    }
+}
+
+function getContainedImageBounds(img, tempImg = null) {
+    if (!img) return null;
+    const container = img.parentElement;
+    if (!container) return null;
+    
+    const containerWidth = container.clientWidth;
+    const containerHeight = container.clientHeight;
+    
+    const sourceImg = tempImg || img;
+    if (img.style.display === 'none' || !img.src || !sourceImg.naturalWidth || !sourceImg.naturalHeight) {
+        return {
+            left: 0,
+            top: 0,
+            width: containerWidth,
+            height: containerHeight
+        };
+    }
+    
+    const imageRatio = sourceImg.naturalWidth / sourceImg.naturalHeight;
+    const containerRatio = containerWidth / containerHeight;
+    
+    let w, h, l, t;
+    if (imageRatio > containerRatio) {
+        // Image is wider than container (letterbox top/bottom)
+        w = containerWidth;
+        h = containerWidth / imageRatio;
+        l = 0;
+        t = (containerHeight - h) / 2;
+    } else {
+        // Image is taller than container (letterbox sides)
+        h = containerHeight;
+        w = containerHeight * imageRatio;
+        l = (containerWidth - w) / 2;
+        t = 0;
+    }
+    
+    return { left: l, top: t, width: w, height: h };
+}
+
+function updateMarginOverlay(tempImg = null) {
+    if (!marginOverlayVisible) return;
+    const overlay = document.getElementById('margin-overlay');
+    if (!overlay) return;
+    
+    const img = document.getElementById('camera-liveview-img');
+    const bounds = getContainedImageBounds(img, tempImg);
+    
+    if (bounds) {
+        overlay.style.left = bounds.left + 'px';
+        overlay.style.top = bounds.top + 'px';
+        overlay.style.width = bounds.width + 'px';
+        overlay.style.height = bounds.height + 'px';
+    }
+    
+    const marginSlider = document.getElementById('config-margin');
+    const marginFraction = marginSlider ? parseFloat(marginSlider.value) : 0.03;
+    const pct = (marginFraction * 100).toFixed(1) + '%';
+    overlay.style.setProperty('--margin-px', pct);
+    overlay.style.boxShadow = `inset 0 0 0 ${pct} rgba(0,0,0,0.55)`;
+}
+
+// Keep overlay updated on window resize
+window.addEventListener('resize', () => {
+    if (marginOverlayVisible) {
+        updateMarginOverlay();
+    }
+});
+
+
+
+
 // Toggle batch settings panel
 function toggleBatchSettings() {
     const panel = document.getElementById('batch-settings-panel');
@@ -1078,6 +1167,9 @@ function toggleCameraLiveview(active) {
                 liveviewTimeout = null;
             }
             clearHistogramCanvas();
+            if (marginOverlayVisible) {
+                updateMarginOverlay();
+            }
         }
     })
     .catch(err => console.error("Error toggling live view:", err));
@@ -1099,6 +1191,12 @@ function pollLiveviewFrame() {
         
         // Update visible image element
         img.src = tempImg.src;
+        
+        // Update margin overlay position and sizing to match actual frame bounds
+        if (marginOverlayVisible) {
+            updateMarginOverlay(tempImg);
+        }
+
         
         // Draw onto offscreen canvas for real-time pixel extraction
         offscreenCanvas.width = 128;

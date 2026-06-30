@@ -1463,6 +1463,35 @@ input[type="range"]::-webkit-slider-thumb:hover {
     justify-content: center;
 }
 
+/* Margin overlay — covers the ignored outer margin with a dimmed inset */
+.margin-overlay {
+    position: absolute;
+    pointer-events: none;
+    z-index: 10;
+    /* Box-shadow inset creates 4 darkened strips; --margin-px is set by JS */
+    box-shadow: inset 0 0 0 var(--margin-px, 5%) rgba(0, 0, 0, 0.55);
+    border: none;
+}
+
+/* Dashed inner guide line marking the active scan area edge */
+.margin-overlay::after {
+    content: '';
+    position: absolute;
+    inset: var(--margin-px, 5%);
+    border: 1.5px dashed rgba(255, 220, 80, 0.75);
+    border-radius: 2px;
+    box-shadow: 0 0 6px rgba(255, 220, 80, 0.3);
+    pointer-events: none;
+}
+
+/* Active state: slightly brighter indicator on the toggle button */
+#btn-margin-overlay.overlay-active {
+    background: rgba(255, 220, 80, 0.15);
+    border-color: rgba(255, 220, 80, 0.5);
+    color: #ffdc50;
+}
+
+
 .liveview-container img {
     width: 100%;
     height: 100%;

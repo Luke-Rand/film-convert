@@ -6,6 +6,8 @@ A suite of Python scripts designed to automate the process of combining individu
 
 ### Web User Interface (`web_ui.py`)
 - **Visual Control Panel:** Set directories, select scanning modes, and fine-tune gamma, clipping, margin parameters, and tone curves interactively.
+- **Tethered Camera Controls (New):** Connect, configure, and control physical digital cameras (e.g. Canon EOS RP via `libgphoto2`). Stream live view previews directly to the browser, adjust ISO, Aperture, and Shutter Speed, and trigger raw captures. Includes background daemon release for macOS system processes (like `ptpcamerad`).
+- **Interactive Crop Guide Overlay (New):** Toggle a visual boundary overlay indicating the exact border crop area (configured via "Ignore Outer Margins") mapped precisely to the camera's contained aspect-ratio.
 - **Real-Time Feed:** Stream process log updates dynamically to an event console and browse output positive files in a session gallery.
 - **On-the-Fly Previews:** Dynamic resizing and rendering of 16-bit TIFF composites directly to standard JPEG in the browser without writing duplicate files to disk.
 - **Manual Batch Jobs:** Execute bulk compositing or inversions on-demand on existing film folders.
@@ -34,6 +36,8 @@ A suite of Python scripts designed to automate the process of combining individu
 - Python 3.7+
 - Required Python packages: `rawpy`, `numpy`, `tifffile`
 - Optional Web UI packages: `flask`, `pillow`
+- Optional Camera Tethering packages: `gphoto2` (requires system `libgphoto2`)
+
 
 ## Installation
 
@@ -63,6 +67,21 @@ pip install rawpy numpy tifffile
 ```bash
 pip install -r requirements-web.txt
 ```
+
+*(Optional) If you want physical camera tethering / live view support:*
+
+First, install the `gphoto2` system libraries:
+- **macOS (via Homebrew):** `brew install gphoto2`
+- **Linux (Debian/Ubuntu):** `sudo apt install gphoto2 libgphoto2-dev`
+
+Then, install the Python bindings:
+```bash
+pip install gphoto2
+```
+
+> [!NOTE]
+> **macOS USB Connection Notice:** macOS has a built-in background daemon (`ptpcamerad`) that immediately claims any DSLR/mirrorless camera plugged in via USB, which blocks third-party apps like `libgphoto2`. The Web UI automatically runs a background daemon release script to kill `ptpcamerad` when launching. If you still encounter `-53 (Could not claim the USB device)` or `-10 (Timeout)` connection errors, try turning the camera off and on again.
+
 
 ## Usage
 
