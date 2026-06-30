@@ -21,6 +21,29 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Initialize Camera UI
     initCameraUI();
+
+    // Restore camera/light/liveview visibility selections from localStorage
+    const showLiveview = localStorage.getItem('show-liveview-controls') !== 'false';
+    const showCamera = localStorage.getItem('show-camera-controls') !== 'false';
+    const showLight = localStorage.getItem('show-light-controls') !== 'false';
+    
+    const liveviewCheckbox = document.getElementById('ui-show-liveview');
+    const camCheckbox = document.getElementById('ui-show-camera');
+    const lightCheckbox = document.getElementById('ui-show-light');
+    
+    // We toggle liveview first, then camera, then light so grid updates correctly
+    if (liveviewCheckbox) {
+        liveviewCheckbox.checked = showLiveview;
+        toggleUiSection('liveview', showLiveview);
+    }
+    if (camCheckbox) {
+        camCheckbox.checked = showCamera;
+        toggleUiSection('camera', showCamera);
+    }
+    if (lightCheckbox) {
+        lightCheckbox.checked = showLight;
+        toggleUiSection('light', showLight);
+    }
 });
 
 // Real-Time Server-Sent Events (SSE) Connection
@@ -1455,3 +1478,59 @@ function updateScannerModeUI(value) {
     // Sync to backend config trigger
     appendLogLine(`[Client] Changed capture mode to: ${value}`);
 }
+
+function toggleUiSection(section, show) {
+    if (section === 'liveview') {
+        const colLiveview = document.getElementById('scanner-col-liveview');
+        if (colLiveview) {
+            colLiveview.style.display = show ? 'block' : 'none';
+        }
+        // Auto-disable live view streaming if panel is hidden to save resources
+        if (!show) {
+            const toggle = document.getElementById('camera-liveview-toggle');
+            if (toggle && toggle.checked) {
+                toggle.checked = false;
+                toggleCameraLiveview(false);
+            }
+        }
+    } else {
+        const card = section === 'camera' ? document.getElementById('card-camera-exposure') : document.getElementById('card-light-source');
+        if (card) {
+            card.style.display = show ? 'block' : 'none';
+        }
+    }
+    
+    // Check all checkbox states
+    const showLiveview = document.getElementById('ui-show-liveview') ? document.getElementById('ui-show-liveview').checked : true;
+    const showCamera = document.getElementById('ui-show-camera') ? document.getElementById('ui-show-camera').checked : true;
+    const showLight = document.getElementById('ui-show-light') ? document.getElementById('ui-show-light').checked : true;
+    
+    const colControls = document.getElementById('scanner-col-controls');
+    const grid = document.querySelector('.grid-layout-3');
+    
+    // Column 2 (Controls) visibility
+    const showColControls = showCamera || showLight;
+    if (colControls) {
+        colControls.style.display = showColControls ? 'block' : 'none';
+    }
+    
+    // Dynamically calculate grid columns based on active panels
+    if (grid) {
+        if (showLiveview && showColControls) {
+            grid.style.gridTemplateColumns = '1.3fr 0.95fr 0.95fr';
+        } else if (showLiveview && !showColControls) {
+            grid.style.gridTemplateColumns = '1.3fr 0.95fr';
+        } else if (!showLiveview && showColControls) {
+            grid.style.gridTemplateColumns = '1fr 1fr';
+        } else {
+            grid.style.gridTemplateColumns = '1fr';
+        }
+    }
+    
+    localStorage.setItem(`show-${section}-controls`, show);
+    
+    // Trigger window resize event so the margin overlay bounds recalculate based on new column sizes
+    window.dispatchEvent(new Event('resize'));
+}
+
+

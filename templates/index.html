@@ -56,7 +56,7 @@
 
                 <div class="grid-layout-3">
                     <!-- Column 1: Live View & Histogram -->
-                    <div class="column">
+                    <div class="column" id="scanner-col-liveview">
                         <!-- Live View Card -->
                         <div class="card liveview-card flex-grow">
                             <div class="liveview-header">
@@ -97,9 +97,9 @@
                     </div>
 
                     <!-- Column 2: Camera & Light Controls -->
-                    <div class="column">
+                    <div class="column" id="scanner-col-controls">
                         <!-- Camera Exposure Controls -->
-                        <div class="card">
+                        <div class="card" id="card-camera-exposure">
                             <h3 class="card-title">Camera Exposure</h3>
                             
                             <div class="form-group">
@@ -129,7 +129,7 @@
                         </div>
 
                         <!-- Mini Scanlight Controller -->
-                        <div class="card">
+                        <div class="card" id="card-light-source">
                             <div class="card-header-with-action">
                                 <h3 class="card-title">LED Light Source</h3>
                                 <button class="btn btn-secondary btn-small" id="btn-mini-sl-connect" onclick="toggleMiniScanlightConnection()">Connect Light</button>
@@ -235,6 +235,18 @@
                                 <label class="checkbox-container-mini" style="display: flex; align-items: center; gap: 0.5rem;">
                                     <input type="checkbox" id="config-monochrome" onchange="document.getElementById('mini-mono-channel-group').style.display = this.checked ? 'block' : 'none'">
                                     <span>Monochrome (B&W) Film</span>
+                                </label>
+                                <label class="checkbox-container-mini" style="display: flex; align-items: center; gap: 0.5rem; border-top: 1px solid var(--border-color); padding-top: 0.5rem; margin-top: 0.25rem;">
+                                    <input type="checkbox" id="ui-show-liveview" checked onchange="toggleUiSection('liveview', this.checked)">
+                                    <span>Show Live View Panel</span>
+                                </label>
+                                <label class="checkbox-container-mini" style="display: flex; align-items: center; gap: 0.5rem;">
+                                    <input type="checkbox" id="ui-show-camera" checked onchange="toggleUiSection('camera', this.checked)">
+                                    <span>Show Camera Panel</span>
+                                </label>
+                                <label class="checkbox-container-mini" style="display: flex; align-items: center; gap: 0.5rem;">
+                                    <input type="checkbox" id="ui-show-light" checked onchange="toggleUiSection('light', this.checked)">
+                                    <span>Show Light Panel</span>
                                 </label>
                             </div>
 
