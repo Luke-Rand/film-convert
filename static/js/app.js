@@ -44,6 +44,19 @@ document.addEventListener('DOMContentLoaded', () => {
         lightCheckbox.checked = showLight;
         toggleUiSection('light', showLight);
     }
+
+    // Restore sidebar collapsed preference
+    const sidebarCollapsed = localStorage.getItem('sidebar-collapsed') === 'true';
+    if (sidebarCollapsed) {
+        const sidebar = document.querySelector('.sidebar');
+        if (sidebar) {
+            sidebar.classList.add('collapsed');
+            const toggleIcon = document.querySelector('#btn-sidebar-toggle .toggle-icon');
+            if (toggleIcon) {
+                toggleIcon.textContent = '▶';
+            }
+        }
+    }
 });
 
 // Real-Time Server-Sent Events (SSE) Connection
@@ -1760,6 +1773,28 @@ function reconnectCameraDevice() {
         }
     });
 }
+
+function toggleSidebar() {
+    const sidebar = document.querySelector('.sidebar');
+    if (!sidebar) return;
+    
+    const isCollapsed = sidebar.classList.toggle('collapsed');
+    
+    // Update toggle icon
+    const toggleIcon = document.querySelector('#btn-sidebar-toggle .toggle-icon');
+    if (toggleIcon) {
+        toggleIcon.textContent = isCollapsed ? '▶' : '◀';
+    }
+    
+    // Save state to localStorage
+    localStorage.setItem('sidebar-collapsed', isCollapsed);
+    
+    // Trigger window resize so canvas crop guide re-aligns
+    setTimeout(() => {
+        window.dispatchEvent(new Event('resize'));
+    }, 250); // wait for CSS width transition to complete
+}
+
 
 
 

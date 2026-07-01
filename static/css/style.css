@@ -64,7 +64,70 @@ body {
     flex-direction: column;
     padding: 1.5rem;
     flex-shrink: 0;
+    transition: width var(--transition-normal), padding var(--transition-normal);
+    position: relative;
 }
+
+/* Sidebar Toggle Button (floating on border) */
+.sidebar-toggle-btn {
+    position: absolute;
+    top: 24px;
+    right: -12px;
+    width: 24px;
+    height: 24px;
+    background-color: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 50%;
+    color: var(--text-secondary);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.7rem;
+    z-index: 10;
+    transition: background-color var(--transition-fast), color var(--transition-fast);
+    box-shadow: var(--shadow-sm);
+}
+
+.sidebar-toggle-btn:hover {
+    background-color: var(--bg-input);
+    color: var(--text-primary);
+}
+
+/* Collapsed Sidebar Rules */
+.sidebar.collapsed {
+    width: 72px;
+    padding: 1.5rem 0.5rem;
+}
+
+.sidebar.collapsed .logo-text,
+.sidebar.collapsed .nav-label,
+.sidebar.collapsed .status-text {
+    display: none;
+}
+
+.sidebar.collapsed .sidebar-header {
+    justify-content: center;
+    margin-bottom: 2rem;
+    gap: 0;
+}
+
+.sidebar.collapsed .nav-btn {
+    justify-content: center;
+    padding: 0.75rem;
+    gap: 0;
+}
+
+.sidebar.collapsed .nav-icon {
+    font-size: 1.25rem;
+}
+
+.sidebar.collapsed .sidebar-footer {
+    display: flex;
+    justify-content: center;
+    padding: 1rem 0;
+}
+
 
 .sidebar-header {
     display: flex;

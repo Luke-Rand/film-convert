@@ -14,6 +14,10 @@
     <div class="app-container" id="app-root">
         <!-- Sidebar Navigation -->
         <aside class="sidebar">
+            <button class="sidebar-toggle-btn" id="btn-sidebar-toggle" onclick="toggleSidebar()" title="Toggle Sidebar">
+                <span class="toggle-icon">◀</span>
+            </button>
+
             <div class="sidebar-header">
                 <span class="logo-icon">🎞️</span>
                 <div class="logo-text">
@@ -24,16 +28,16 @@
             
             <nav class="sidebar-nav">
                 <button class="nav-btn active" id="nav-scanner-btn" onclick="switchTab('scanner')">
-                    <span class="nav-icon">🔥</span> Live Scanner
+                    <span class="nav-icon">🔥</span> <span class="nav-label">Live Scanner</span>
                 </button>
                 <button class="nav-btn" id="nav-batch-btn" onclick="switchTab('batch')">
-                    <span class="nav-icon">📦</span> Batch Processor
+                    <span class="nav-icon">📦</span> <span class="nav-label">Batch Processor</span>
                 </button>
                 <button class="nav-btn" id="nav-gallery-btn" onclick="switchTab('gallery')">
-                    <span class="nav-icon">🖼️</span> Scan Gallery
+                    <span class="nav-icon">🖼️</span> <span class="nav-label">Scan Gallery</span>
                 </button>
                 <button class="nav-btn" id="nav-scanlight-btn" onclick="switchTab('scanlight')">
-                    <span class="nav-icon">💡</span> Scanlight
+                    <span class="nav-icon">💡</span> <span class="nav-label">Scanlight</span>
                 </button>
             </nav>
 
