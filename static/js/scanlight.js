@@ -192,8 +192,8 @@ class ScanlightUIController {
     
     this.isSmallHW = false;
     this.isSequenceRunning = false;
-    this.postSequenceLight = "off";
-    this.triggerMethod = "scanlight";
+    this.postSequenceLight = "rgb";
+    this.triggerMethod = "usb";
     this._isCalibrating = false;
   }
 
