@@ -21,7 +21,13 @@ from compositor import process_triplet
 from inverter import process_positives
 from camera_manager import CameraManager
 
-app = Flask(__name__, template_folder='templates', static_folder='static')
+if hasattr(sys, '_MEIPASS'):
+    # Bundled path for PyInstaller
+    template_dir = os.path.join(sys._MEIPASS, 'templates')
+    static_dir = os.path.join(sys._MEIPASS, 'static')
+    app = Flask(__name__, template_folder=template_dir, static_folder=static_dir)
+else:
+    app = Flask(__name__, template_folder='templates', static_folder='static')
 
 # Thread log redirector to capture stdout from composite/inverter scripts
 class ThreadLogRedirector:
