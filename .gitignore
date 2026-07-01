@@ -28,7 +28,7 @@ instance/
 # Log files
 *.log
 
-# Docker local data directory
+# Local data directory
 data/
 
 # Session/Camera raw download cache
