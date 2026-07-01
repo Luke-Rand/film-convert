@@ -48,6 +48,24 @@ jobs:
             .venv/bin/pip install -r requirements.txt
           fi
 
+      - name: Set App Version from Git
+        shell: bash
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            # Extract version from tag (e.g. v1.2.3 -> 1.2.3)
+            VERSION="${{ github.ref_name }}"
+            VERSION="${VERSION#v}"
+            echo "Setting package.json version to release: $VERSION"
+            npm version --no-git-tag-version "$VERSION"
+          else
+            # For branch commits, create a unique pre-release build version
+            SHA_SHORT=$(git rev-parse --short HEAD)
+            BASE_VERSION=$(node -p "require('./package.json').version")
+            VERSION="${BASE_VERSION}-dev.${{ github.run_number }}+${SHA_SHORT}"
+            echo "Setting package.json version to dev build: $VERSION"
+            npm version --no-git-tag-version "$VERSION"
+          fi
+
       - name: Build and Package Desktop App
         env:
           # Prevent build from failing due to missing Apple/Windows code-signing certificates on CI
