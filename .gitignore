@@ -31,3 +31,6 @@ instance/
 # Docker local data directory
 data/
 
+# Session/Camera raw download cache
+negatives_download/
+

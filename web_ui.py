@@ -19,6 +19,7 @@ from PIL import Image
 # Import core logic from existing scripts
 from compositor import process_triplet
 from inverter import process_positives
+from camera_manager import CameraManager
 
 app = Flask(__name__, template_folder='templates', static_folder='static')
 
@@ -450,11 +451,132 @@ class SessionManager:
 # Instantiate global session manager
 session = SessionManager()
 
+# Initialize camera manager
+camera_manager = CameraManager(session_manager=session)
+camera_manager.start()
+
+import atexit
+atexit.register(lambda: camera_manager.stop())
+
 # --- WEB CONTROLLER ROUTES ---
 
 @app.route('/')
 def index():
     return render_template('index.html')
+
+# --- CAMERA CONTROLLER ROUTES ---
+
+@app.route('/api/camera/status', methods=['GET'])
+def get_camera_status():
+    return jsonify(camera_manager.get_status())
+
+@app.route('/api/camera/config', methods=['POST'])
+def set_camera_config():
+    data = request.json or {}
+    name = data.get("name")
+    value = data.get("value")
+    if not name or not value:
+        return jsonify({"success": False, "message": "Missing name or value"}), 400
+    try:
+        camera_manager.update_config(name, value)
+        return jsonify({"success": True})
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)}), 500
+
+@app.route('/api/camera/focus_step', methods=['POST'])
+def camera_focus_step():
+    data = request.json or {}
+    direction = data.get("direction", "near")
+    speed = data.get("speed", "1")
+    value = f"{direction.capitalize()} {speed}"
+    try:
+        camera_manager.update_config("manualfocusdrive", value)
+        return jsonify({"success": True})
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)}), 500
+
+@app.route('/api/camera/autofocus', methods=['POST'])
+def camera_autofocus():
+    try:
+        camera_manager.update_config("eosremoterelease", "Press Half AF")
+        time.sleep(1.2)
+        camera_manager.update_config("eosremoterelease", "Release Half")
+        return jsonify({"success": True})
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)}), 500
+
+
+@app.route('/api/camera/capture', methods=['POST'])
+def capture_camera_image():
+    try:
+        path = camera_manager.capture_image()
+        return jsonify({"success": True, "path": path})
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)}), 500
+
+@app.route('/api/camera/toggle_liveview', methods=['POST'])
+def toggle_camera_liveview():
+    data = request.json or {}
+    active = data.get("active", False)
+    camera_manager.set_liveview(active)
+    return jsonify({"success": True})
+
+@app.route('/api/camera/reconnect', methods=['POST'])
+def reconnect_camera():
+    try:
+        camera_manager.reconnect()
+        return jsonify({"success": True})
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)}), 500
+
+
+@app.route('/api/camera/update_mock_leds', methods=['POST'])
+def update_camera_mock_leds():
+    data = request.json or {}
+    r = data.get("red", 255)
+    g = data.get("green", 255)
+    b = data.get("blue", 255)
+    camera_manager.update_mock_leds(r, g, b)
+    return jsonify({"success": True})
+
+@app.route('/api/camera/liveview')
+def camera_liveview_feed():
+    def generate():
+        while True:
+            frame = camera_manager.get_latest_frame()
+            if frame:
+                yield (b'--frame\r\n'
+                       b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
+            time.sleep(0.04)  # ~25 FPS
+    return Response(generate(), mimetype='multipart/x-mixed-replace; boundary=frame')
+
+@app.route('/api/camera/frame')
+def get_camera_single_frame():
+    frame = camera_manager.get_latest_frame()
+    if not frame:
+        return jsonify({"error": "No frame available"}), 404
+    return Response(frame, mimetype='image/jpeg')
+
+@app.route('/api/debug/config_values')
+def debug_config_values():
+    try:
+        res = camera_manager.send_cmd("dump_config_values", timeout=10.0)
+        return jsonify(res)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+
+@app.route('/api/debug/widgets')
+def debug_widgets():
+    try:
+        res = camera_manager.send_cmd("test_widgets", timeout=10.0)
+        return jsonify(res)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+
 
 @app.route('/api/status', methods=['GET'])
 def get_status():
@@ -733,4 +855,7 @@ if __name__ == "__main__":
     print("STARTING FILM-CONVERT WEB UI")
     print(f"Open http://{host}:{port} in your browser.")
     print("="*60 + "\n")
+    # Suppress per-request access log noise from Werkzeug (e.g. every /api/camera/frame line)
+    import logging
+    logging.getLogger('werkzeug').setLevel(logging.WARNING)
     app.run(host=host, port=port, debug=False)
