@@ -93,7 +93,13 @@
                             <div class="histogram-container" style="margin-top: 1rem;">
                                 <div class="histogram-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
                                     <span class="histogram-title" style="font-size: 0.85rem; font-weight: 600; color: var(--text-light);">RGB Histogram</span>
-                                    <span class="histogram-info text-muted" style="font-size: 0.75rem;">Real-time analysis</span>
+                                    <div class="histogram-modes" style="display: flex; gap: 0.25rem;">
+                                        <button class="btn btn-secondary btn-small active" id="btn-hist-all" onclick="setHistogramMode('all')" style="font-size: 0.65rem; padding: 0.15rem 0.35rem; line-height: 1;">All</button>
+                                        <button class="btn btn-secondary btn-small" id="btn-hist-r" onclick="setHistogramMode('r')" style="font-size: 0.65rem; padding: 0.15rem 0.35rem; line-height: 1;">R</button>
+                                        <button class="btn btn-secondary btn-small" id="btn-hist-g" onclick="setHistogramMode('g')" style="font-size: 0.65rem; padding: 0.15rem 0.35rem; line-height: 1;">G</button>
+                                        <button class="btn btn-secondary btn-small" id="btn-hist-b" onclick="setHistogramMode('b')" style="font-size: 0.65rem; padding: 0.15rem 0.35rem; line-height: 1;">B</button>
+                                        <button class="btn btn-secondary btn-small" id="btn-hist-split" onclick="setHistogramMode('split')" style="font-size: 0.65rem; padding: 0.15rem 0.35rem; line-height: 1;">Split</button>
+                                    </div>
                                 </div>
                                 <canvas id="camera-histogram-canvas" width="256" height="120" class="histogram-canvas"></canvas>
                             </div>

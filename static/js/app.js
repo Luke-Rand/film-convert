@@ -4,6 +4,7 @@ let systemStatus = 'idle';
 window.systemStatus = 'idle';
 let activeSessionDirs = {};
 let eventSource = null;
+let activeHistogramMode = 'all';
 
 // On Load Initialization
 document.addEventListener('DOMContentLoaded', () => {
@@ -57,6 +58,10 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
     }
+
+    // Restore active histogram mode preference
+    activeHistogramMode = localStorage.getItem('histogram-mode') || 'all';
+    setHistogramMode(activeHistogramMode);
 });
 
 // Real-Time Server-Sent Events (SSE) Connection
@@ -453,7 +458,8 @@ function syncConfigToUI(config) {
     const isMono = config.monochrome || false;
     document.getElementById('config-monochrome').checked = isMono;
     document.getElementById('config-monochrome-channel').value = config.monochrome_channel || 'luminance';
-    document.getElementById('config-monochrome-channel-group').style.display = isMono ? 'block' : 'none';
+    const monoGroup = document.getElementById('mini-mono-channel-group');
+    if (monoGroup) monoGroup.style.display = isMono ? 'block' : 'none';
     
     // Update labels
     document.getElementById('val-gamma').textContent = config.gamma;
@@ -1372,44 +1378,133 @@ function renderRGBHistogram(rHist, gHist, bHist) {
     // Clear canvas
     histogramCtx.clearRect(0, 0, w, h);
     
-    // Find maximum count for scaling
-    const maxVal = Math.max(...rHist, ...gHist, ...bHist) || 1;
+    const mode = activeHistogramMode;
     
-    // Setup composite screen blending to draw overlapping semi-transparent channel graphs
-    histogramCtx.globalCompositeOperation = 'screen';
-    
-    const channels = [
-        { data: rHist, fill: 'rgba(239, 68, 68, 0.35)', stroke: '#ef4444' }, // Red
-        { data: gHist, fill: 'rgba(34, 197, 94, 0.35)', stroke: '#22c55e' }, // Green
-        { data: bHist, fill: 'rgba(59, 130, 246, 0.35)', stroke: '#3b82f6' }  // Blue
-    ];
-    
-    channels.forEach(ch => {
-        histogramCtx.beginPath();
-        histogramCtx.moveTo(0, h);
+    if (mode === 'split') {
+        const channelHeight = h / 3;
         
-        for (let x = 0; x < 256; x++) {
-            const val = ch.data[x];
-            const px = (x / 255) * w;
-            const py = h - (val / maxVal) * (h - 10);
-            histogramCtx.lineTo(px, py);
+        const channels = [
+            { data: rHist, fill: 'rgba(239, 68, 68, 0.2)', stroke: '#ef4444', offset: 0 },
+            { data: gHist, fill: 'rgba(34, 197, 94, 0.2)', stroke: '#22c55e', offset: channelHeight },
+            { data: bHist, fill: 'rgba(59, 130, 246, 0.2)', stroke: '#3b82f6', offset: channelHeight * 2 }
+        ];
+        
+        channels.forEach(ch => {
+            const chMax = Math.max(...ch.data) || 1;
+            const startY = ch.offset + channelHeight;
+            
+            histogramCtx.beginPath();
+            histogramCtx.moveTo(0, startY);
+            
+            for (let x = 0; x < 256; x++) {
+                const val = ch.data[x];
+                const px = (x / 255) * w;
+                // Scale within the subchannel height space
+                const py = startY - (val / chMax) * (channelHeight - 4);
+                histogramCtx.lineTo(px, py);
+            }
+            
+            histogramCtx.lineTo(w, startY);
+            histogramCtx.closePath();
+            
+            histogramCtx.fillStyle = ch.fill;
+            histogramCtx.fill();
+            
+            histogramCtx.lineWidth = 1;
+            histogramCtx.strokeStyle = ch.stroke;
+            histogramCtx.stroke();
+            
+            // Draw baseline for the channel
+            histogramCtx.beginPath();
+            histogramCtx.moveTo(0, startY);
+            histogramCtx.lineTo(w, startY);
+            histogramCtx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
+            histogramCtx.lineWidth = 1;
+            histogramCtx.stroke();
+        });
+        
+    } else {
+        // Find maximum count for scaling
+        let maxVal = 1;
+        
+        const channels = [];
+        if (mode === 'all' || mode === 'r') {
+            channels.push({ data: rHist, fill: 'rgba(239, 68, 68, 0.2)', stroke: '#ef4444' });
+        }
+        if (mode === 'all' || mode === 'g') {
+            channels.push({ data: gHist, fill: 'rgba(34, 197, 94, 0.2)', stroke: '#22c55e' });
+        }
+        if (mode === 'all' || mode === 'b') {
+            channels.push({ data: bHist, fill: 'rgba(59, 130, 246, 0.2)', stroke: '#3b82f6' });
         }
         
-        histogramCtx.lineTo(w, h);
-        histogramCtx.closePath();
+        // Compute maxVal based on active channels
+        const activeArrays = channels.map(c => c.data);
+        if (activeArrays.length > 0) {
+            const merged = [].concat(...activeArrays);
+            maxVal = Math.max(...merged) || 1;
+        }
         
-        // Fill area
-        histogramCtx.fillStyle = ch.fill;
-        histogramCtx.fill();
+        // Setup composite screen blending ONLY if mode is 'all'
+        if (mode === 'all') {
+            histogramCtx.globalCompositeOperation = 'screen';
+        } else {
+            histogramCtx.globalCompositeOperation = 'source-over';
+        }
         
-        // Draw path outline
-        histogramCtx.lineWidth = 1.5;
-        histogramCtx.strokeStyle = ch.stroke;
-        histogramCtx.stroke();
-    });
+        channels.forEach(ch => {
+            histogramCtx.beginPath();
+            histogramCtx.moveTo(0, h);
+            
+            for (let x = 0; x < 256; x++) {
+                const val = ch.data[x];
+                const px = (x / 255) * w;
+                const py = h - (val / maxVal) * (h - 10);
+                histogramCtx.lineTo(px, py);
+            }
+            
+            histogramCtx.lineTo(w, h);
+            histogramCtx.closePath();
+            
+            // Fill area
+            histogramCtx.fillStyle = ch.fill;
+            histogramCtx.fill();
+            
+            // Draw path outline
+            histogramCtx.lineWidth = 1.25;
+            histogramCtx.strokeStyle = ch.stroke;
+            histogramCtx.stroke();
+        });
+        
+        // Reset blending mode
+        histogramCtx.globalCompositeOperation = 'source-over';
+    }
+}
+
+function setHistogramMode(mode) {
+    activeHistogramMode = mode;
     
-    // Reset blending mode
-    histogramCtx.globalCompositeOperation = 'source-over';
+    // Toggle active classes on buttons
+    const btnIds = {
+        'all': 'btn-hist-all',
+        'r': 'btn-hist-r',
+        'g': 'btn-hist-g',
+        'b': 'btn-hist-b',
+        'split': 'btn-hist-split'
+    };
+    
+    for (const [m, id] of Object.entries(btnIds)) {
+        const btn = document.getElementById(id);
+        if (btn) {
+            if (m === mode) {
+                btn.classList.add('active');
+            } else {
+                btn.classList.remove('active');
+            }
+        }
+    }
+    
+    localStorage.setItem('histogram-mode', mode);
 }
 
 function clearHistogramCanvas() {
