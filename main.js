@@ -107,10 +107,69 @@ function createWindow(port) {
     width: 1400,
     height: 900,
     title: 'FilmConvert Desktop',
+    icon: path.join(__dirname, 'assets', 'icon.png'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       nodeIntegration: false,
       contextIsolation: true
+    }
+  });
+
+  // Configure WebSerial handlers on the active window session
+  const ses = mainWindow.webContents.session;
+
+  ses.setPermissionCheckHandler((webContents, permission) => {
+    if (permission === 'serial') {
+      return true;
+    }
+    return false;
+  });
+
+  ses.setDevicePermissionHandler((details) => {
+    if (details.deviceType === 'serial') {
+      return true;
+    }
+    return false;
+  });
+
+  ses.on('select-serial-port', (event, portList, webContents, callback) => {
+    // Prevent default selection behavior
+    event.preventDefault();
+
+    if (portList && portList.length > 0) {
+      if (portList.length === 1) {
+        // Auto-select if there is exactly one serial device connected
+        console.log(`Auto-selected only serial port available: ${portList[0].portName}`);
+        callback(portList[0].portId);
+      } else {
+        // Prompt user with a native Electron dialog if multiple options exist
+        const portButtons = portList.map(p => `${p.portName} (${p.displayName || 'Unknown Device'})`);
+        portButtons.push('Cancel');
+
+        dialog.showMessageBox(mainWindow, {
+          type: 'question',
+          buttons: portButtons,
+          title: 'Select Serial Port',
+          message: 'Choose a serial device to connect to Scanlight:',
+          cancelId: portButtons.length - 1
+        }).then(({ response }) => {
+          if (response === portButtons.length - 1) {
+            callback(''); // Cancelled
+          } else {
+            console.log(`User selected serial port: ${portList[response].portName}`);
+            callback(portList[response].portId);
+          }
+        });
+      }
+    } else {
+      // Alert user if no serial ports were detected
+      dialog.showMessageBox(mainWindow, {
+        type: 'warning',
+        buttons: ['OK'],
+        title: 'No Serial Devices Found',
+        message: 'Could not find any connected serial ports. Make sure your Scanlight is powered and connected to USB.'
+      });
+      callback('');
     }
   });
 

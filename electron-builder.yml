@@ -12,5 +12,7 @@ extraResources:
 mac:
   target: dmg
   category: public.app-category.photography
+  icon: assets/icon.png
 win:
   target: nsis
+  icon: assets/icon.png
