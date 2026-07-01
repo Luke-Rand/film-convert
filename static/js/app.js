@@ -1687,14 +1687,14 @@ function toggleUiSection(section, show) {
     const colControls = document.getElementById('scanner-col-controls');
     const grid = document.querySelector('.grid-layout-3');
     
-    // Column 1 (Liveview + Light) visibility
-    const showColLiveview = showLiveview || showLight;
+    // Column 1 (Liveview + Focus) visibility
+    const showColLiveview = showLiveview || showFocus;
     if (colLiveview) {
         colLiveview.style.display = showColLiveview ? 'flex' : 'none';
     }
     
-    // Column 2 (Camera + Focus) visibility
-    const showColControls = showCamera || showFocus;
+    // Column 2 (Light + Camera) visibility
+    const showColControls = showLight || showCamera;
     if (colControls) {
         colControls.style.display = showColControls ? 'flex' : 'none';
     }
