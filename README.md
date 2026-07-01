@@ -111,7 +111,33 @@ If you own the **Jackw01 Big Scanlight** or **Scanlight v4**, you can access the
    * If any channel exceeds the maximum LED value of 255 (meaning camera settings are too dark), the highest channel is capped at 255 and other channels are scaled proportionally to preserve correct color balance, and a warning is logged to the console.
    * The new calibrated values are applied to your active Red, Green, and Blue sliders.
 
-### 2. End-to-End CLI Workflow (Interactive)
+### 2. Desktop Application (Electron)
+
+Alternatively, you can compile and run FilmConvert as a self-contained desktop application. The Electron wrapper automatically manages the life cycle of the Python web server, booting it on a dynamic port and hosting the UI inside a native window.
+
+#### Prerequisites for Desktop Build
+- [Node.js](https://nodejs.org) (v18+) and npm.
+- PyInstaller (installed inside the Python virtual environment via `pip install pyinstaller`).
+
+#### Dev Run
+To start the application in Electron development mode:
+```bash
+npm install
+npm start
+```
+
+#### Production Build
+To package the app into a standalone desktop installer (e.g., `.dmg` on macOS, or `.exe` installer on Windows):
+```bash
+# 1. Compile the Python backend
+npm run build:python
+
+# 2. Package the Electron app
+npm run dist
+```
+*The output package will be available in the `dist-app/` directory.*
+
+### 3. End-to-End CLI Workflow (Interactive)
 
 The session manager provides an interactive, fully automated pipeline.
 
@@ -128,7 +154,7 @@ As you shoot your RGB triplets into the `negatives` folder, the script will auto
 4. Save the final positive to the `positives` folder.
 5. Move the original RAWs to the `processed_raws` folder.
 
-### 3. Manual Compositing RAWs
+### 4. Manual Compositing RAWs
 
 The compositor script runs via the command line and requires the path to a directory containing your RAW files.
 
@@ -175,7 +201,7 @@ When converting black and white film negatives, selecting the correct channel ex
 * **Using RGB Monochromatic Light (e.g. Scanlight):** If your light source allows individual color channel adjustment, illuminate **only the Green LED** and scan in **Single-Shot** mode. Discarding Red and Blue completely eliminates color fringing and channel crosstalk.
 * **Using Standard White Light:** If scanning with a static white light pad, you can still use the **Green Channel** extraction method for maximum resolution. Alternatively, use the **Luminance** (`luminance`) method to combine channels into a traditional panchromatic tonal range.
 
-### 4. Manual Inverting Composites
+### 5. Manual Inverting Composites
 
 The inverter script takes your 16-bit composite TIFFs (or single RAW DNGs) and accurately inverts them, normalizes levels, and applies gamma and contrast curves.
 

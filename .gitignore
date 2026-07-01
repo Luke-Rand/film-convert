@@ -34,3 +34,13 @@ data/
 # Session/Camera raw download cache
 negatives_download/
 
+# Node.js
+node_modules/
+npm-debug.log*
+
+# PyInstaller & Electron build output
+build/
+dist/
+dist-app/
+
+

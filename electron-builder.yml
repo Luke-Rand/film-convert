@@ -1,0 +1,16 @@
+appId: com.filmconvert.app
+productName: FilmConvert
+directories:
+  output: dist-app
+files:
+  - main.js
+  - preload.js
+  - package.json
+extraResources:
+  - from: dist/backend
+    to: backend
+mac:
+  target: dmg
+  category: public.app-category.photography
+win:
+  target: nsis

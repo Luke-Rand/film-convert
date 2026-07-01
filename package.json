@@ -1,0 +1,18 @@
+{
+  "name": "film-convert",
+  "version": "1.0.0",
+  "description": "Desktop Application for Film Negatives Digitization and Conversion",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build:python": "./.venv/bin/pyinstaller --clean --noconfirm web_ui.spec",
+    "dist": "npm run build:python && electron-builder"
+  },
+  "devDependencies": {
+    "electron": "^31.7.7",
+    "electron-builder": "^24.13.3"
+  },
+  "allowScripts": {
+    "electron@31.7.7": true
+  }
+}
