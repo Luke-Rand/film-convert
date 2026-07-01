@@ -6,8 +6,162 @@ let activeSessionDirs = {};
 let eventSource = null;
 let activeHistogramMode = 'all';
 
+// ============================================================
+// TOOLTIP ENGINE
+// Uses data-tooltip="..." attribute for content.
+// A single floating #fc-tooltip div is reused for all tips.
+// ============================================================
+
+let _tipEl = null;         // cached tooltip DOM node
+let _tipShowTimer = null;
+let _tipHideTimer = null;
+let _tipCurrentEl = null;  // the element whose tip is pending/shown
+
+const TOOLTIP_SHOW_DELAY = 600;  // ms before showing
+const TOOLTIP_HIDE_DELAY = 80;   // ms after leave before hiding
+const TOOLTIP_MARGIN     = 10;   // px from viewport edge
+const TOOLTIP_OFFSET_Y   = 8;    // px gap below target element
+
+function _getTipEl() {
+    if (!_tipEl) {
+        _tipEl = document.getElementById('fc-tooltip');
+        if (!_tipEl) {
+            _tipEl = document.createElement('div');
+            _tipEl.id = 'fc-tooltip';
+            document.body.appendChild(_tipEl);
+        }
+    }
+    return _tipEl;
+}
+
+function _positionTip(anchorEl) {
+    const t    = _getTipEl();
+    const rect = anchorEl.getBoundingClientRect();
+    const vw   = window.innerWidth;
+    const vh   = window.innerHeight;
+    const tipW = t.offsetWidth  || 240;
+    const tipH = t.offsetHeight || 48;
+
+    let top  = rect.bottom + TOOLTIP_OFFSET_Y;
+    let left = rect.left;
+
+    // Flip above if clipped at bottom
+    if (top + tipH > vh - TOOLTIP_MARGIN) {
+        top = rect.top - tipH - TOOLTIP_OFFSET_Y;
+    }
+    // Clamp horizontal
+    left = Math.min(left, vw - tipW - TOOLTIP_MARGIN);
+    left = Math.max(left, TOOLTIP_MARGIN);
+    // Clamp vertical
+    top  = Math.max(top, TOOLTIP_MARGIN);
+
+    t.style.left = left + 'px';
+    t.style.top  = top  + 'px';
+}
+
+function _showTip(el) {
+    if (document.body.classList.contains('tooltips-disabled')) return;
+    const text = el.dataset.tooltip;
+    if (!text) return;
+
+    const t = _getTipEl();
+    t.textContent = text;
+
+    // Reset to hidden state cleanly, then measure, then reveal
+    t.style.removeProperty('left');
+    t.style.removeProperty('top');
+    t.classList.remove('fc-tooltip-visible');
+    t.style.display = 'block';
+
+    // One rAF to allow layout so offsetWidth/Height are accurate
+    requestAnimationFrame(() => {
+        _positionTip(el);
+        // Second rAF so the browser paints the hidden (opacity:0) state first,
+        // giving the CSS transition something to animate from
+        requestAnimationFrame(() => {
+            t.classList.add('fc-tooltip-visible');
+        });
+    });
+}
+
+function _hideTip() {
+    const t = _getTipEl();
+    t.classList.remove('fc-tooltip-visible');
+    // After transition completes, set display:none so it can't intercept clicks
+    t.addEventListener('transitionend', function onEnd() {
+        t.removeEventListener('transitionend', onEnd);
+        if (!t.classList.contains('fc-tooltip-visible')) {
+            t.style.display = 'none';
+        }
+    }, { once: true });
+}
+
+function _initTooltipListeners() {
+    // Ensure tip starts hidden
+    const t = _getTipEl();
+    t.style.display = 'none';
+
+    document.addEventListener('mouseover', (e) => {
+        const el = e.target.closest('[data-tooltip]');
+        if (!el) return;
+
+        // If we're still on the same element, keep the existing timer
+        if (el === _tipCurrentEl) {
+            clearTimeout(_tipHideTimer);
+            return;
+        }
+
+        _tipCurrentEl = el;
+        clearTimeout(_tipShowTimer);
+        clearTimeout(_tipHideTimer);
+        _tipShowTimer = setTimeout(() => _showTip(el), TOOLTIP_SHOW_DELAY);
+    });
+
+    document.addEventListener('mouseout', (e) => {
+        const el = e.target.closest('[data-tooltip]');
+        if (!el) return;
+
+        // Only hide if the pointer is truly leaving the [data-tooltip] element,
+        // not just moving to one of its child nodes.
+        const related = e.relatedTarget;
+        if (related && el.contains(related)) return;
+
+        clearTimeout(_tipShowTimer);
+        _tipCurrentEl = null;
+        _tipHideTimer = setTimeout(_hideTip, TOOLTIP_HIDE_DELAY);
+    });
+
+    // Dismiss on scroll or mousedown
+    document.addEventListener('scroll', () => {
+        clearTimeout(_tipShowTimer);
+        _hideTip();
+    }, { capture: true, passive: true });
+
+    document.addEventListener('mousedown', () => {
+        clearTimeout(_tipShowTimer);
+        _hideTip();
+    }, { passive: true });
+}
+
+// Toggle tooltips on/off (persisted in localStorage)
+function toggleTooltips() {
+    const disabled = document.body.classList.toggle('tooltips-disabled');
+    localStorage.setItem('tooltips-disabled', disabled ? 'true' : 'false');
+    if (disabled) _hideTip();
+    const btn   = document.getElementById('btn-tooltip-toggle');
+    const label = btn ? btn.querySelector('.tt-label') : null;
+    if (btn)   btn.classList.toggle('active', !disabled);
+    if (label) label.textContent = disabled ? 'Tooltips Off' : 'Tooltips On';
+}
+
+
+
+
 // On Load Initialization
 document.addEventListener('DOMContentLoaded', () => {
+    // Initialize tooltip system (must run after DOM is ready)
+    _initTooltipListeners();
+
     // Set default scanner path
     const rootInput = document.getElementById('scanner-root-dir');
     if (rootInput && !rootInput.value) {
@@ -22,6 +176,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Initialize Camera UI
     initCameraUI();
+
 
     // Restore camera/light/liveview visibility selections from localStorage
     const showLiveview = localStorage.getItem('show-liveview-controls') !== 'false';
@@ -62,6 +217,20 @@ document.addEventListener('DOMContentLoaded', () => {
     // Restore active histogram mode preference
     activeHistogramMode = localStorage.getItem('histogram-mode') || 'all';
     setHistogramMode(activeHistogramMode);
+
+    // Restore tooltip preference
+    const tooltipsDisabled = localStorage.getItem('tooltips-disabled') === 'true';
+    const tooltipBtn = document.getElementById('btn-tooltip-toggle');
+    const tooltipLabel = tooltipBtn ? tooltipBtn.querySelector('.tt-label') : null;
+    if (tooltipsDisabled) {
+        document.body.classList.add('tooltips-disabled');
+        if (tooltipBtn) tooltipBtn.classList.remove('active');
+        if (tooltipLabel) tooltipLabel.textContent = 'Tooltips Off';
+    } else {
+        document.body.classList.remove('tooltips-disabled');
+        if (tooltipBtn) tooltipBtn.classList.add('active');
+        if (tooltipLabel) tooltipLabel.textContent = 'Tooltips On';
+    }
 });
 
 // Real-Time Server-Sent Events (SSE) Connection
