@@ -1,0 +1,65 @@
+name: Build Desktop Application
+
+on:
+  push:
+    branches: [ "main", "master" ]
+    tags: [ 'v*.*.*' ]
+  pull_request:
+    branches: [ "main", "master" ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [macos-latest, windows-latest]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install Node dependencies
+        run: npm ci
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Create Python Virtual Environment & Install Dependencies
+        shell: bash
+        run: |
+          python -m venv .venv
+          if [ "$RUNNER_OS" == "Windows" ]; then
+            .venv/Scripts/python -m pip install --upgrade pip
+            .venv/Scripts/pip install pyinstaller
+            .venv/Scripts/pip install -r requirements.txt
+          else
+            .venv/bin/python -m pip install --upgrade pip
+            .venv/bin/pip install pyinstaller
+            .venv/bin/pip install -r requirements.txt
+          fi
+
+      - name: Build and Package Desktop App
+        env:
+          # Prevent build from failing due to missing Apple/Windows code-signing certificates on CI
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+        run: |
+          npm run dist
+
+      - name: Upload Installer Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: FilmConvert-installer-${{ matrix.os }}
+          path: |
+            dist-app/*.dmg
+            dist-app/*.exe
+          if-no-files-found: error
