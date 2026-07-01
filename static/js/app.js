@@ -1064,6 +1064,7 @@ let zoomX = 0.5;
 let zoomY = 0.5;
 let focusPeakingActive = false;
 let peakingThreshold = 30;
+let liveviewRotated180 = localStorage.getItem('liveviewRotated180') === 'true';
 
 // Initialize camera controls and fetch status
 function initCameraUI() {
@@ -1087,8 +1088,13 @@ function initCameraUI() {
                 liveviewCanvas.style.cursor = 'zoom-in';
             } else {
                 isZoomed = true;
-                zoomX = x / rect.width;
-                zoomY = y / rect.height;
+                if (liveviewRotated180) {
+                    zoomX = 1.0 - (x / rect.width);
+                    zoomY = 1.0 - (y / rect.height);
+                } else {
+                    zoomX = x / rect.width;
+                    zoomY = y / rect.height;
+                }
                 liveviewCanvas.style.cursor = 'zoom-out';
             }
             
@@ -1096,6 +1102,16 @@ function initCameraUI() {
                 updateMarginOverlay();
             }
         });
+    }
+
+    // Set initial rotation state from localStorage
+    const btnRotate = document.getElementById('btn-rotate-liveview');
+    if (btnRotate) {
+        if (liveviewRotated180) {
+            btnRotate.classList.add('active');
+            btnRotate.style.borderColor = 'var(--accent-red)';
+            btnRotate.style.color = 'var(--accent-red)';
+        }
     }
     
     // Create high-performance offscreen canvas for sampling
@@ -1280,6 +1296,13 @@ function pollLiveviewFrame() {
             canvas.width = nw;
             canvas.height = nh;
             
+            ctx.save();
+            if (liveviewRotated180) {
+                ctx.translate(nw / 2, nh / 2);
+                ctx.rotate(Math.PI);
+                ctx.translate(-nw / 2, -nh / 2);
+            }
+            
             if (isZoomed) {
                 // 3x zoom crop window
                 const sw = nw / 3;
@@ -1292,6 +1315,7 @@ function pollLiveviewFrame() {
             } else {
                 ctx.drawImage(tempImg, 0, 0, nw, nh);
             }
+            ctx.restore();
             
             if (focusPeakingActive) {
                 applyFocusPeaking(canvas, ctx);
@@ -1888,6 +1912,29 @@ function toggleSidebar() {
     setTimeout(() => {
         window.dispatchEvent(new Event('resize'));
     }, 250); // wait for CSS width transition to complete
+}
+
+function toggleLiveviewRotation() {
+    liveviewRotated180 = !liveviewRotated180;
+    localStorage.setItem('liveviewRotated180', liveviewRotated180);
+    
+    const btn = document.getElementById('btn-rotate-liveview');
+    if (btn) {
+        if (liveviewRotated180) {
+            btn.classList.add('active');
+            btn.style.borderColor = 'var(--accent-red)';
+            btn.style.color = 'var(--accent-red)';
+        } else {
+            btn.classList.remove('active');
+            btn.style.borderColor = '';
+            btn.style.color = '';
+        }
+    }
+    
+    // Repoll immediate frame to show updated rotation if active
+    if (isLiveviewActive) {
+        pollLiveviewFrame();
+    }
 }
 
 

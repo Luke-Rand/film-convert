@@ -193,6 +193,7 @@ class ScanlightUIController {
     this.isSmallHW = false;
     this.isSequenceRunning = false;
     this.postSequenceLight = "off";
+    this.triggerMethod = "scanlight";
     this._isCalibrating = false;
   }
 
@@ -482,6 +483,10 @@ class ScanlightUIController {
       this.postSequenceLight = e.target.value;
     });
 
+    document.getElementById("scanlight-trigger-method")?.addEventListener("change", (e) => {
+      this.triggerMethod = e.target.value;
+    });
+
     // Sequences
     document.getElementById("btn-seq-rgb")?.addEventListener("click", () => this.runSequence("SequenceRGB"));
     document.getElementById("btn-seq-rgbir")?.addEventListener("click", () => this.runSequence("SequenceRGBIR"));
@@ -738,13 +743,28 @@ class ScanlightUIController {
         // Wait 150ms for LEDs to stabilize before triggering shutter
         await new Promise(r => setTimeout(r, 150));
         
-        this.log(`[Scanlight] Step ${i + 1}/${seqData.length}: Triggering camera shutter...`);
-        const pulse10ms = Math.min(Math.max(Math.round(this.shutterPulseLength * 100), 1), 255);
-        await this.protocol.sendPacket(this.protocol.PKT_H2D_SHUTTER_PULSE, [pulse10ms]);
-        
-        // Total delay is shutter length + post shutter delay
-        const delayMs = (this.shutterPulseLength + this.postShutterDelay) * 1000;
-        await new Promise(r => setTimeout(r, delayMs));
+        if (this.triggerMethod === "usb") {
+          this.log(`[Scanlight] Step ${i + 1}/${seqData.length}: Triggering camera capture via USB...`);
+          try {
+            const res = await fetch('/api/camera/capture', { method: 'POST' });
+            const captureResult = await res.json();
+            if (!captureResult.success) {
+              throw new Error(captureResult.message || "Unknown capture error");
+            }
+            this.log(`[Scanlight] Step ${i + 1}/${seqData.length}: USB Capture completed. Path: ${captureResult.path}`);
+          } catch (err) {
+            this.log(`[Scanlight Error] Shutter trigger via USB failed: ${err.message}`);
+            throw err;
+          }
+          const delayMs = this.postShutterDelay * 1000;
+          await new Promise(r => setTimeout(r, delayMs));
+        } else {
+          this.log(`[Scanlight] Step ${i + 1}/${seqData.length}: Triggering camera shutter via Scanlight hardware port...`);
+          const pulse10ms = Math.min(Math.max(Math.round(this.shutterPulseLength * 100), 1), 255);
+          await this.protocol.sendPacket(this.protocol.PKT_H2D_SHUTTER_PULSE, [pulse10ms]);
+          const delayMs = (this.shutterPulseLength + this.postShutterDelay) * 1000;
+          await new Promise(r => setTimeout(r, delayMs));
+        }
       }
     } catch (err) {
       this.log(`[Scanlight Error] Automation aborted: ${err.message}`);
@@ -768,9 +788,24 @@ class ScanlightUIController {
 
   async shutterTest() {
     if (!this.connected) return;
-    this.log("[Scanlight] Triggering test camera shutter pulse...");
-    const pulse10ms = Math.min(Math.max(Math.round(this.shutterPulseLength * 100), 1), 255);
-    await this.protocol.sendPacket(this.protocol.PKT_H2D_SHUTTER_PULSE, [pulse10ms]);
+    if (this.triggerMethod === "usb") {
+      this.log("[Scanlight] Triggering test camera capture via USB...");
+      try {
+        const res = await fetch('/api/camera/capture', { method: 'POST' });
+        const captureResult = await res.json();
+        if (captureResult.success) {
+          this.log(`[Scanlight] Shutter test success: Captured ${captureResult.path}`);
+        } else {
+          this.log(`[Scanlight Error] Shutter test failed: ${captureResult.message}`);
+        }
+      } catch (e) {
+        this.log(`[Scanlight Error] Shutter test network error: ${e.message}`);
+      }
+    } else {
+      this.log("[Scanlight] Triggering test camera shutter pulse via Scanlight hardware port...");
+      const pulse10ms = Math.min(Math.max(Math.round(this.shutterPulseLength * 100), 1), 255);
+      await this.protocol.sendPacket(this.protocol.PKT_H2D_SHUTTER_PULSE, [pulse10ms]);
+    }
   }
 
   async startCalibration() {

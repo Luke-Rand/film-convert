@@ -66,6 +66,7 @@
                             <div class="liveview-header">
                                 <h3 class="card-title">Live View</h3>
                                 <div class="liveview-controls-header">
+                                    <button class="btn btn-secondary btn-small" id="btn-rotate-liveview" onclick="toggleLiveviewRotation()" title="Rotate live view 180°" style="font-size: 0.7rem; padding: 0.2rem 0.5rem;">🔄 Rotate 180°</button>
                                     <button class="btn btn-secondary btn-small" id="btn-margin-overlay" onclick="toggleMarginOverlay()" title="Toggle margin overlay" style="font-size: 0.7rem; padding: 0.2rem 0.5rem;">📐 Margins</button>
                                     <span class="camera-badge badge-simulated" id="camera-status-badge">Simulated</span>
                                     <label class="switch-container">
@@ -702,6 +703,14 @@
                                     <option value="off" selected>Turn Off</option>
                                     <option value="rgb">Leave RGB On</option>
                                     <option value="white">Leave White On</option>
+                                </select>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="scanlight-trigger-method">Shutter Trigger Method</label>
+                                <select id="scanlight-trigger-method" class="select-presets disable-on-sequence">
+                                    <option value="scanlight" selected>Scanlight Hardware Port</option>
+                                    <option value="usb">Direct USB (Camera Tether)</option>
                                 </select>
                             </div>
 
