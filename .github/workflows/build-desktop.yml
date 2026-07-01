@@ -12,6 +12,8 @@ jobs:
   build:
     name: Build on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
+    permissions:
+      contents: write
     strategy:
       matrix:
         os: [macos-latest, windows-latest]
@@ -67,11 +69,20 @@ jobs:
           fi
 
       - name: Build and Package Desktop App
+        shell: bash
         env:
           # Prevent build from failing due to missing Apple/Windows code-signing certificates on CI
           CSC_IDENTITY_AUTO_DISCOVERY: false
+          # Use the built-in GITHUB_TOKEN to upload release assets
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          npm run dist
+          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            echo "Building and publishing version tag release..."
+            npm run dist -- --publish always
+          else
+            echo "Building for branch verification only..."
+            npm run dist -- --publish never
+          fi
 
       - name: Upload Installer Artifacts
         uses: actions/upload-artifact@v4
