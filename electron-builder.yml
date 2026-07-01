@@ -1,5 +1,9 @@
 appId: com.filmconvert.app
 productName: FilmConvert
+publish:
+  provider: github
+  owner: Luke-Rand
+  repo: film-convert
 directories:
   output: dist-app
 files:
