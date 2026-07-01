@@ -69,6 +69,7 @@ jobs:
           fi
 
       - name: Build and Package Desktop App
+        shell: bash
         env:
           # Prevent build from failing due to missing Apple/Windows code-signing certificates on CI
           CSC_IDENTITY_AUTO_DISCOVERY: false
