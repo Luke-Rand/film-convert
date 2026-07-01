@@ -1702,3 +1702,106 @@ input:checked + .switch-slider:before {
 .card-header-with-action h3 {
     margin: 0;
 }
+
+/* ============================================================
+   TOOLTIP SYSTEM
+   Usage: add data-tooltip="..." to any element
+   Toggle off via: document.body.classList.add('tooltips-disabled')
+   ============================================================ */
+
+/* The floating tooltip bubble — starts hidden via JS display:none */
+#fc-tooltip {
+    display: none;   /* JS sets to 'block' before showing */
+    position: fixed;
+    z-index: 99999;
+    pointer-events: none;
+    max-width: 240px;
+    padding: 0.45rem 0.75rem;
+    background: rgba(15, 23, 42, 0.97);
+    border: 1px solid rgba(148, 163, 184, 0.2);
+    border-radius: var(--radius-md);
+    color: var(--text-secondary);
+    font-family: var(--font-sans);
+    font-size: 0.72rem;
+    line-height: 1.45;
+    letter-spacing: 0.01em;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.6), 0 0 0 1px rgba(14,165,233,0.08);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    white-space: normal;
+    word-break: break-word;
+
+    /* Start invisible for transition */
+    opacity: 0;
+    transform: translateY(4px) scale(0.97);
+    transition: opacity 0.15s ease, transform 0.15s ease;
+}
+
+#fc-tooltip.fc-tooltip-visible {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+}
+
+
+/* Small accent line on top */
+#fc-tooltip::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 12px;
+    width: 32px; height: 2px;
+    background: linear-gradient(90deg, var(--accent-blue), transparent);
+    border-radius: 2px;
+}
+
+/* When tooltips are globally disabled, hide the bubble immediately */
+body.tooltips-disabled #fc-tooltip {
+    display: none !important;
+}
+
+/* Tooltip Toggle Button in sidebar footer */
+.tooltip-toggle-btn {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    width: 100%;
+    padding: 0.4rem 0.6rem;
+    margin-top: 0.5rem;
+    background: rgba(14, 165, 233, 0.06);
+    border: 1px solid rgba(14, 165, 233, 0.18);
+    border-radius: var(--radius-sm);
+    color: var(--text-muted);
+    font-size: 0.72rem;
+    font-family: var(--font-sans);
+    cursor: pointer;
+    transition: background var(--transition-fast), color var(--transition-fast), border-color var(--transition-fast);
+    white-space: nowrap;
+    overflow: hidden;
+}
+
+.tooltip-toggle-btn:hover {
+    background: rgba(14, 165, 233, 0.12);
+    border-color: rgba(14, 165, 233, 0.35);
+    color: var(--text-secondary);
+}
+
+.tooltip-toggle-btn .tt-icon {
+    font-size: 0.85rem;
+    flex-shrink: 0;
+}
+
+.tooltip-toggle-btn .tt-label {
+    transition: opacity var(--transition-normal);
+}
+
+/* When sidebar is collapsed, hide the label */
+.sidebar.collapsed .tooltip-toggle-btn .tt-label {
+    display: none;
+}
+
+/* Active (tooltips enabled) state */
+.tooltip-toggle-btn.active {
+    background: rgba(14, 165, 233, 0.1);
+    border-color: rgba(14, 165, 233, 0.3);
+    color: var(--accent-blue);
+}
+
