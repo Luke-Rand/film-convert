@@ -483,6 +483,29 @@ def set_camera_config():
     except Exception as e:
         return jsonify({"success": False, "message": str(e)}), 500
 
+@app.route('/api/camera/focus_step', methods=['POST'])
+def camera_focus_step():
+    data = request.json or {}
+    direction = data.get("direction", "near")
+    speed = data.get("speed", "1")
+    value = f"{direction.capitalize()} {speed}"
+    try:
+        camera_manager.update_config("manualfocusdrive", value)
+        return jsonify({"success": True})
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)}), 500
+
+@app.route('/api/camera/autofocus', methods=['POST'])
+def camera_autofocus():
+    try:
+        camera_manager.update_config("eosremoterelease", "Press Half AF")
+        time.sleep(1.2)
+        camera_manager.update_config("eosremoterelease", "Release Half")
+        return jsonify({"success": True})
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)}), 500
+
+
 @app.route('/api/camera/capture', methods=['POST'])
 def capture_camera_image():
     try:
@@ -497,6 +520,15 @@ def toggle_camera_liveview():
     active = data.get("active", False)
     camera_manager.set_liveview(active)
     return jsonify({"success": True})
+
+@app.route('/api/camera/reconnect', methods=['POST'])
+def reconnect_camera():
+    try:
+        camera_manager.reconnect()
+        return jsonify({"success": True})
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)}), 500
+
 
 @app.route('/api/camera/update_mock_leds', methods=['POST'])
 def update_camera_mock_leds():

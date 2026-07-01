@@ -131,6 +131,9 @@ class CameraManager:
     def update_config(self, name, value):
         return self.send_cmd("set_config", {"name": name, "value": value})
 
+    def reconnect(self):
+        return self.send_cmd("reconnect", {})
+
     def capture_image(self):
         return self.send_cmd("capture", {})
 
@@ -313,6 +316,12 @@ class CameraManager:
                 "choices": self._query_camera_choices()
             }
 
+        elif cmd == "reconnect":
+            self.simulated = False
+            self.camera = None
+            self.camera_connected = False
+            return True
+
         elif cmd == "set_config":
             name = args["name"].lower()
             val = args["value"]
@@ -320,6 +329,9 @@ class CameraManager:
                 if name in self.sim_settings:
                     self.sim_settings[name] = val
                     self.log(f"Simulated setting updated: {name} = {val}")
+                    return True
+                elif name in ["manualfocusdrive", "eosremoterelease"]:
+                    self.log(f"Simulated setting updated (action): {name} = {val}")
                     return True
                 raise ValueError(f"Unknown setting: {name}")
             else:
@@ -617,6 +629,8 @@ class CameraManager:
             "iso": "iso",
             "aperture": "aperture",
             "shutterspeed": "shutterspeed",
+            "manualfocusdrive": "manualfocusdrive",
+            "eosremoterelease": "eosremoterelease",
         }
         widget_name = widget_name_map.get(name.lower())
         if not widget_name:

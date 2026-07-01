@@ -216,8 +216,10 @@ function getContainedImageBounds(img, tempImg = null) {
     const containerWidth = container.clientWidth;
     const containerHeight = container.clientHeight;
     
-    const sourceImg = tempImg || img;
-    if (img.style.display === 'none' || !img.src || !sourceImg.naturalWidth || !sourceImg.naturalHeight) {
+    const sourceWidth = tempImg ? tempImg.naturalWidth : (img.tagName === 'CANVAS' ? img.width : img.naturalWidth);
+    const sourceHeight = tempImg ? tempImg.naturalHeight : (img.tagName === 'CANVAS' ? img.height : img.naturalHeight);
+    
+    if (img.style.display === 'none' || !sourceWidth || !sourceHeight) {
         return {
             left: 0,
             top: 0,
@@ -226,7 +228,7 @@ function getContainedImageBounds(img, tempImg = null) {
         };
     }
     
-    const imageRatio = sourceImg.naturalWidth / sourceImg.naturalHeight;
+    const imageRatio = sourceWidth / sourceHeight;
     const containerRatio = containerWidth / containerHeight;
     
     let w, h, l, t;
@@ -248,11 +250,17 @@ function getContainedImageBounds(img, tempImg = null) {
 }
 
 function updateMarginOverlay(tempImg = null) {
-    if (!marginOverlayVisible) return;
     const overlay = document.getElementById('margin-overlay');
     if (!overlay) return;
     
-    const img = document.getElementById('camera-liveview-img');
+    if (!marginOverlayVisible || isZoomed) {
+        overlay.style.display = 'none';
+        return;
+    }
+    
+    overlay.style.display = 'block';
+    
+    const img = document.getElementById('camera-liveview-canvas');
     const bounds = getContainedImageBounds(img, tempImg);
     
     if (bounds) {
@@ -1025,11 +1033,18 @@ function confirmFolderSelection() {
 let isLiveviewActive = false;
 let histogramCanvas = null;
 let histogramCtx = null;
-let liveviewImg = null;
+let liveviewCanvas = null;
 let offscreenCanvas = null;
 let offscreenCtx = null;
 let liveviewTimeout = null;
 let cameraStatusInterval = null;
+
+// Focus Assist States
+let isZoomed = false;
+let zoomX = 0.5;
+let zoomY = 0.5;
+let focusPeakingActive = false;
+let peakingThreshold = 30;
 
 // Initialize camera controls and fetch status
 function initCameraUI() {
@@ -1038,7 +1053,31 @@ function initCameraUI() {
         histogramCtx = histogramCanvas.getContext('2d');
     }
     
-    liveviewImg = document.getElementById('camera-liveview-img');
+    liveviewCanvas = document.getElementById('camera-liveview-canvas');
+    if (liveviewCanvas && !liveviewCanvas.hasZoomListener) {
+        liveviewCanvas.hasZoomListener = true;
+        liveviewCanvas.addEventListener('click', (e) => {
+            if (!isLiveviewActive) return;
+            
+            const rect = liveviewCanvas.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+            
+            if (isZoomed) {
+                isZoomed = false;
+                liveviewCanvas.style.cursor = 'zoom-in';
+            } else {
+                isZoomed = true;
+                zoomX = x / rect.width;
+                zoomY = y / rect.height;
+                liveviewCanvas.style.cursor = 'zoom-out';
+            }
+            
+            if (marginOverlayVisible) {
+                updateMarginOverlay();
+            }
+        });
+    }
     
     // Create high-performance offscreen canvas for sampling
     offscreenCanvas = document.createElement('canvas');
@@ -1053,9 +1092,9 @@ function initCameraUI() {
     if (isLiveviewActive) {
         isLiveviewActive = false;
         if (liveviewTimeout) { clearTimeout(liveviewTimeout); liveviewTimeout = null; }
-        const img = document.getElementById('camera-liveview-img');
+        const canvas = document.getElementById('camera-liveview-canvas');
         const placeholder = document.getElementById('liveview-placeholder');
-        if (img) img.style.display = 'none';
+        if (canvas) canvas.style.display = 'none';
         if (placeholder) placeholder.style.display = 'flex';
     }
     
@@ -1156,9 +1195,11 @@ function setCameraConfig(name, value) {
 // Toggle Live View streaming state
 function toggleCameraLiveview(active) {
     isLiveviewActive = active;
+    isZoomed = false; // Reset zoom state when toggling
     
-    const img = document.getElementById('camera-liveview-img');
+    const canvas = document.getElementById('camera-liveview-canvas');
     const placeholder = document.getElementById('liveview-placeholder');
+    if (canvas) canvas.style.cursor = 'zoom-in';
     
     fetch('/api/camera/toggle_liveview', {
         method: 'POST',
@@ -1174,15 +1215,16 @@ function toggleCameraLiveview(active) {
         
         if (active) {
             if (placeholder) placeholder.style.display = 'none';
-            if (img) img.style.display = 'block';
+            if (canvas) canvas.style.display = 'block';
             
             // Start the static polling loop to get real-time frames
             if (liveviewTimeout) clearTimeout(liveviewTimeout);
             pollLiveviewFrame();
         } else {
-            if (img) {
-                img.style.display = 'none';
-                img.src = '';
+            if (canvas) {
+                canvas.style.display = 'none';
+                const ctx = canvas.getContext('2d');
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
             }
             if (placeholder) placeholder.style.display = 'flex';
             if (liveviewTimeout) {
@@ -1202,8 +1244,9 @@ function toggleCameraLiveview(active) {
 function pollLiveviewFrame() {
     if (!isLiveviewActive) return;
     
-    const img = document.getElementById('camera-liveview-img');
-    if (!img) return;
+    const canvas = document.getElementById('camera-liveview-canvas');
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
     
     const startTime = Date.now();
     
@@ -1212,14 +1255,34 @@ function pollLiveviewFrame() {
     tempImg.onload = () => {
         if (!isLiveviewActive) return;
         
-        // Update visible image element
-        img.src = tempImg.src;
+        const nw = tempImg.naturalWidth;
+        const nh = tempImg.naturalHeight;
+        if (nw > 0 && nh > 0) {
+            canvas.width = nw;
+            canvas.height = nh;
+            
+            if (isZoomed) {
+                // 3x zoom crop window
+                const sw = nw / 3;
+                const sh = nh / 3;
+                let sx = (zoomX * nw) - (sw / 2);
+                let sy = (zoomY * nh) - (sh / 2);
+                sx = Math.max(0, Math.min(nw - sw, sx));
+                sy = Math.max(0, Math.min(nh - sh, sy));
+                ctx.drawImage(tempImg, sx, sy, sw, sh, 0, 0, nw, nh);
+            } else {
+                ctx.drawImage(tempImg, 0, 0, nw, nh);
+            }
+            
+            if (focusPeakingActive) {
+                applyFocusPeaking(canvas, ctx);
+            }
+        }
         
         // Update margin overlay position and sizing to match actual frame bounds
         if (marginOverlayVisible) {
             updateMarginOverlay(tempImg);
         }
-
         
         // Draw onto offscreen canvas for real-time pixel extraction
         offscreenCanvas.width = 128;
@@ -1481,9 +1544,10 @@ function updateScannerModeUI(value) {
 
 function toggleUiSection(section, show) {
     if (section === 'liveview') {
-        const colLiveview = document.getElementById('scanner-col-liveview');
-        if (colLiveview) {
-            colLiveview.style.display = show ? 'block' : 'none';
+        const card = document.getElementById('camera-liveview-canvas')?.parentElement;
+        const liveviewCard = card ? card.closest('.card') : null;
+        if (liveviewCard) {
+            liveviewCard.style.display = show ? 'block' : 'none';
         }
         // Auto-disable live view streaming if panel is hidden to save resources
         if (!show) {
@@ -1494,7 +1558,12 @@ function toggleUiSection(section, show) {
             }
         }
     } else {
-        const card = section === 'camera' ? document.getElementById('card-camera-exposure') : document.getElementById('card-light-source');
+        let cardId = '';
+        if (section === 'camera') cardId = 'card-camera-exposure';
+        else if (section === 'focus') cardId = 'card-focus-assist';
+        else if (section === 'light') cardId = 'card-light-source';
+        
+        const card = document.getElementById(cardId);
         if (card) {
             card.style.display = show ? 'block' : 'none';
         }
@@ -1503,24 +1572,32 @@ function toggleUiSection(section, show) {
     // Check all checkbox states
     const showLiveview = document.getElementById('ui-show-liveview') ? document.getElementById('ui-show-liveview').checked : true;
     const showCamera = document.getElementById('ui-show-camera') ? document.getElementById('ui-show-camera').checked : true;
+    const showFocus = document.getElementById('ui-show-focus') ? document.getElementById('ui-show-focus').checked : true;
     const showLight = document.getElementById('ui-show-light') ? document.getElementById('ui-show-light').checked : true;
     
+    const colLiveview = document.getElementById('scanner-col-liveview');
     const colControls = document.getElementById('scanner-col-controls');
     const grid = document.querySelector('.grid-layout-3');
     
-    // Column 2 (Controls) visibility
-    const showColControls = showCamera || showLight;
+    // Column 1 (Liveview + Light) visibility
+    const showColLiveview = showLiveview || showLight;
+    if (colLiveview) {
+        colLiveview.style.display = showColLiveview ? 'flex' : 'none';
+    }
+    
+    // Column 2 (Camera + Focus) visibility
+    const showColControls = showCamera || showFocus;
     if (colControls) {
-        colControls.style.display = showColControls ? 'block' : 'none';
+        colControls.style.display = showColControls ? 'flex' : 'none';
     }
     
     // Dynamically calculate grid columns based on active panels
     if (grid) {
-        if (showLiveview && showColControls) {
+        if (showColLiveview && showColControls) {
             grid.style.gridTemplateColumns = '1.3fr 0.95fr 0.95fr';
-        } else if (showLiveview && !showColControls) {
+        } else if (showColLiveview && !showColControls) {
             grid.style.gridTemplateColumns = '1.3fr 0.95fr';
-        } else if (!showLiveview && showColControls) {
+        } else if (!showColLiveview && showColControls) {
             grid.style.gridTemplateColumns = '1fr 1fr';
         } else {
             grid.style.gridTemplateColumns = '1fr';
@@ -1532,5 +1609,158 @@ function toggleUiSection(section, show) {
     // Trigger window resize event so the margin overlay bounds recalculate based on new column sizes
     window.dispatchEvent(new Event('resize'));
 }
+
+// --- Focus Assist Helper Functions ---
+function toggleFocusPeaking(active) {
+    focusPeakingActive = active;
+    const sliderGroup = document.getElementById('peaking-sensitivity-group');
+    if (sliderGroup) {
+        sliderGroup.style.display = active ? 'block' : 'none';
+    }
+}
+
+function updateFocusPeakingThreshold(val) {
+    peakingThreshold = parseInt(val);
+}
+
+function applyFocusPeaking(canvas, ctx) {
+    const width = canvas.width;
+    const height = canvas.height;
+    
+    const imgData = ctx.getImageData(0, 0, width, height);
+    const data = imgData.data;
+    
+    const output = ctx.createImageData(width, height);
+    const outData = output.data;
+    outData.set(data);
+    
+    const threshold = peakingThreshold;
+    
+    // Quick horizontal difference + vertical difference edge check to maximize performance:
+    for (let y = 0; y < height - 1; y += 2) {
+        for (let x = 0; x < width - 1; x += 2) {
+            const idx = (y * width + x) * 4;
+            
+            const r1 = data[idx], g1 = data[idx+1], b1 = data[idx+2];
+            const lum1 = (r1 * 77 + g1 * 150 + b1 * 29) >> 8;
+            
+            const idxRight = idx + 8;
+            const r2 = data[idxRight], g2 = data[idxRight+1], b2 = data[idxRight+2];
+            const lum2 = (r2 * 77 + g2 * 150 + b2 * 29) >> 8;
+            
+            const idxDown = idx + (width * 8);
+            const r3 = data[idxDown], g3 = data[idxDown+1], b3 = data[idxDown+2];
+            const lum3 = (r3 * 77 + g3 * 150 + b3 * 29) >> 8;
+            
+            const diff = Math.abs(lum1 - lum2) + Math.abs(lum1 - lum3);
+            
+            if (diff > threshold) {
+                // Color the 2x2 block neon green
+                for (let dy = 0; dy < 2; dy++) {
+                    for (let dx = 0; dx < 2; dx++) {
+                        const targetIdx = ((y + dy) * width + (x + dx)) * 4;
+                        if (targetIdx < outData.length) {
+                            outData[targetIdx] = 0;      // R
+                            outData[targetIdx+1] = 255;  // G
+                            outData[targetIdx+2] = 0;    // B
+                        }
+                    }
+                }
+            }
+        }
+    }
+    ctx.putImageData(output, 0, 0);
+}
+
+function driveFocus(direction, speed) {
+    appendLogLine(`[Client] Stepping focus ${direction} (speed ${speed})...`);
+    fetch('/api/camera/focus_step', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ direction: direction, speed: speed })
+    })
+    .then(res => res.json())
+    .then(data => {
+        if (data.success) {
+            appendLogLine(`[Client] Focus adjusted successfully.`);
+        } else {
+            appendLogLine(`[Client] Focus step failed: ${data.message || 'unknown error'}`);
+        }
+    })
+    .catch(err => console.error("Error stepping focus:", err));
+}
+
+function triggerAutofocus() {
+    const btn = document.getElementById('btn-trigger-af');
+    if (btn) {
+        btn.disabled = true;
+        btn.textContent = 'Focusing...';
+    }
+    appendLogLine(`[Client] Triggering camera autofocus sequence...`);
+    fetch('/api/camera/autofocus', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+    })
+    .then(res => res.json())
+    .then(data => {
+        if (data.success) {
+            appendLogLine(`[Client] Autofocus lock complete.`);
+        } else {
+            appendLogLine(`[Client] Autofocus trigger failed: ${data.message || 'unknown error'}`);
+            alert(`Autofocus failed: ${data.message}`);
+        }
+    })
+    .catch(err => console.error("Error triggering autofocus:", err))
+    .finally(() => {
+        if (btn) {
+            btn.disabled = false;
+            btn.textContent = 'Autofocus';
+        }
+    });
+}
+
+function reconnectCameraDevice() {
+    const btn = document.getElementById('btn-camera-reconnect');
+    if (btn) {
+        btn.disabled = true;
+        btn.textContent = 'Connecting...';
+    }
+    
+    // Auto-disable live view before reconnecting to clear preview handles
+    const toggle = document.getElementById('camera-liveview-toggle');
+    if (toggle && toggle.checked) {
+        toggle.checked = false;
+        toggleCameraLiveview(false);
+    }
+    
+    appendLogLine(`[Client] Re-initializing connection to physical camera...`);
+    fetch('/api/camera/reconnect', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+    })
+    .then(res => res.json())
+    .then(data => {
+        if (data.success) {
+            appendLogLine(`[Client] Reconnect query dispatched successfully.`);
+            // Trigger an immediate camera status refresh
+            setTimeout(fetchCameraStatus, 500);
+        } else {
+            appendLogLine(`[Client] Reconnect failed: ${data.message || 'unknown error'}`);
+            alert(`Reconnect failed: ${data.message}`);
+        }
+    })
+    .catch(err => {
+        console.error("Error reconnecting camera:", err);
+        appendLogLine(`[Client] Network error during camera reconnect command.`);
+    })
+    .finally(() => {
+        if (btn) {
+            btn.disabled = false;
+            btn.textContent = 'Reconnect';
+        }
+    });
+}
+
+
 
 
