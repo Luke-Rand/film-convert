@@ -4,6 +4,7 @@ publish:
   provider: github
   owner: Luke-Rand
   repo: film-convert
+  releaseType: release
 directories:
   output: dist-app
 files:
