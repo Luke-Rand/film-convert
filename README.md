@@ -31,120 +31,108 @@ A suite of Python scripts designed to automate the process of combining individu
 - **Auto-Cropping:** Option to physically crop or just ignore film holder borders during auto-level calculation.
 - **Black & White (Monochrome) Inversion:** Convert RGB scans to high-quality single-channel grayscale positives using weighted luminance, average, or single-channel extraction. Handles native single-channel inputs automatically.
 
-## Prerequisites
+## Installation & Setup
 
-- Python 3.7+
-- Required Python packages: `rawpy`, `numpy`, `tifffile`
-- Optional Web UI packages: `flask`, `pillow`
-- Optional Camera Tethering packages: `gphoto2` (requires system `libgphoto2`)
+### Path A: Desktop Application (Recommended - No Code Required)
 
+If you just want to run FilmConvert, you do not need to install Python or compile the project from source. 
 
-## Installation
+1. Download the latest packaged application for your operating system from the [GitHub Releases](https://github.com/Luke-Rand/film-convert/releases) page.
+2. *(macOS Users)* Bypass Gatekeeper to allow the unsigned application to run:
+   * Move the downloaded `FilmConvert.app` to your `/Applications` folder.
+   * Open Terminal and execute:
+     ```bash
+     xattr -d com.apple.quarantine /Applications/FilmConvert.app
+     ```
+3. *(Optional)* If tethering a **physical camera** for Live View capture, install the `gphoto2` system driver:
+   * **macOS (via Homebrew):** `brew install gphoto2`
+   * **Linux (Debian/Ubuntu):** `sudo apt install gphoto2`
 
-1. Clone this repository or download the scripts.
-2. (Recommended) Create and activate a Python virtual environment to keep dependencies isolated:
+---
 
-   **Windows:**
+### Path B: Command Line & Source Development (Developers)
+
+If you are developing, modifying the Electron wrapper, or prefer running via CLI scripts:
+
+#### Prerequisites
+* Python 3.7+
+* Node.js (v18+) and npm (only required if packaging/modifying the Electron app)
+
+#### Setup Steps
+1. Clone this repository and enter the directory:
    ```bash
-   python -m venv .venv
-   .venv\Scripts\activate
+   git clone https://github.com/Luke-Rand/film-convert.git
+   cd film-convert
    ```
-
-   **macOS/Linux:**
+2. Create and activate a Python virtual environment:
+   * **Windows:**
+     ```bash
+     python -m venv .venv
+     .venv\Scripts\activate
+     ```
+   * **macOS/Linux:**
+     ```bash
+     python3 -m venv .venv
+     source .venv/bin/activate
+     ```
+3. Install Python dependencies:
    ```bash
-   python3 -m venv .venv
-   source .venv/bin/activate
+   pip install -r requirements.txt -r requirements-web.txt
    ```
-
-3. Install the required dependencies using pip:
-
-```bash
-pip install rawpy numpy tifffile
-```
-
-*(Optional) If you plan to use the Web UI, install its dependencies:*
-
-```bash
-pip install -r requirements-web.txt
-```
-
-*(Optional) If you want physical camera tethering / live view support:*
-
-First, install the `gphoto2` system libraries:
-- **macOS (via Homebrew):** `brew install gphoto2`
-- **Linux (Debian/Ubuntu):** `sudo apt install gphoto2 libgphoto2-dev`
-
-Then, install the Python bindings:
-```bash
-pip install gphoto2
-```
+4. *(Optional)* If using physical camera tethering:
+   * Install system libraries:
+     * **macOS:** `brew install gphoto2`
+     * **Linux:** `sudo apt install gphoto2 libgphoto2-dev`
+   * Install python gphoto2 bindings:
+     ```bash
+     pip install gphoto2
+     ```
+5. *(Optional)* Install Electron development dependencies:
+   ```bash
+   npm install
+   ```
 
 > [!NOTE]
-> **macOS USB Connection Notice:** macOS has a built-in background daemon (`ptpcamerad`) that immediately claims any DSLR/mirrorless camera plugged in via USB, which blocks third-party apps like `libgphoto2`. The Web UI automatically runs a background daemon release script to kill `ptpcamerad` when launching. If you still encounter `-53 (Could not claim the USB device)` or `-10 (Timeout)` connection errors, try turning the camera off and on again.
+> **macOS USB Connection Notice:** macOS has a built-in background daemon (`ptpcamerad`) that automatically claims any connected DSLR/mirrorless camera over USB. The Web UI runs a background release script to terminate it upon launch. If you still encounter `-53 (Could not claim USB device)` or `-10 (Timeout)` connection errors, power-cycle the camera.
 
 
 ## Usage
 
-### 1. Web User Interface (Recommended)
+Depending on your setup method from [Installation & Setup](#installation--setup), choose the appropriate way to launch and use FilmConvert:
 
-Start the local web server to run the entire suite through your browser:
+### 1. Launching the Desktop App (Path A)
 
+Simply double-click the installed **FilmConvert** application. It will automatically initialize the local Python server in the background and launch the user interface inside a self-contained window.
+
+### 2. Launching from Source (Path B)
+
+#### Run the Web User Interface
+To start the Flask-based local web server and run the entire suite in your web browser:
 ```bash
 python web_ui.py
 ```
-
-Open `http://127.0.0.1:5001` in your web browser. You can configure scan settings, start/stop hot folder monitoring, view real-time log outputs, run manual batch tasks, and view completed scans in the gallery.
-
+Open `http://127.0.0.1:5001` in your browser. You can configure scan settings, start/stop hot folder monitoring, view real-time log outputs, run manual batch tasks, and view completed scans in the gallery.
 
 #### Scanlight Controller Integration (Optional)
 If you own the **Jackw01 Big Scanlight** or **Scanlight v4**, you can access the **Scanlight** tab to control the device directly:
 1. Connect the light to your computer via USB (using a Chromium-based browser like Google Chrome or Microsoft Edge).
 2. Click **Connect Big Scanlight** to initialize communication. The device metrics (hardware model, firmware, VBUS input voltage, and temperature) will load in real-time.
-3. Manually adjust channel outputs, select quick presets (RGB, White, Off, etc.), or save settings into local storage presets.
-4. Set shutter pulse length, post-shutter delays, and sequence preferences (e.g. leaving RGB/White on or turning off post-run), then click any sequence button (like **Auto R,G,B**) to automatically capture sequential frames. The stacking logs will stream to the logs console in real-time.
+3. Presets can be created and saved, and manual adjustment of LED levels is available.
+4. Set shutter pulse length, post-shutter delays, and sequence preferences, then click any sequence button (like **Auto R,G,B**) to automatically capture sequential frames.
 5. **Exposure Auto-Calibration:** You can automatically detect optimal RGB channel brightness values:
    * Start a folder monitoring session on the **Live Scanner** tab.
    * Go to the **Scanlight** tab and click **Auto-Calibrate RGB Exposures**.
    * The controller runs a test RGB sequence at a reference power level of 150.
    * The compositor measures the captured RAW frames' average channel intensity (0-65,535 in 16-bit linear RAW).
    * It calculates the proportional scaling factors to achieve a target exposure level of 55,000.
-   * If any channel exceeds the maximum LED value of 255 (meaning camera settings are too dark), the highest channel is capped at 255 and other channels are scaled proportionally to preserve correct color balance, and a warning is logged to the console.
+   * If any channel exceeds the maximum LED value of 255, the highest channel is capped and others are scaled proportionally to preserve color balance.
    * The new calibrated values are applied to your active Red, Green, and Blue sliders.
 
-### 2. Desktop Application (Electron)
-
-Alternatively, you can compile and run FilmConvert as a self-contained desktop application. The Electron wrapper automatically manages the life cycle of the Python web server, booting it on a dynamic port and hosting the UI inside a native window.
-
-#### Prerequisites for Desktop Build
-- [Node.js](https://nodejs.org) (v18+) and npm.
-- PyInstaller (installed inside the Python virtual environment via `pip install pyinstaller`).
-
-#### Dev Run
-To start the application in Electron development mode:
-```bash
-npm install
-npm start
-```
-
-#### Production Build
-To package the app into a standalone desktop installer (e.g., `.dmg` on macOS, or `.exe` installer on Windows):
-```bash
-# 1. Compile the Python backend
-npm run build:python
-
-# 2. Package the Electron app
-npm run dist
-```
-*The output package will be available in the `dist-app/` directory.*
-
-### 3. End-to-End CLI Workflow (Interactive)
-
-The session manager provides an interactive, fully automated pipeline.
-
+#### Run the Interactive CLI Session Pipeline
+To use the fully automated CLI folder monitoring session manager:
 ```bash
 python scanning_session.py
 ```
-
 You will be prompted to enter a root directory, film stock, format, and roll number. The script will create an organized session folder and start monitoring the `negatives` subfolder. 
 
 As you shoot your RGB triplets into the `negatives` folder, the script will automatically:
@@ -152,7 +140,18 @@ As you shoot your RGB triplets into the `negatives` folder, the script will auto
 2. Composite them into a 16-bit linear TIFF.
 3. Invert, auto-color balance, and apply an S-curve to create a positive image.
 4. Save the final positive to the `positives` folder.
-5. Move the original RAWs to the `processed_raws` folder.
+5. Move the original RAWs and the intermediate composite to the `processed_raws` folder.
+
+#### Manual Source-Build Compilation (Optional)
+If you wish to build/compile a production binary of the application yourself:
+```bash
+# 1. Compile the Python backend
+npm run build:python
+
+# 2. Package the Electron app
+npm run dist
+```
+*The packaged installer will be generated in the `dist-app/` directory.*
 
 ### 4. Manual Compositing RAWs
 
