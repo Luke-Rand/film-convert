@@ -212,7 +212,7 @@ def hot_folder_mode(directory_path, neutralize_base=False, compress_tiff=False, 
     os.makedirs(processed_dir, exist_ok=True)
     os.makedirs(error_dir, exist_ok=True)
     
-    supported_exts = {'.cr3', '.raf'}
+    supported_exts = {'.cr3', '.raf', '.nef'}
     frame_number = get_next_frame_number(directory_path)
     
     while True:
@@ -284,14 +284,14 @@ def process_roll(directory_path, output_dir=None, neutralize_base=False, compres
     Scans for RAW files, groups by 3, auto-detects colors, and creates linear TIFFs.
     """
     # Find all supported RAW files
-    supported_exts = {'.cr3', '.raf'}
+    supported_exts = {'.cr3', '.raf', '.nef'}
     raw_files = [
         os.path.join(directory_path, f) for f in os.listdir(directory_path)
         if os.path.isfile(os.path.join(directory_path, f)) and os.path.splitext(f)[1].lower() in supported_exts
     ]
     
     if not raw_files:
-        print(f"No .cr3 or .raf files found in {directory_path}")
+        print(f"No .cr3, .raf, or .nef files found in {directory_path}")
         return
 
     # Sort files alphabetically
@@ -333,7 +333,7 @@ if __name__ == "__main__":
     
     # Define command line arguments
     parser.add_argument("-i", "--input", type=str, required=True, 
-                        help="Path to the directory containing RAW files (.CR3 or .RAF)")
+                        help="Path to the directory containing RAW files (.CR3, .RAF, or .NEF)")
     parser.add_argument("-c", "--compress", action="store_true", 
                         help="Enable lossless compression (zlib/deflate) for output TIFFs")
     parser.add_argument("-n", "--neutralize", action="store_true", 

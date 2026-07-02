@@ -223,7 +223,7 @@ class SessionManager:
         return max_num + 1
 
     def _monitor_loop(self):
-        supported_triplet_exts = {'.cr3', '.raf'}
+        supported_triplet_exts = {'.cr3', '.raf', '.nef'}
         supported_single_exts = {'.dng', '.tiff', '.tif'}
         
         self.log("Background scanner monitor loop active.")
@@ -388,14 +388,14 @@ class SessionManager:
                     self.log(f"Output folder: {out_dir}")
                     
                     # Search files
-                    supported_exts = {'.cr3', '.raf'}
+                    supported_exts = {'.cr3', '.raf', '.nef'}
                     raw_files = [
                         os.path.join(in_path, f) for f in os.listdir(in_path)
                         if os.path.isfile(os.path.join(in_path, f)) and os.path.splitext(f)[1].lower() in supported_exts
                     ]
                     
                     if not raw_files:
-                        raise ValueError(f"No .cr3 or .raf files found in {in_path}")
+                        raise ValueError(f"No .cr3, .raf, or .nef files found in {in_path}")
                         
                     raw_files.sort()
                     total_files = len(raw_files)
@@ -504,9 +504,7 @@ def camera_focus_step():
 @app.route('/api/camera/autofocus', methods=['POST'])
 def camera_autofocus():
     try:
-        camera_manager.update_config("eosremoterelease", "Press Half AF")
-        time.sleep(1.2)
-        camera_manager.update_config("eosremoterelease", "Release Half")
+        camera_manager.send_cmd("autofocus", {})
         return jsonify({"success": True})
     except Exception as e:
         return jsonify({"success": False, "message": str(e)}), 500
