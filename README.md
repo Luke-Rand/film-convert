@@ -18,20 +18,12 @@ Connect cameras, adjust settings, and monitor folder activities from a unified v
 * **Crop Guides:** Toggle aspect-ratio crop guide overlays on Live View frames.
 * **Hot Folder Monitoring:** Auto-stack and auto-invert images as they are captured.
 
-> [!NOTE]
-> *Insert visual screenshot of the Live Scanner interface here:*
-> 
-> ![Live Scanner Interface Dashboard Placeholder](docs/screenshots/live_scanner_dashboard.png)
+![Live Scanner Interface Dashboard Placeholder](docs/screenshots/live_scanner_dashboard.png)
 
 ### 🎨 Linear 16-Bit Processing
 * **Pure Color Channel Data:** Skips sRGB matrix conversions to avoid cross-channel contamination.
 * **Auto-Color Alignment:** Auto-aligns color offsets between shots using FFT phase correlation.
 * **Film Base Neutralization:** Analyzes composite data to balance exposure and neutralize orange film masks.
-
-> [!NOTE]
-> *Insert visual comparison showing tricolor raw composite alignment here:*
-> 
-> ![Channel Compositor & Alignment Comparison Placeholder](docs/screenshots/compositor_alignment.png)
 
 ### 🎞️ Density Inversion & curves
 * **Linear Density Division:** True mathematical inversion preserving shadow and highlight detail.
@@ -42,10 +34,7 @@ Connect cameras, adjust settings, and monitor folder activities from a unified v
 * Integrated support for **Jackw01 Big Scanlight** and **Scanlight v4** via the WebSerial API.
 * Direct control of sliders, auto-calibration of exposures, and automated capture sequences.
 
-> [!NOTE]
-> *Insert visual screenshot of the Scanlight control panel here:*
-> 
-> ![Scanlight Control Panel Interface Placeholder](docs/screenshots/scanlight_interface.png)
+![Scanlight Control Panel Interface Placeholder](docs/screenshots/scanlight_interface.png)
 
 ---
 
