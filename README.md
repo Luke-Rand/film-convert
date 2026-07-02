@@ -70,3 +70,9 @@ To explore advanced configurations, scripts, or contribute to development, see t
 ## Credits & Attributions
 
 * The Scanlight control protocols, automatic sequence patterns, and device command structures are adapted from the official [Scanlight Project](https://github.com/jackw01/scanlight) created by [jackw01](https://github.com/jackw01).
+
+---
+
+## License
+
+This project is licensed under the GNU General Public License v3.0 - see the [LICENSE](LICENSE) file for details.
