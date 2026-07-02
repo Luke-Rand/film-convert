@@ -4,14 +4,14 @@ FilmConvert provides a suite of CLI tools designed for scanning session automati
 
 ---
 
-## 1. Automated Session Manager (`scanning_session.py`)
+## 1. Automated Session Manager (`src/scanning_session.py`)
 
 The session manager watches a folder, automatically composites RAW triplets as they are captured by your camera, inverts them into positive positives, and organizes your files.
 
 ### Launching a Session
 Run the script to launch the interactive setup:
 ```bash
-python scanning_session.py
+python src/scanning_session.py
 ```
 
 ### Interactive Setup Steps:
@@ -33,20 +33,20 @@ SessionName/
 
 ---
 
-## 2. RAW Tri-Color Compositor (`compositor.py`)
+## 2. RAW Tri-Color Compositor (`src/compositor.py`)
 
 The compositor sorts and groups RAW images (Canon `.CR3`, Fujifilm `.RAF`, or Nikon `.NEF`), auto-detects Red, Green, and Blue channels, and stacks them into a single 16-bit linear composite TIFF.
 
 ### Basic Usage
 Combine files in a folder into composites inside a new `Composites` subdirectory:
 ```bash
-python compositor.py -i /path/to/raw/files
+python src/compositor.py -i /path/to/raw/files
 ```
 
 ### Advanced Usage (With Channel Alignment and Compression)
 Enable channel auto-alignment via FFT phase correlation, neutralize the film base orange cast, and compress the output TIFF:
 ```bash
-python compositor.py -i /path/to/raw/files --align --neutralize --compress
+python src/compositor.py -i /path/to/raw/files --align --neutralize --compress
 ```
 
 ### CLI Arguments
@@ -62,20 +62,20 @@ python compositor.py -i /path/to/raw/files --align --neutralize --compress
 
 ---
 
-## 3. Density Inverter (`inverter.py`)
+## 3. Density Inverter (`src/inverter.py`)
 
 The inverter takes composite 16-bit linear TIFFs or single RAW DNG files and inverts them, applies S-curves, stretches levels, and crops borders.
 
 ### Basic Usage
 Invert linear images inside a folder into positives in a new `Positives` subdirectory:
 ```bash
-python inverter.py -i /path/to/Composites
+python src/inverter.py -i /path/to/Composites
 ```
 
 ### Advanced Usage (Auto-Crop, Level Clipping, Contrast Curve)
 Apply per-channel auto-levels with 0.1% clipping, a viewing gamma of 2.2, a 30% photographic S-curve, and physically crop out the outer margins:
 ```bash
-python inverter.py -i /path/to/Composites --clip 0.1 --gamma 2.2 --scurve 0.3 --margin 0.03 --autocrop --compress
+python src/inverter.py -i /path/to/Composites --clip 0.1 --gamma 2.2 --scurve 0.3 --margin 0.03 --autocrop --compress
 ```
 
 ### CLI Arguments

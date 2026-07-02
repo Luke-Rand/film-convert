@@ -5,12 +5,12 @@ import os
 block_cipher = None
 
 # Locate directories to package
-templates_path = os.path.abspath('templates')
-static_path = os.path.abspath('static')
+templates_path = os.path.abspath('src/templates')
+static_path = os.path.abspath('src/static')
 
 a = Analysis(
     ['web_ui.py'],
-    pathex=[],
+    pathex=['src'],
     binaries=[],
     datas=[
         (templates_path, 'templates'),

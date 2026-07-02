@@ -25,9 +25,13 @@ if hasattr(sys, '_MEIPASS'):
     # Bundled path for PyInstaller
     template_dir = os.path.join(sys._MEIPASS, 'templates')
     static_dir = os.path.join(sys._MEIPASS, 'static')
-    app = Flask(__name__, template_folder=template_dir, static_folder=static_dir)
 else:
-    app = Flask(__name__, template_folder='templates', static_folder='static')
+    # Resolve relative to the location of web_ui.py (in src/)
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    template_dir = os.path.join(base_dir, 'templates')
+    static_dir = os.path.join(base_dir, 'static')
+
+app = Flask(__name__, template_folder=template_dir, static_folder=static_dir)
 
 # Thread log redirector to capture stdout from composite/inverter scripts
 class ThreadLogRedirector:

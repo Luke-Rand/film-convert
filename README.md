@@ -61,7 +61,7 @@ The easiest way to run FilmConvert is by downloading the packaged desktop applic
 
 To explore advanced configurations, scripts, or contribute to development, see the following documents:
 
-* 📖 **[Command Line (CLI) Usage Guide](CLI_USAGE.md)** — Detailed instructions for running the automated CLI folder monitor (`scanning_session.py`), manual stacking CLI (`compositor.py`), and density inverter CLI (`inverter.py`) with all command line arguments.
+* 📖 **[Command Line (CLI) Usage Guide](CLI_USAGE.md)** — Detailed instructions for running the automated CLI folder monitor (`src/scanning_session.py`), manual stacking CLI (`src/compositor.py`), and density inverter CLI (`src/inverter.py`) with all command line arguments.
 * 🛠️ **[Developer & Source Build Guide](DEVELOPMENT.md)** — Guide to setting up virtual environments, installing python bindings/node packages, running in dev modes, and compiling production installers from source.
 * 🔌 **[API Reference Documentation](API.md)** — Details of the local backend HTTP endpoints and EventStream protocols.
 

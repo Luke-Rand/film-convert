@@ -64,7 +64,7 @@ npm install
 ### Running the Python Backend Separately (Optional)
 You can run the web server independently of Electron. This launches the backend on port `5001`:
 ```bash
-python web_ui.py
+python src/web_ui.py
 ```
 Open `http://127.0.0.1:5001` in your browser.
 
@@ -104,7 +104,7 @@ The final installer package will be available in the `dist-app/` directory.
 
 macOS has a built-in background daemon (`ptpcamerad`) that claims any connected DSLR/mirrorless camera over USB as soon as it is powered on. This blocks third-party libraries (like `libgphoto2`) from claiming the USB device, resulting in `-53 (Could not claim the USB device)` or `-10 (Timeout)` connection errors.
 
-To solve this, FilmConvert implements a background release loop on macOS in `camera_manager.py`:
+To solve this, FilmConvert implements a background release loop on macOS in `src/camera_manager.py`:
 1. When attempting connection, it spins up a background thread that executes:
    ```bash
    killall -9 ptpcamerad
