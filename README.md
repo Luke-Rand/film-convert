@@ -51,7 +51,7 @@ The easiest way to run FilmConvert is by downloading the packaged desktop applic
      xattr -d com.apple.quarantine /Applications/FilmConvert.app
      ```
 4. *(Optional)* If connecting a **physical camera** (e.g. Nikon mirrorless or Canon DSLR) via USB for tethering, install the system `gphoto2` package:
-   * **macOS (via Homebrew):** `brew install gphoto2`
+   * **macOS (via [Homebrew](https://brew.sh/)):** `brew install gphoto2`
    * **Linux (Debian/Ubuntu):** `sudo apt install gphoto2`
 5. Launch the **FilmConvert** application to start scanning.
 
