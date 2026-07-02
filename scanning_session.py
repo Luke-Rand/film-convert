@@ -95,7 +95,7 @@ def run_triplet_pipeline(dirs, is_mono, mono_chan):
     print(f"Monitoring: {dirs['negatives']}")
     print(f"Waiting for RGB RAW triplets. Press Ctrl+C to exit.\n")
     
-    supported_exts = {'.cr3', '.raf'}
+    supported_exts = {'.cr3', '.raf', '.nef'}
     frame_number = get_next_frame_number(dirs)
     
     while True:

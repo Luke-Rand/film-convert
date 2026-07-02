@@ -55,6 +55,17 @@ class CameraManager:
             "shutterspeed": ["1/500", "1/250", "1/125", "1/60", "1/30", "1/15", "1/8", "1/4", "1/2", "1", "2", "auto"]
         }
         
+        # Resolved widget names mapping (probed dynamically upon connection)
+        self.resolved_names = {
+            "iso": "iso",
+            "aperture": "aperture",
+            "shutterspeed": "shutterspeed",
+            "manualfocusdrive": "manualfocusdrive",
+            "eosremoterelease": "eosremoterelease",
+            "autofocusdrive": "autofocusdrive"
+        }
+        self._physical_viewfinder_active = False
+        
         # Internal log helper
         self.log_callback = print
 
@@ -90,6 +101,7 @@ class CameraManager:
                 pass
             self.camera = None
         self.camera_connected = False
+        self._physical_viewfinder_active = False
         self.log("Camera disconnected.")
 
     def get_status(self):
@@ -169,6 +181,15 @@ class CameraManager:
                         resp_q.put((False, str(e)))
             except queue.Empty:
                 pass
+
+            # Viewfinder state transition for Nikon/Canon
+            if self.camera_connected and self.camera:
+                if self.live_view_active and not self._physical_viewfinder_active:
+                    self._set_camera_viewfinder(1)
+                    self._physical_viewfinder_active = True
+                elif not self.live_view_active and self._physical_viewfinder_active:
+                    self._set_camera_viewfinder(0)
+                    self._physical_viewfinder_active = False
 
             # 2. Grab preview frame if live view is active
             if self.live_view_active:
@@ -255,6 +276,26 @@ class CameraManager:
                 self.camera_connected = True
                 self.simulated = False
                 self.log(f"Successfully connected to camera: {camera.get_summary().text.splitlines()[0]}")
+                
+                # Probe and resolve setting widget names (Canon vs Nikon)
+                probe_targets = [
+                    ("iso", ["iso", "eosiso"]),
+                    ("aperture", ["aperture", "f-number", "fnumber"]),
+                    ("shutterspeed", ["shutterspeed", "shutterspeed2"]),
+                    ("manualfocusdrive", ["manualfocusdrive"]),
+                    ("eosremoterelease", ["eosremoterelease"]),
+                    ("autofocusdrive", ["autofocusdrive"])
+                ]
+                for key, candidates in probe_targets:
+                    for candidate in candidates:
+                        try:
+                            camera.get_single_config(candidate)
+                            self.resolved_names[key] = candidate
+                            self.log(f"Resolved camera setting '{key}' to widget '{candidate}'")
+                            break
+                        except Exception:
+                            pass
+                self._physical_viewfinder_active = False
                 
                 # Force viewfinder (live view) to OFF on startup to clear any mirror-up lock from previous crashed runs
                 try:
@@ -412,6 +453,25 @@ class CameraManager:
                 self.log(f"Capture successful. File created on camera: {file_path.folder}/{file_path.name}")
                 return self._download_camera_file(file_path.folder, file_path.name)
 
+        elif cmd == "autofocus":
+            if self.simulated:
+                self.log("Simulating autofocus...")
+                time.sleep(1.0)
+                return True
+            else:
+                if self.resolved_names.get("eosremoterelease"):
+                    self.log("Triggering autofocus via eosremoterelease (Canon)...")
+                    self._set_camera_property("eosremoterelease", "Press Half AF")
+                    time.sleep(1.0)
+                    self._set_camera_property("eosremoterelease", "Release Half")
+                    return True
+                elif self.resolved_names.get("autofocusdrive"):
+                    self.log("Triggering autofocus via autofocusdrive (Nikon/Generic)...")
+                    self._set_camera_property("autofocusdrive", 1)
+                    return True
+                else:
+                    raise Exception("Autofocus is not supported or resolved for this camera model.")
+
         raise ValueError(f"Unknown worker command: {cmd}")
 
     def _grab_preview_frame(self):
@@ -442,7 +502,7 @@ class CameraManager:
     def _download_camera_file(self, folder, name):
         # Determine target directory
         target_dir = None
-        if self.session_manager and self.session_manager.dirs:
+        if self.session_manager and getattr(self.session_manager, 'dirs', None):
             target_dir = self.session_manager.dirs.get("negatives")
             
         if not target_dir or not os.path.exists(target_dir):
@@ -456,7 +516,7 @@ class CameraManager:
         # If the file is not a supported RAW (.cr3, .raf) or JPEG/TIFF, just download as-is
         # Typically Canon outputs .CR3
         frame_num = 1
-        if self.session_manager:
+        if self.session_manager and hasattr(self.session_manager, 'get_next_frame_number'):
             frame_num = self.session_manager.get_next_frame_number(target_dir)
             
         # Format filename to keep stack aligned
@@ -481,7 +541,7 @@ class CameraManager:
     def _simulate_raw_capture(self):
         # Simulate RAW file creation in negatives folder
         target_dir = None
-        if self.session_manager and self.session_manager.dirs:
+        if self.session_manager and getattr(self.session_manager, 'dirs', None):
             target_dir = self.session_manager.dirs.get("negatives")
             
         if not target_dir or not os.path.exists(target_dir):
@@ -489,7 +549,7 @@ class CameraManager:
             os.makedirs(target_dir, exist_ok=True)
             
         frame_num = 1
-        if self.session_manager:
+        if self.session_manager and hasattr(self.session_manager, 'get_next_frame_number'):
             frame_num = self.session_manager.get_next_frame_number(target_dir)
 
         # Write a mock CR3 file containing coordinates and setting strings
@@ -520,25 +580,26 @@ class CameraManager:
         return local_path
 
     def _get_setting_widget(self, name, config, keep_alive):
-        # Component paths for setting traversal on Canon cameras.
-        # These paths are confirmed from a live config dump of the Canon EOS RP.
-        # The config root has a single child 'main', under which all settings live.
+        # Component paths for setting traversal on Canon/Nikon cameras.
         paths = {
             "iso": [
                 ["main", "imgsettings", "iso"],
                 ["main", "capturesettings", "iso"],
+                ["main", "settings", "iso"],
                 ["main", "imgsettings", "eosiso"],
                 ["main", "capturesettings", "eosiso"],
             ],
             "aperture": [
                 ["main", "capturesettings", "aperture"],
                 ["main", "imgsettings", "aperture"],
+                ["main", "settings", "f-number"],
                 ["main", "capturesettings", "f-number"],
                 ["main", "capturesettings", "fnumber"],
             ],
             "shutterspeed": [
                 ["main", "capturesettings", "shutterspeed"],
                 ["main", "imgsettings", "shutterspeed"],
+                ["main", "settings", "shutterspeed"],
                 ["main", "capturesettings", "shutterspeed2"],
             ]
         }
@@ -581,17 +642,42 @@ class CameraManager:
                 pass
         return None
 
+    def _set_camera_viewfinder(self, val):
+        if not self.camera:
+            return
+        try:
+            try:
+                # Fast path using get_single_config
+                viewfinder = self.camera.get_single_config("viewfinder")
+                viewfinder.set_value(val)
+                self.camera.set_single_config("viewfinder", viewfinder)
+                self.log(f"Set viewfinder to {val} using get_single_config")
+                return
+            except Exception:
+                pass
+                
+            # Fallback using recursive config tree search
+            config = self.camera.get_config()
+            keep_alive = [config]
+            viewfinder = self._find_widget_by_name(config, "viewfinder", keep_alive)
+            if viewfinder:
+                viewfinder.set_value(val)
+                self.camera.set_config(config)
+                self.log(f"Set viewfinder to {val} using config tree")
+            else:
+                self.log("Viewfinder widget not found recursively in config tree.")
+        except Exception as e:
+            self.log(f"Failed to set viewfinder to {val}: {e}")
+
     def _query_camera_settings(self):
         if not self.camera:
             return {}
-        # Widget short-names confirmed from live Canon EOS RP config dump
-        name_map = {
-            "iso": "iso",
-            "aperture": "aperture",
-            "shutterspeed": "shutterspeed",
-        }
         settings = {}
-        for key, widget_name in name_map.items():
+        for key in ["iso", "aperture", "shutterspeed"]:
+            widget_name = self.resolved_names.get(key)
+            if not widget_name:
+                settings[key] = "Unknown"
+                continue
             try:
                 widget = self.camera.get_single_config(widget_name)
                 settings[key] = str(widget.get_value())
@@ -603,13 +689,12 @@ class CameraManager:
     def _query_camera_choices(self):
         if not self.camera:
             return {}
-        name_map = {
-            "iso": "iso",
-            "aperture": "aperture",
-            "shutterspeed": "shutterspeed",
-        }
         choices = {}
-        for key, widget_name in name_map.items():
+        for key in ["iso", "aperture", "shutterspeed"]:
+            widget_name = self.resolved_names.get(key)
+            if not widget_name:
+                choices[key] = []
+                continue
             try:
                 widget = self.camera.get_single_config(widget_name)
                 opt_list = []
@@ -624,47 +709,66 @@ class CameraManager:
     def _set_camera_property(self, name, value):
         if not self.camera:
             return False
-        # Widget short-names confirmed from live Canon EOS RP config dump
-        widget_name_map = {
-            "iso": "iso",
-            "aperture": "aperture",
-            "shutterspeed": "shutterspeed",
-            "manualfocusdrive": "manualfocusdrive",
-            "eosremoterelease": "eosremoterelease",
-        }
-        widget_name = widget_name_map.get(name.lower())
+        
+        widget_name = self.resolved_names.get(name.lower())
         if not widget_name:
-            raise Exception(f"Unknown setting: '{name}'")
+            widget_name = name.lower()
+            
         try:
             widget = self.camera.get_single_config(widget_name)
         except Exception as e:
-            raise Exception(f"Setting '{name}' not supported or found on this camera: {e}")
+            raise Exception(f"Setting '{name}' (widget '{widget_name}') not supported or found: {e}")
 
-        # Build valid choices list and find a case-insensitive match
-        valid_choices = []
+        # If it's a range widget (like manualfocusdrive on Nikon), handle mapping from speed/dir string to step integer
         try:
-            for i in range(widget.count_choices()):
-                valid_choices.append(str(widget.get_choice(i)))
+            widget_type = widget.get_type()
         except Exception:
-            pass
+            widget_type = None
 
-        matched_choice = None
-        for choice in valid_choices:
-            if choice.lower() == str(value).lower():
-                matched_choice = choice
-                break
+        if widget_type == gp.GP_WIDGET_RANGE and name.lower() == "manualfocusdrive":
+            val_str = str(value).lower()
+            direction = 1 if "near" in val_str else -1
+            
+            import re
+            speed_match = re.search(r'\d+', val_str)
+            speed = int(speed_match.group()) if speed_match else 1
+            
+            if speed == 1:
+                step = 150
+            elif speed == 2:
+                step = 1000
+            else:
+                step = 5000
+                
+            matched_choice = direction * step
+            widget.set_value(matched_choice)
+            self.log(f"Mapped manualfocusdrive '{value}' to range value: {matched_choice}")
+        else:
+            valid_choices = []
+            try:
+                for i in range(widget.count_choices()):
+                    valid_choices.append(str(widget.get_choice(i)))
+            except Exception:
+                pass
 
-        if not matched_choice:
-            matched_choice = str(value)
-            if valid_choices:
-                self.log(f"Warning: Set value '{value}' not in camera choices {valid_choices}. Attempting raw set.")
+            matched_choice = None
+            for choice in valid_choices:
+                if choice.lower() == str(value).lower():
+                    matched_choice = choice
+                    break
 
-        widget.set_value(matched_choice)
+            if not matched_choice:
+                matched_choice = str(value)
+                if valid_choices:
+                    self.log(f"Warning: Set value '{value}' not in camera choices {valid_choices}. Attempting raw set.")
+
+            widget.set_value(matched_choice)
+
         try:
             self.camera.set_single_config(widget_name, widget)
-            self.log(f"Setting updated: {name} = {matched_choice}")
+            self.log(f"Setting updated: {name} (widget '{widget_name}') = {matched_choice}")
         except Exception as e:
-            self.log(f"Error applying setting '{name}' = '{matched_choice}': {e}")
+            self.log(f"Error applying setting '{name}' = '{value}': {e}")
             raise e
         return True
 
