@@ -1,20 +1,26 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Tri-Color Film Auto-Compositor & Inverter</title>
-    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🎞️</text></svg>">
+    <link rel="icon"
+        href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🎞️</text></svg>">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+        rel="stylesheet">
 </head>
+
 <body>
     <div class="app-container" id="app-root">
         <!-- Sidebar Navigation -->
         <aside class="sidebar">
-            <button class="sidebar-toggle-btn" id="btn-sidebar-toggle" onclick="toggleSidebar()" data-tooltip="Collapse or expand the sidebar navigation">
+            <button class="sidebar-toggle-btn" id="btn-sidebar-toggle" onclick="toggleSidebar()"
+                data-tooltip="Collapse or expand the sidebar navigation">
                 <span class="toggle-icon">◀</span>
             </button>
 
@@ -25,18 +31,22 @@
                     <span class="logo-sub">RAW Suite</span>
                 </div>
             </div>
-            
+
             <nav class="sidebar-nav">
-                <button class="nav-btn active" id="nav-scanner-btn" onclick="switchTab('scanner')" data-tooltip="Live Capture & Monitor — stream real-time camera view, control exposure, and automate stacking">
+                <button class="nav-btn active" id="nav-scanner-btn" onclick="switchTab('scanner')"
+                    data-tooltip="Live Capture & Monitor — stream real-time camera view, control exposure, and automate stacking">
                     <span class="nav-icon">🔥</span> <span class="nav-label">Live Scanner</span>
                 </button>
-                <button class="nav-btn" id="nav-batch-btn" onclick="switchTab('batch')" data-tooltip="Batch Processor — process an entire roll of existing RAW files at once">
+                <button class="nav-btn" id="nav-batch-btn" onclick="switchTab('batch')"
+                    data-tooltip="Batch Processor — process an entire roll of existing RAW files at once">
                     <span class="nav-icon">📦</span> <span class="nav-label">Batch Processor</span>
                 </button>
-                <button class="nav-btn" id="nav-gallery-btn" onclick="switchTab('gallery')" data-tooltip="Scan Gallery — browse positive frames generated in the current session">
+                <button class="nav-btn" id="nav-gallery-btn" onclick="switchTab('gallery')"
+                    data-tooltip="Scan Gallery — browse positive frames generated in the current session">
                     <span class="nav-icon">🖼️</span> <span class="nav-label">Scan Gallery</span>
                 </button>
-                <button class="nav-btn" id="nav-scanlight-btn" onclick="switchTab('scanlight')" data-tooltip="Scanlight Controller — adjust LED brightness, presets, and run automated R/G/B capture sequences">
+                <button class="nav-btn" id="nav-scanlight-btn" onclick="switchTab('scanlight')"
+                    data-tooltip="Scanlight Controller — adjust LED brightness, presets, and run automated R/G/B capture sequences">
                     <span class="nav-icon">💡</span> <span class="nav-label">Scanlight</span>
                 </button>
             </nav>
@@ -59,7 +69,8 @@
             <section class="tab-panel active" id="panel-scanner">
                 <div class="panel-header">
                     <h2>Live Capture & Monitor Studio</h2>
-                    <p>Stream real-time camera view, balance light sources, adjust exposure, and automate stacking in a single dashboard.</p>
+                    <p>Stream real-time camera view, balance light sources, adjust exposure, and automate stacking in a
+                        single dashboard.</p>
                 </div>
 
                 <div class="grid-layout-3">
@@ -70,73 +81,124 @@
                             <div class="liveview-header">
                                 <h3 class="card-title">Live View</h3>
                                 <div class="liveview-controls-header">
-                                    <button class="btn btn-secondary btn-small" id="btn-rotate-liveview" onclick="toggleLiveviewRotation()" data-tooltip="Rotate the live view 180° — useful when the camera is mounted upside-down" style="font-size: 0.7rem; padding: 0.2rem 0.5rem;">🔄 Rotate 180°</button>
-                                    <button class="btn btn-secondary btn-small" id="btn-margin-overlay" onclick="toggleMarginOverlay()" data-tooltip="Show/hide a margin overlay that visualises the ignored outer border region" style="font-size: 0.7rem; padding: 0.2rem 0.5rem;">📐 Margins</button>
+                                    <button class="btn btn-secondary btn-small" id="btn-rotate-liveview"
+                                        onclick="toggleLiveviewRotation()"
+                                        data-tooltip="Rotate the live view 180° — useful when the camera is mounted upside-down"
+                                        style="font-size: 0.7rem; padding: 0.2rem 0.5rem;">🔄 Rotate 180°</button>
+                                    <button class="btn btn-secondary btn-small" id="btn-margin-overlay"
+                                        onclick="toggleMarginOverlay()"
+                                        data-tooltip="Show/hide a margin overlay that visualises the ignored outer border region"
+                                        style="font-size: 0.7rem; padding: 0.2rem 0.5rem;">📐 Margins</button>
                                     <span class="camera-badge badge-simulated" id="camera-status-badge">Simulated</span>
-                                    <label class="switch-container" data-tooltip="Enable or disable the real-time camera live view feed">
-                                        <input type="checkbox" id="camera-liveview-toggle" onchange="toggleCameraLiveview(this.checked)">
+                                    <label class="switch-container"
+                                        data-tooltip="Enable or disable the real-time camera live view feed">
+                                        <input type="checkbox" id="camera-liveview-toggle"
+                                            onchange="toggleCameraLiveview(this.checked)">
                                         <span class="switch-slider"></span>
                                     </label>
                                     <span class="switch-label">Live Feed</span>
                                 </div>
                             </div>
-                            
+
                             <div class="liveview-container">
-                                <canvas id="camera-liveview-canvas" style="display: none; width: 100%; height: 100%; object-fit: contain; cursor: zoom-in;"></canvas>
+                                <canvas id="camera-liveview-canvas"
+                                    style="display: none; width: 100%; height: 100%; object-fit: contain; cursor: zoom-in;"></canvas>
                                 <!-- Margin overlay: inset box-shadow covers the ignored outer margin area -->
                                 <div id="margin-overlay" class="margin-overlay" style="display: none;"></div>
                                 <div id="liveview-placeholder" class="liveview-placeholder">
                                     <div class="placeholder-content">
                                         <span class="placeholder-icon">📷</span>
                                         <span>Live Feed Inactive</span>
-                                        <button class="btn btn-secondary btn-small" style="margin-top: 0.75rem;" onclick="document.getElementById('camera-liveview-toggle').click()">Enable Live View</button>
+                                        <button class="btn btn-secondary btn-small" style="margin-top: 0.75rem;"
+                                            onclick="document.getElementById('camera-liveview-toggle').click()">Enable
+                                            Live View</button>
                                     </div>
                                 </div>
                             </div>
-                            
+
                             <!-- RGB Histogram -->
                             <div class="histogram-container" style="margin-top: 1rem;">
-                                <div class="histogram-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
-                                    <span class="histogram-title" style="font-size: 0.85rem; font-weight: 600; color: var(--text-light);">RGB Histogram</span>
+                                <div class="histogram-header"
+                                    style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+                                    <span class="histogram-title"
+                                        style="font-size: 0.85rem; font-weight: 600; color: var(--text-light);">RGB
+                                        Histogram</span>
                                     <div class="histogram-modes" style="display: flex; gap: 0.25rem;">
-                                        <button class="btn btn-secondary btn-small active" id="btn-hist-all" onclick="setHistogramMode('all')" data-tooltip="Overlay all R, G, B channels on a single histogram" style="font-size: 0.65rem; padding: 0.15rem 0.35rem; line-height: 1;">All</button>
-                                        <button class="btn btn-secondary btn-small" id="btn-hist-r" onclick="setHistogramMode('r')" data-tooltip="Show only the Red channel histogram" style="font-size: 0.65rem; padding: 0.15rem 0.35rem; line-height: 1;">R</button>
-                                        <button class="btn btn-secondary btn-small" id="btn-hist-g" onclick="setHistogramMode('g')" data-tooltip="Show only the Green channel histogram" style="font-size: 0.65rem; padding: 0.15rem 0.35rem; line-height: 1;">G</button>
-                                        <button class="btn btn-secondary btn-small" id="btn-hist-b" onclick="setHistogramMode('b')" data-tooltip="Show only the Blue channel histogram" style="font-size: 0.65rem; padding: 0.15rem 0.35rem; line-height: 1;">B</button>
-                                        <button class="btn btn-secondary btn-small" id="btn-hist-split" onclick="setHistogramMode('split')" data-tooltip="Show R, G, B channels as separate stacked histograms" style="font-size: 0.65rem; padding: 0.15rem 0.35rem; line-height: 1;">Split</button>
+                                        <button class="btn btn-secondary btn-small active" id="btn-hist-all"
+                                            onclick="setHistogramMode('all')"
+                                            data-tooltip="Overlay all R, G, B channels on a single histogram"
+                                            style="font-size: 0.65rem; padding: 0.15rem 0.35rem; line-height: 1;">All</button>
+                                        <button class="btn btn-secondary btn-small" id="btn-hist-r"
+                                            onclick="setHistogramMode('r')"
+                                            data-tooltip="Show only the Red channel histogram"
+                                            style="font-size: 0.65rem; padding: 0.15rem 0.35rem; line-height: 1;">R</button>
+                                        <button class="btn btn-secondary btn-small" id="btn-hist-g"
+                                            onclick="setHistogramMode('g')"
+                                            data-tooltip="Show only the Green channel histogram"
+                                            style="font-size: 0.65rem; padding: 0.15rem 0.35rem; line-height: 1;">G</button>
+                                        <button class="btn btn-secondary btn-small" id="btn-hist-b"
+                                            onclick="setHistogramMode('b')"
+                                            data-tooltip="Show only the Blue channel histogram"
+                                            style="font-size: 0.65rem; padding: 0.15rem 0.35rem; line-height: 1;">B</button>
+                                        <button class="btn btn-secondary btn-small" id="btn-hist-split"
+                                            onclick="setHistogramMode('split')"
+                                            data-tooltip="Show R, G, B channels as separate stacked histograms"
+                                            style="font-size: 0.65rem; padding: 0.15rem 0.35rem; line-height: 1;">Split</button>
                                     </div>
                                 </div>
-                                <canvas id="camera-histogram-canvas" width="256" height="120" class="histogram-canvas"></canvas>
+                                <canvas id="camera-histogram-canvas" width="256" height="120"
+                                    class="histogram-canvas"></canvas>
                             </div>
                         </div>
 
                         <!-- Focus Assist Controls -->
                         <div class="card" id="card-focus-assist">
                             <h3 class="card-title">Focus Assist</h3>
-                            
-                            <div class="form-row" style="display: grid; grid-template-columns: 1.2fr 0.8fr; gap: 0.5rem; align-items: center; margin-bottom: 0.75rem;">
-                                <label class="checkbox-container-mini" style="display: flex; align-items: center; gap: 0.5rem; margin: 0;" data-tooltip="Highlight in-focus edges in real time on the live view">
-                                    <input type="checkbox" id="focus-peaking-toggle" onchange="toggleFocusPeaking(this.checked)">
+
+                            <div class="form-row"
+                                style="display: grid; grid-template-columns: 1.2fr 0.8fr; gap: 0.5rem; align-items: center; margin-bottom: 0.75rem;">
+                                <label class="checkbox-container-mini"
+                                    style="display: flex; align-items: center; gap: 0.5rem; margin: 0;"
+                                    data-tooltip="Highlight in-focus edges in real time on the live view">
+                                    <input type="checkbox" id="focus-peaking-toggle"
+                                        onchange="toggleFocusPeaking(this.checked)">
                                     <span>Focus Peaking</span>
                                 </label>
-                                <button class="btn btn-secondary btn-small" id="btn-trigger-af" onclick="triggerAutofocus()" data-tooltip="Command the camera to perform a one-shot autofocus cycle">Autofocus</button>
+                                <button class="btn btn-secondary btn-small" id="btn-trigger-af"
+                                    onclick="triggerAutofocus()"
+                                    data-tooltip="Command the camera to perform a one-shot autofocus cycle">Autofocus</button>
                             </div>
 
-                            <div class="form-group slider-group" id="peaking-sensitivity-group" style="display: none; margin-bottom: 1rem;">
+                            <div class="form-group slider-group" id="peaking-sensitivity-group"
+                                style="display: none; margin-bottom: 1rem;">
                                 <div class="slider-header">
-                                    <label for="peaking-threshold" data-tooltip="Edge detection sensitivity — higher values highlight more areas as in-focus">Peaking Threshold</label>
+                                    <label for="peaking-threshold"
+                                        data-tooltip="Edge detection sensitivity — higher values highlight more areas as in-focus">Peaking
+                                        Threshold</label>
                                     <span class="slider-value" id="val-peaking-threshold">30</span>
                                 </div>
-                                <input type="range" id="peaking-threshold" min="5" max="100" step="5" value="30" oninput="updateSliderVal('peaking-threshold'); updateFocusPeakingThreshold(this.value)" data-tooltip="Edge detection sensitivity — higher values highlight more areas as in-focus">
+                                <input type="range" id="peaking-threshold" min="5" max="100" step="5" value="30"
+                                    oninput="updateSliderVal('peaking-threshold'); updateFocusPeakingThreshold(this.value)"
+                                    data-tooltip="Edge detection sensitivity — higher values highlight more areas as in-focus">
                             </div>
 
                             <div class="form-group" style="margin-bottom: 0;">
-                                <label style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; display: block; margin-bottom: 0.5rem;">Manual Focus Stepping</label>
+                                <label
+                                    style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; display: block; margin-bottom: 0.5rem;">Manual
+                                    Focus Stepping</label>
                                 <div style="display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 0.35rem;">
-                                    <button class="btn btn-secondary btn-small" onclick="driveFocus('near', 3)" data-tooltip="Large step toward Near focus — moves the lens significantly closer">◀◀ Near</button>
-                                    <button class="btn btn-secondary btn-small" onclick="driveFocus('near', 1)" data-tooltip="Small micro-step toward Near focus — fine adjustment closer">◀ Near</button>
-                                    <button class="btn btn-secondary btn-small" onclick="driveFocus('far', 1)" data-tooltip="Small micro-step toward Far focus — fine adjustment farther">Far ▶</button>
-                                    <button class="btn btn-secondary btn-small" onclick="driveFocus('far', 3)" data-tooltip="Large step toward Far focus — moves the lens significantly farther">Far ▶▶</button>
+                                    <button class="btn btn-secondary btn-small" onclick="driveFocus('near', 3)"
+                                        data-tooltip="Large step toward Near focus — moves the lens significantly closer">◀◀
+                                        Near</button>
+                                    <button class="btn btn-secondary btn-small" onclick="driveFocus('near', 1)"
+                                        data-tooltip="Small micro-step toward Near focus — fine adjustment closer">◀
+                                        Near</button>
+                                    <button class="btn btn-secondary btn-small" onclick="driveFocus('far', 1)"
+                                        data-tooltip="Small micro-step toward Far focus — fine adjustment farther">Far
+                                        ▶</button>
+                                    <button class="btn btn-secondary btn-small" onclick="driveFocus('far', 3)"
+                                        data-tooltip="Large step toward Far focus — moves the lens significantly farther">Far
+                                        ▶▶</button>
                                 </div>
                             </div>
                         </div>
@@ -148,86 +210,140 @@
                         <div class="card" id="card-light-source">
                             <div class="card-header-with-action">
                                 <h3 class="card-title">LED Light Source</h3>
-                                <button class="btn btn-secondary btn-small" id="btn-mini-sl-connect" onclick="toggleMiniScanlightConnection()" data-tooltip="Connect or disconnect from the Scanlight LED controller via WebSerial">Connect Light</button>
+                                <button class="btn btn-secondary btn-small" id="btn-mini-sl-connect"
+                                    onclick="toggleMiniScanlightConnection()"
+                                    data-tooltip="Connect or disconnect from the Scanlight LED controller via WebSerial">Connect
+                                    Light</button>
                             </div>
-                            
+
                             <!-- Active Status -->
-                            <div class="mini-sl-status" id="mini-sl-status-text" style="font-size: 0.8rem; margin-bottom: 0.75rem; color: var(--text-muted);">
+                            <div class="mini-sl-status" id="mini-sl-status-text"
+                                style="font-size: 0.8rem; margin-bottom: 0.75rem; color: var(--text-muted);">
                                 Status: <span style="color: var(--accent-red); font-weight: 600;">Disconnected</span>
                             </div>
 
                             <!-- Brightness Sliders -->
                             <div class="form-group slider-group">
                                 <div class="slider-header">
-                                    <label for="mini-sl-red" style="color: var(--accent-red);" data-tooltip="Red LED brightness (0–255). Higher values give more red illumination">Red LED Channel</label>
+                                    <label for="mini-sl-red" style="color: var(--accent-red);"
+                                        data-tooltip="Red LED brightness (0–255). Higher values give more red illumination">Red
+                                        LED Channel</label>
                                     <span class="slider-value" id="val-mini-sl-red">255</span>
                                 </div>
-                                <input type="range" id="mini-sl-red" min="0" max="255" step="1" value="255" oninput="updateMiniScanlightColor('red', this.value)" data-tooltip="Red LED brightness (0–255)">
+                                <input type="range" id="mini-sl-red" min="0" max="255" step="1" value="255"
+                                    oninput="updateMiniScanlightColor('red', this.value)"
+                                    data-tooltip="Red LED brightness (0–255)">
                             </div>
 
                             <div class="form-group slider-group">
                                 <div class="slider-header">
-                                    <label for="mini-sl-green" style="color: var(--accent-green);" data-tooltip="Green LED brightness (0–255). Higher values give more green illumination">Green LED Channel</label>
+                                    <label for="mini-sl-green" style="color: var(--accent-green);"
+                                        data-tooltip="Green LED brightness (0–255). Higher values give more green illumination">Green
+                                        LED Channel</label>
                                     <span class="slider-value" id="val-mini-sl-green">255</span>
                                 </div>
-                                <input type="range" id="mini-sl-green" min="0" max="255" step="1" value="255" oninput="updateMiniScanlightColor('green', this.value)" data-tooltip="Green LED brightness (0–255)">
+                                <input type="range" id="mini-sl-green" min="0" max="255" step="1" value="255"
+                                    oninput="updateMiniScanlightColor('green', this.value)"
+                                    data-tooltip="Green LED brightness (0–255)">
                             </div>
 
                             <div class="form-group slider-group">
                                 <div class="slider-header">
-                                    <label for="mini-sl-blue" style="color: var(--accent-blue);" data-tooltip="Blue LED brightness (0–255). Higher values give more blue illumination">Blue LED Channel</label>
+                                    <label for="mini-sl-blue" style="color: var(--accent-blue);"
+                                        data-tooltip="Blue LED brightness (0–255). Higher values give more blue illumination">Blue
+                                        LED Channel</label>
                                     <span class="slider-value" id="val-mini-sl-blue">255</span>
                                 </div>
-                                <input type="range" id="mini-sl-blue" min="0" max="255" step="1" value="255" oninput="updateMiniScanlightColor('blue', this.value)" data-tooltip="Blue LED brightness (0–255)">
+                                <input type="range" id="mini-sl-blue" min="0" max="255" step="1" value="255"
+                                    oninput="updateMiniScanlightColor('blue', this.value)"
+                                    data-tooltip="Blue LED brightness (0–255)">
                             </div>
 
                             <!-- Quick Channel Presets -->
                             <div style="margin-top: 1rem;">
-                                <div style="font-size: 0.75rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.5rem;">Quick Channels</div>
-                                <div style="display: grid; grid-template-columns: 1fr 1fr 1fr 1fr 1fr; gap: 0.35rem; margin-bottom: 0.5rem;">
-                                    <button class="btn btn-small" style="background: rgba(220,60,60,0.15); border: 1px solid rgba(220,60,60,0.4); color: var(--accent-red); font-weight: 700;" onclick="applyMiniScanlightPreset([1,0,0,0,0])" data-tooltip="Set Red-only illumination (for R channel capture)">R</button>
-                                    <button class="btn btn-small" style="background: rgba(60,200,80,0.15); border: 1px solid rgba(60,200,80,0.4); color: var(--accent-green); font-weight: 700;" onclick="applyMiniScanlightPreset([0,1,0,0,0])" data-tooltip="Set Green-only illumination (for G channel capture)">G</button>
-                                    <button class="btn btn-small" style="background: rgba(50,120,255,0.15); border: 1px solid rgba(50,120,255,0.4); color: var(--accent-blue); font-weight: 700;" onclick="applyMiniScanlightPreset([0,0,1,0,0])" data-tooltip="Set Blue-only illumination (for B channel capture)">B</button>
-                                    <button class="btn btn-secondary btn-small" onclick="applyMiniScanlightPreset([1,1,1,0,0])" data-tooltip="Enable all RGB channels at full white illumination">RGB</button>
-                                    <button class="btn btn-secondary btn-small" onclick="applyMiniScanlightPreset([0,0,0,0,0])" data-tooltip="Turn off all LED channels">Off</button>
+                                <div
+                                    style="font-size: 0.75rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.5rem;">
+                                    Quick Channels</div>
+                                <div
+                                    style="display: grid; grid-template-columns: 1fr 1fr 1fr 1fr 1fr; gap: 0.35rem; margin-bottom: 0.5rem;">
+                                    <button class="btn btn-small"
+                                        style="background: rgba(220,60,60,0.15); border: 1px solid rgba(220,60,60,0.4); color: var(--accent-red); font-weight: 700;"
+                                        onclick="applyMiniScanlightPreset([1,0,0,0,0])"
+                                        data-tooltip="Set Red-only illumination (for R channel capture)">R</button>
+                                    <button class="btn btn-small"
+                                        style="background: rgba(60,200,80,0.15); border: 1px solid rgba(60,200,80,0.4); color: var(--accent-green); font-weight: 700;"
+                                        onclick="applyMiniScanlightPreset([0,1,0,0,0])"
+                                        data-tooltip="Set Green-only illumination (for G channel capture)">G</button>
+                                    <button class="btn btn-small"
+                                        style="background: rgba(50,120,255,0.15); border: 1px solid rgba(50,120,255,0.4); color: var(--accent-blue); font-weight: 700;"
+                                        onclick="applyMiniScanlightPreset([0,0,1,0,0])"
+                                        data-tooltip="Set Blue-only illumination (for B channel capture)">B</button>
+                                    <button class="btn btn-secondary btn-small"
+                                        onclick="applyMiniScanlightPreset([1,1,1,0,0])"
+                                        data-tooltip="Enable all RGB channels at full white illumination">RGB</button>
+                                    <button class="btn btn-secondary btn-small"
+                                        onclick="applyMiniScanlightPreset([0,0,0,0,0])"
+                                        data-tooltip="Turn off all LED channels">Off</button>
                                 </div>
                             </div>
 
                             <!-- Auto R,G,B Sequence -->
                             <div style="margin-top: 0.75rem;">
-                                <div style="font-size: 0.75rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.5rem;">Auto Sequence</div>
-                                <button class="btn btn-primary btn-small" style="width: 100%;" id="btn-mini-seq-rgb" onclick="runMiniScanlightSequence('SequenceRGB')" data-tooltip="Automatically cycle R → G → B illumination and trigger a camera capture for each — produces one triplet for compositing">▶ Auto R → G → B</button>
+                                <div
+                                    style="font-size: 0.75rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.5rem;">
+                                    Auto Sequence</div>
+                                <button class="btn btn-primary btn-small" style="width: 100%;" id="btn-mini-seq-rgb"
+                                    onclick="runMiniScanlightSequence('SequenceRGB')"
+                                    data-tooltip="Automatically cycle R → G → B illumination and trigger a camera capture for each — produces one triplet for compositing">▶
+                                    Auto R → G → B</button>
                             </div>
                         </div>
                         <!-- Camera Exposure Controls -->
                         <div class="card" id="card-camera-exposure">
                             <div class="card-header-with-action">
                                 <h3 class="card-title">Camera Exposure</h3>
-                                <button class="btn btn-secondary btn-small" id="btn-camera-reconnect" onclick="reconnectCameraDevice()" data-tooltip="Re-scan and reconnect to the tethered camera via USB">Reconnect</button>
+                                <button class="btn btn-secondary btn-small" id="btn-camera-reconnect"
+                                    onclick="reconnectCameraDevice()"
+                                    data-tooltip="Re-scan and reconnect to the tethered camera via USB">Reconnect</button>
                             </div>
-                            
+
                             <div class="form-group">
-                                <label for="camera-iso-select" data-tooltip="Sensor sensitivity — lower ISO for cleaner images with bright illumination; higher ISO for darker scenes">ISO Speed</label>
-                                <select id="camera-iso-select" class="select-presets" onchange="setCameraConfig('iso', this.value)" data-tooltip="Sensor sensitivity — lower ISO for cleaner images with bright illumination; higher ISO for darker scenes">
+                                <label for="camera-iso-select"
+                                    data-tooltip="Sensor sensitivity — lower ISO for cleaner images with bright illumination; higher ISO for darker scenes">ISO
+                                    Speed</label>
+                                <select id="camera-iso-select" class="select-presets"
+                                    onchange="setCameraConfig('iso', this.value)"
+                                    data-tooltip="Sensor sensitivity — lower ISO for cleaner images with bright illumination; higher ISO for darker scenes">
                                     <option value="">(No Camera)</option>
                                 </select>
                             </div>
 
                             <div class="form-group">
-                                <label for="camera-aperture-select" data-tooltip="Aperture f-stop — a smaller number means wider aperture (more light/shallower depth of field)">Aperture (F-Number)</label>
-                                <select id="camera-aperture-select" class="select-presets" onchange="setCameraConfig('aperture', this.value)" data-tooltip="Aperture f-stop — a smaller number means wider aperture (more light/shallower depth of field)">
+                                <label for="camera-aperture-select"
+                                    data-tooltip="Aperture f-stop — a smaller number means wider aperture (more light/shallower depth of field)">Aperture
+                                    (F-Number)</label>
+                                <select id="camera-aperture-select" class="select-presets"
+                                    onchange="setCameraConfig('aperture', this.value)"
+                                    data-tooltip="Aperture f-stop — a smaller number means wider aperture (more light/shallower depth of field)">
                                     <option value="">(No Camera)</option>
                                 </select>
                             </div>
 
                             <div class="form-group">
-                                <label for="camera-shutter-select" data-tooltip="Shutter speed — slower speeds let in more light but increase motion blur risk">Shutter Speed</label>
-                                <select id="camera-shutter-select" class="select-presets" onchange="setCameraConfig('shutterspeed', this.value)" data-tooltip="Shutter speed — slower speeds let in more light but increase motion blur risk">
+                                <label for="camera-shutter-select"
+                                    data-tooltip="Shutter speed — slower speeds let in more light but increase motion blur risk">Shutter
+                                    Speed</label>
+                                <select id="camera-shutter-select" class="select-presets"
+                                    onchange="setCameraConfig('shutterspeed', this.value)"
+                                    data-tooltip="Shutter speed — slower speeds let in more light but increase motion blur risk">
                                     <option value="">(No Camera)</option>
                                 </select>
                             </div>
 
-                            <button class="btn btn-primary btn-large btn-capture" id="btn-camera-capture" onclick="triggerCameraCapture()" data-tooltip="Trigger the camera shutter and save a RAW frame to the session folder" style="width: 100%; margin-top: 0.5rem;">
+                            <button class="btn btn-primary btn-large btn-capture" id="btn-camera-capture"
+                                onclick="triggerCameraCapture()"
+                                data-tooltip="Trigger the camera shutter and save a RAW frame to the session folder"
+                                style="width: 100%; margin-top: 0.5rem;">
                                 📸 Capture RAW Frame
                             </button>
                         </div>
@@ -238,72 +354,105 @@
                         <!-- Session Configuration -->
                         <div class="card">
                             <h3 class="card-title">Session Parameters</h3>
-                            
+
                             <div class="form-group">
                                 <label for="scanner-root-dir">Scans Root Folder</label>
                                 <div class="input-with-button">
-                                    <input type="text" id="scanner-root-dir" placeholder="e.g., C:/Users/Name/Pictures/Scans" data-tooltip="Root directory where session sub-folders (named by Stock/Format/Roll) will be created">
-                                    <button class="btn btn-secondary btn-input-action" type="button" onclick="openFolderBrowser('scanner-root-dir')" data-tooltip="Browse your filesystem to select the Scans root folder">📁</button>
+                                    <input type="text" id="scanner-root-dir"
+                                        placeholder="e.g., C:/Users/Name/Pictures/Scans"
+                                        data-tooltip="Root directory where session sub-folders (named by Stock/Format/Roll) will be created">
+                                    <button class="btn btn-secondary btn-input-action" type="button"
+                                        onclick="openFolderBrowser('scanner-root-dir')"
+                                        data-tooltip="Browse your filesystem to select the Scans root folder">📁</button>
                                 </div>
                             </div>
-                            
+
                             <div class="form-row">
                                 <div class="form-group">
                                     <label for="scanner-stock">Stock</label>
-                                    <input type="text" id="scanner-stock" placeholder="KodakGold200" value="KodakGold200" data-tooltip="Film stock name — used to label the session sub-folder (e.g., KodakGold200, FujiPro400H)">
+                                    <input type="text" id="scanner-stock" placeholder="KodakGold200"
+                                        value="KodakGold200"
+                                        data-tooltip="Film stock name — used to label the session sub-folder (e.g., KodakGold200, FujiPro400H)">
                                 </div>
                                 <div class="form-group size-small">
                                     <label for="scanner-format">Format</label>
-                                    <input type="text" id="scanner-format" value="135" data-tooltip="Film format code — 135 for 35 mm, 120 for medium format, etc.">
+                                    <input type="text" id="scanner-format" value="135"
+                                        data-tooltip="Film format code — 135 for 35 mm, 120 for medium format, etc.">
                                 </div>
                                 <div class="form-group size-small">
                                     <label for="scanner-roll">Roll #</label>
-                                    <input type="text" id="scanner-roll" value="01" data-tooltip="Roll number within this stock/format — used to keep sessions organised (e.g., 01, 02)">
+                                    <input type="text" id="scanner-roll" value="01"
+                                        data-tooltip="Roll number within this stock/format — used to keep sessions organised (e.g., 01, 02)">
                                 </div>
                             </div>
 
                             <div class="form-group" style="margin-bottom: 1rem;">
                                 <label>Mode</label>
-                                <select id="scanner-mode" class="select-presets" onchange="updateScannerModeUI(this.value)" data-tooltip="Triplet: captures 3 sequential RAWs (R, G, B) and stacks them into one 16-bit TIFF. Single-Shot: captures a single DNG/TIFF and inverts it directly">
+                                <select id="scanner-mode" class="select-presets"
+                                    onchange="updateScannerModeUI(this.value)"
+                                    data-tooltip="Triplet: captures 3 sequential RAWs (R, G, B) and stacks them into one 16-bit TIFF. Single-Shot: captures a single DNG/TIFF and inverts it directly">
                                     <option value="triplet" selected>Triplet Mode (R-G-B Stacking)</option>
                                     <option value="single">Single-Shot (DNG/TIFF Inversion)</option>
                                 </select>
                             </div>
 
-                            <div class="checkbox-grid-mini" style="display: grid; grid-template-columns: 1fr; gap: 0.5rem; margin-bottom: 1rem; font-size: 0.8rem;">
-                                <label class="checkbox-container-mini" style="display: flex; align-items: center; gap: 0.5rem;" data-tooltip="Sample the film base colour from the rebate/border and subtract it for a neutral white balance">
+                            <div class="checkbox-grid-mini"
+                                style="display: grid; grid-template-columns: 1fr; gap: 0.5rem; margin-bottom: 1rem; font-size: 0.8rem;">
+                                <label class="checkbox-container-mini"
+                                    style="display: flex; align-items: center; gap: 0.5rem;"
+                                    data-tooltip="Sample the film base color from the rebate/border and subtract it for a neutral white balance">
                                     <input type="checkbox" id="config-neutralize">
                                     <span>Neutralize Film Base</span>
                                 </label>
-                                <label class="checkbox-container-mini" style="display: flex; align-items: center; gap: 0.5rem;" data-tooltip="Sub-pixel cross-correlate the R, G, B frames to correct for micro-movement between shots">
+                                <label class="checkbox-container-mini"
+                                    style="display: flex; align-items: center; gap: 0.5rem;"
+                                    data-tooltip="Sub-pixel cross-correlate the R, G, B frames to correct for micro-movement between shots">
                                     <input type="checkbox" id="config-align-channels">
                                     <span>Align RGB Channels</span>
                                 </label>
-                                <label class="checkbox-container-mini" style="display: flex; align-items: center; gap: 0.5rem;" data-tooltip="Treat this roll as black-and-white — converts to luminance instead of producing colour output">
-                                    <input type="checkbox" id="config-monochrome" onchange="document.getElementById('mini-mono-channel-group').style.display = this.checked ? 'block' : 'none'">
+                                <label class="checkbox-container-mini"
+                                    style="display: flex; align-items: center; gap: 0.5rem;"
+                                    data-tooltip="Treat this roll as black-and-white — converts to luminance instead of producing color output">
+                                    <input type="checkbox" id="config-monochrome"
+                                        onchange="document.getElementById('mini-mono-channel-group').style.display = this.checked ? 'block' : 'none'">
                                     <span>Monochrome (B&W) Film</span>
                                 </label>
-                                <label class="checkbox-container-mini" style="display: flex; align-items: center; gap: 0.5rem; border-top: 1px solid var(--border-color); padding-top: 0.5rem; margin-top: 0.25rem;" data-tooltip="Show or hide the Live View / Histogram panel in the first column">
-                                    <input type="checkbox" id="ui-show-liveview" checked onchange="toggleUiSection('liveview', this.checked)">
+                                <label class="checkbox-container-mini"
+                                    style="display: flex; align-items: center; gap: 0.5rem; border-top: 1px solid var(--border-color); padding-top: 0.5rem; margin-top: 0.25rem;"
+                                    data-tooltip="Show or hide the Live View / Histogram panel in the first column">
+                                    <input type="checkbox" id="ui-show-liveview" checked
+                                        onchange="toggleUiSection('liveview', this.checked)">
                                     <span>Show Live View Panel</span>
                                 </label>
-                                <label class="checkbox-container-mini" style="display: flex; align-items: center; gap: 0.5rem;" data-tooltip="Show or hide the Camera Exposure controls panel">
-                                    <input type="checkbox" id="ui-show-camera" checked onchange="toggleUiSection('camera', this.checked)">
+                                <label class="checkbox-container-mini"
+                                    style="display: flex; align-items: center; gap: 0.5rem;"
+                                    data-tooltip="Show or hide the Camera Exposure controls panel">
+                                    <input type="checkbox" id="ui-show-camera" checked
+                                        onchange="toggleUiSection('camera', this.checked)">
                                     <span>Show Camera Panel</span>
                                 </label>
-                                <label class="checkbox-container-mini" style="display: flex; align-items: center; gap: 0.5rem;" data-tooltip="Show or hide the Focus Assist panel">
-                                    <input type="checkbox" id="ui-show-focus" checked onchange="toggleUiSection('focus', this.checked)">
+                                <label class="checkbox-container-mini"
+                                    style="display: flex; align-items: center; gap: 0.5rem;"
+                                    data-tooltip="Show or hide the Focus Assist panel">
+                                    <input type="checkbox" id="ui-show-focus" checked
+                                        onchange="toggleUiSection('focus', this.checked)">
                                     <span>Show Focus Assist Panel</span>
                                 </label>
-                                <label class="checkbox-container-mini" style="display: flex; align-items: center; gap: 0.5rem;" data-tooltip="Show or hide the LED Light Source panel">
-                                    <input type="checkbox" id="ui-show-light" checked onchange="toggleUiSection('light', this.checked)">
+                                <label class="checkbox-container-mini"
+                                    style="display: flex; align-items: center; gap: 0.5rem;"
+                                    data-tooltip="Show or hide the LED Light Source panel">
+                                    <input type="checkbox" id="ui-show-light" checked
+                                        onchange="toggleUiSection('light', this.checked)">
                                     <span>Show Light Panel</span>
                                 </label>
                             </div>
 
-                            <div class="form-group" id="mini-mono-channel-group" style="display: none; margin-bottom: 1rem; border-top: 1px solid var(--border-color); padding-top: 0.5rem;">
-                                <label for="config-monochrome-channel" style="font-size: 0.75rem;">Monochrome Method</label>
-                                <select id="config-monochrome-channel" class="select-presets" style="font-size: 0.75rem; height: 1.8rem; padding: 0.2rem;">
+                            <div class="form-group" id="mini-mono-channel-group"
+                                style="display: none; margin-bottom: 1rem; border-top: 1px solid var(--border-color); padding-top: 0.5rem;">
+                                <label for="config-monochrome-channel" style="font-size: 0.75rem;">Monochrome
+                                    Method</label>
+                                <select id="config-monochrome-channel" class="select-presets"
+                                    style="font-size: 0.75rem; height: 1.8rem; padding: 0.2rem;">
                                     <option value="luminance" selected>Luminance (R+G+B Mix)</option>
                                     <option value="average">Average Mix</option>
                                     <option value="green">Green (Sharpest Bayer)</option>
@@ -312,22 +461,28 @@
                                 </select>
                             </div>
 
-                            <button class="btn btn-primary" id="btn-toggle-monitor" onclick="toggleMonitor()" data-tooltip="Watch the session folder for new RAW files and process them automatically as they arrive" style="width: 100%;">
+                            <button class="btn btn-primary" id="btn-toggle-monitor" onclick="toggleMonitor()"
+                                data-tooltip="Watch the session folder for new RAW files and process them automatically as they arrive"
+                                style="width: 100%;">
                                 ⚡ Start Hot Folder Monitor
                             </button>
                         </div>
 
                         <!-- Mini Gallery Tracker / Session Logs -->
-                        <div class="card console-card flex-grow" style="display: flex; flex-direction: column; min-height: 200px;">
-                            <div class="console-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+                        <div class="card console-card flex-grow"
+                            style="display: flex; flex-direction: column; min-height: 200px;">
+                            <div class="console-header"
+                                style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
                                 <h3 class="card-title" style="margin: 0;">Logs</h3>
-                                <button class="btn btn-secondary btn-small" onclick="clearLogs()" data-tooltip="Clear the session log console">Clear</button>
+                                <button class="btn btn-secondary btn-small" onclick="clearLogs()"
+                                    data-tooltip="Clear the session log console">Clear</button>
                             </div>
-                            <div class="console-output" id="console-output" style="flex-grow: 1; font-family: 'JetBrains Mono', monospace; font-size: 0.75rem; background: #090d16; border: 1px solid var(--border-color); padding: 0.5rem; border-radius: 4px; overflow-y: auto; max-height: 250px;">
+                            <div class="console-output" id="console-output"
+                                style="flex-grow: 1; font-family: 'JetBrains Mono', monospace; font-size: 0.75rem; background: #090d16; border: 1px solid var(--border-color); padding: 0.5rem; border-radius: 4px; overflow-y: auto; max-height: 250px;">
                                 <div class="console-line text-muted">Ready to capture...</div>
                             </div>
                         </div>
-                        
+
                         <!-- Advanced Processing Parameters (collapsible) -->
                         <div class="accordion-header" onclick="toggleScannerSettings()" style="margin-top: 0.5rem;">
                             <span>⚙️ Advanced Processing Parameters</span>
@@ -337,46 +492,65 @@
                             <div class="grid-two-col" style="margin-top: 0.75rem;">
                                 <div class="form-group slider-group">
                                     <div class="slider-header">
-                                        <label for="config-gamma" data-tooltip="Output gamma curve (1.0–3.0). 2.2 is standard sRGB; raise above 2.2 to brighten midtones">Gamma Correction</label>
+                                        <label for="config-gamma"
+                                            data-tooltip="Output gamma curve (1.0–3.0). 2.2 is standard sRGB; raise above 2.2 to brighten midtones">Gamma
+                                            Correction</label>
                                         <span class="slider-value" id="val-gamma">2.2</span>
                                     </div>
-                                    <input type="range" id="config-gamma" min="1.0" max="3.0" step="0.1" value="2.2" oninput="updateSliderVal('gamma')" data-tooltip="Output gamma curve (1.0–3.0). 2.2 is standard sRGB">
+                                    <input type="range" id="config-gamma" min="1.0" max="3.0" step="0.1" value="2.2"
+                                        oninput="updateSliderVal('gamma')"
+                                        data-tooltip="Output gamma curve (1.0–3.0). 2.2 is standard sRGB">
                                 </div>
                                 <div class="form-group slider-group">
                                     <div class="slider-header">
-                                        <label for="config-clip" data-tooltip="Percentage of pixels to clip at each end of the histogram for auto-levels — tiny values (0.1%) avoid blown highlights">Levels Clipping (%)</label>
+                                        <label for="config-clip"
+                                            data-tooltip="Percentage of pixels to clip at each end of the histogram for auto-levels — tiny values (0.1%) avoid blown highlights">Levels
+                                            Clipping (%)</label>
                                         <span class="slider-value" id="val-clip">0.1</span>
                                     </div>
-                                    <input type="range" id="config-clip" min="0.0" max="2.0" step="0.05" value="0.1" oninput="updateSliderVal('clip')" data-tooltip="Percentage of pixels to clip at each end of the histogram">
+                                    <input type="range" id="config-clip" min="0.0" max="2.0" step="0.05" value="0.1"
+                                        oninput="updateSliderVal('clip')"
+                                        data-tooltip="Percentage of pixels to clip at each end of the histogram">
                                 </div>
                                 <div class="form-group slider-group">
                                     <div class="slider-header">
-                                        <label for="config-scurve" data-tooltip="Strength of an S-curve applied after inversion (0 = linear, 1 = full cinematic S-curve)">S-Curve Contrast</label>
+                                        <label for="config-scurve"
+                                            data-tooltip="Strength of an S-curve applied after inversion (0 = linear, 1 = full cinematic S-curve)">S-Curve
+                                            Contrast</label>
                                         <span class="slider-value" id="val-scurve">0.0</span>
                                     </div>
-                                    <input type="range" id="config-scurve" min="0.0" max="1.0" step="0.05" value="0.0" oninput="updateSliderVal('scurve')" data-tooltip="Strength of an S-curve applied after inversion (0 = linear, 1 = full cinematic S-curve)">
+                                    <input type="range" id="config-scurve" min="0.0" max="1.0" step="0.05" value="0.0"
+                                        oninput="updateSliderVal('scurve')"
+                                        data-tooltip="Strength of an S-curve applied after inversion (0 = linear, 1 = full cinematic S-curve)">
                                 </div>
                                 <div class="form-group slider-group">
                                     <div class="slider-header">
-                                        <label for="config-margin" data-tooltip="Percentage of the frame edge to ignore when computing levels — prevents light leaks or frame borders from skewing the histogram">Ignore Outer Margins</label>
+                                        <label for="config-margin"
+                                            data-tooltip="Percentage of the frame edge to ignore when computing levels — prevents light leaks or frame borders from skewing the histogram">Ignore
+                                            Outer Margins</label>
                                         <span class="slider-value" id="val-margin">3%</span>
                                     </div>
-                                    <input type="range" id="config-margin" min="0.0" max="0.3" step="0.01" value="0.03" oninput="updateSliderVal('margin'); updateMarginOverlay();" data-tooltip="Percentage of the frame edge to ignore when computing levels">
+                                    <input type="range" id="config-margin" min="0.0" max="0.3" step="0.01" value="0.03"
+                                        oninput="updateSliderVal('margin'); updateMarginOverlay();"
+                                        data-tooltip="Percentage of the frame edge to ignore when computing levels">
 
                                 </div>
                             </div>
                             <div class="checkbox-grid" style="margin-top: 0.5rem;">
-                                <label class="checkbox-container" data-tooltip="Automatically crop out the ignored outer margin region from the final TIFF output">
+                                <label class="checkbox-container"
+                                    data-tooltip="Automatically crop out the ignored outer margin region from the final TIFF output">
                                     <input type="checkbox" id="config-autocrop">
                                     <span class="checkmark"></span>
                                     <div class="checkbox-text"><strong>Auto-Crop Margins</strong></div>
                                 </label>
-                                <label class="checkbox-container" data-tooltip="Stretch histogram levels globally across all three channels instead of per-channel — preserves colour ratios but may clip">
+                                <label class="checkbox-container"
+                                    data-tooltip="Stretch histogram levels globally across all three channels instead of per-channel — preserves color ratios but may clip">
                                     <input type="checkbox" id="config-global-levels">
                                     <span class="checkmark"></span>
                                     <div class="checkbox-text"><strong>Global Levels Stretch</strong></div>
                                 </label>
-                                <label class="checkbox-container" data-tooltip="Apply zlib lossless compression to output TIFFs — reduces file size by ~40% with no quality loss">
+                                <label class="checkbox-container"
+                                    data-tooltip="Apply zlib lossless compression to output TIFFs — reduces file size by ~40% with no quality loss">
                                     <input type="checkbox" id="config-compress" checked>
                                     <span class="checkmark"></span>
                                     <div class="checkbox-text"><strong>TIFF Compression (zlib)</strong></div>
@@ -398,22 +572,26 @@
                 <div class="grid-layout single-column-max">
                     <div class="card">
                         <h3 class="card-title">Batch Processing Config</h3>
-                        
+
                         <div class="form-group">
                             <label>Task Mode</label>
                             <div class="task-toggle-group">
                                 <label class="task-option">
-                                    <input type="radio" name="batch-task" value="composite" checked onclick="updateBatchTaskDesc()">
+                                    <input type="radio" name="batch-task" value="composite" checked
+                                        onclick="updateBatchTaskDesc()">
                                     <div class="task-card">
                                         <h4>Composite RAWs</h4>
-                                        <p>Stack sequential triplets (.CR3/.RAF/.NEF) in a directory into 16-bit linear TIFFs inside a 'Composites' subfolder.</p>
+                                        <p>Stack sequential triplets (.CR3/.RAF/.NEF) in a directory into 16-bit linear
+                                            TIFFs inside a 'Composites' subfolder.</p>
                                     </div>
                                 </label>
                                 <label class="task-option">
-                                    <input type="radio" name="batch-task" value="invert" onclick="updateBatchTaskDesc()">
+                                    <input type="radio" name="batch-task" value="invert"
+                                        onclick="updateBatchTaskDesc()">
                                     <div class="task-card">
                                         <h4>Invert Negatives</h4>
-                                        <p>Perform density inversion, auto-color balancing, and curves on TIFF/DNG negatives inside a 'Positives' subfolder.</p>
+                                        <p>Perform density inversion, auto-color balancing, and curves on TIFF/DNG
+                                            negatives inside a 'Positives' subfolder.</p>
                                     </div>
                                 </label>
                             </div>
@@ -422,8 +600,12 @@
                         <div class="form-group">
                             <label for="batch-input-path">Input Folder Path</label>
                             <div class="input-with-button">
-                                <input type="text" id="batch-input-path" placeholder="Path to the directory containing images to process..." data-tooltip="Absolute path to the folder containing RAW triplets (composite mode) or TIFF/DNG negatives (invert mode)">
-                                <button class="btn btn-secondary btn-input-action" type="button" onclick="openFolderBrowser('batch-input-path')" data-tooltip="Browse your filesystem to select the input folder">📁</button>
+                                <input type="text" id="batch-input-path"
+                                    placeholder="Path to the directory containing images to process..."
+                                    data-tooltip="Absolute path to the folder containing RAW triplets (composite mode) or TIFF/DNG negatives (invert mode)">
+                                <button class="btn btn-secondary btn-input-action" type="button"
+                                    onclick="openFolderBrowser('batch-input-path')"
+                                    data-tooltip="Browse your filesystem to select the input folder">📁</button>
                             </div>
                             <span class="field-desc">Must be an absolute path on your computer.</span>
                         </div>
@@ -433,7 +615,7 @@
                             <span>⚙️ Advanced Processing Parameters</span>
                             <span id="batch-settings-arrow">▼</span>
                         </div>
-                        
+
                         <div class="accordion-content hidden" id="batch-settings-panel">
                             <div class="grid-two-col">
                                 <div class="form-group slider-group">
@@ -441,28 +623,32 @@
                                         <label for="batch-gamma">Gamma Correction</label>
                                         <span class="slider-value" id="val-batch-gamma">2.2</span>
                                     </div>
-                                    <input type="range" id="batch-gamma" min="1.0" max="3.0" step="0.1" value="2.2" oninput="updateSliderVal('batch-gamma')">
+                                    <input type="range" id="batch-gamma" min="1.0" max="3.0" step="0.1" value="2.2"
+                                        oninput="updateSliderVal('batch-gamma')">
                                 </div>
                                 <div class="form-group slider-group">
                                     <div class="slider-header">
                                         <label for="batch-clip">Levels Clipping (%)</label>
                                         <span class="slider-value" id="val-batch-clip">0.1</span>
                                     </div>
-                                    <input type="range" id="batch-clip" min="0.0" max="2.0" step="0.05" value="0.1" oninput="updateSliderVal('batch-clip')">
+                                    <input type="range" id="batch-clip" min="0.0" max="2.0" step="0.05" value="0.1"
+                                        oninput="updateSliderVal('batch-clip')">
                                 </div>
                                 <div class="form-group slider-group">
                                     <div class="slider-header">
                                         <label for="batch-scurve">S-Curve Contrast</label>
                                         <span class="slider-value" id="val-batch-scurve">0.0</span>
                                     </div>
-                                    <input type="range" id="batch-scurve" min="0.0" max="1.0" step="0.05" value="0.0" oninput="updateSliderVal('batch-scurve')">
+                                    <input type="range" id="batch-scurve" min="0.0" max="1.0" step="0.05" value="0.0"
+                                        oninput="updateSliderVal('batch-scurve')">
                                 </div>
                                 <div class="form-group slider-group">
                                     <div class="slider-header">
                                         <label for="batch-margin">Ignore Outer Margins</label>
                                         <span class="slider-value" id="val-batch-margin">3%</span>
                                     </div>
-                                    <input type="range" id="batch-margin" min="0.0" max="0.3" step="0.01" value="0.03" oninput="updateSliderVal('batch-margin')">
+                                    <input type="range" id="batch-margin" min="0.0" max="0.3" step="0.01" value="0.03"
+                                        oninput="updateSliderVal('batch-margin')">
                                 </div>
                             </div>
                             <div class="checkbox-grid">
@@ -502,7 +688,8 @@
                                     </div>
                                 </label>
                                 <label class="checkbox-container">
-                                    <input type="checkbox" id="batch-monochrome" onchange="document.getElementById('batch-monochrome-channel-group').style.display = this.checked ? 'block' : 'none'">
+                                    <input type="checkbox" id="batch-monochrome"
+                                        onchange="document.getElementById('batch-monochrome-channel-group').style.display = this.checked ? 'block' : 'none'">
                                     <span class="checkmark"></span>
                                     <div class="checkbox-text">
                                         <strong>Monochrome (B&W)</strong>
@@ -510,7 +697,8 @@
                                 </label>
                             </div>
 
-                            <div class="form-group" id="batch-monochrome-channel-group" style="display: none; margin-top: 1rem; border-top: 1px solid var(--border-color); padding-top: 1rem;">
+                            <div class="form-group" id="batch-monochrome-channel-group"
+                                style="display: none; margin-top: 1rem; border-top: 1px solid var(--border-color); padding-top: 1rem;">
                                 <label for="batch-monochrome-channel">B&W Conversion Channel / Method</label>
                                 <select id="batch-monochrome-channel" class="select-presets">
                                     <option value="luminance" selected>Luminance (Weighted R+G+B) - Standard</option>
@@ -523,7 +711,8 @@
                         </div>
 
                         <div class="control-actions" style="margin-top: 2rem;">
-                            <button class="btn btn-primary" id="btn-run-batch" onclick="runBatchJob()" data-tooltip="Start processing all files in the input folder using the selected task mode and parameters">
+                            <button class="btn btn-primary" id="btn-run-batch" onclick="runBatchJob()"
+                                data-tooltip="Start processing all files in the input folder using the selected task mode and parameters">
                                 🚀 Execute Batch Process
                             </button>
                         </div>
@@ -548,14 +737,16 @@
                         <h2>Scan Gallery</h2>
                         <p>Browse positives generated during the current scanning session.</p>
                     </div>
-                    <button class="btn btn-secondary" onclick="refreshFiles()" data-tooltip="Re-scan the session output folder and reload the gallery with the latest positive frames">🔄 Refresh Files</button>
+                    <button class="btn btn-secondary" onclick="refreshFiles()"
+                        data-tooltip="Re-scan the session output folder and reload the gallery with the latest positive frames">🔄
+                        Refresh Files</button>
                 </div>
 
                 <div class="gallery-container">
                     <div class="gallery-toolbar">
                         <span class="toolbar-info" id="gallery-count-info">0 Positive Frames found in session</span>
                     </div>
-                    
+
                     <div class="gallery-grid" id="gallery-grid">
                         <!-- Populated dynamically via JS -->
                         <div class="empty-gallery-msg">
@@ -569,13 +760,16 @@
             <section class="tab-panel" id="panel-scanlight">
                 <div class="panel-header">
                     <h2>Scanlight Controller</h2>
-                    <p>Manage the light source parameters, preset options, and trigger camera shutter release sequential runs.</p>
+                    <p>Manage the light source parameters, preset options, and trigger camera shutter release sequential
+                        runs.</p>
                 </div>
 
                 <!-- WebSerial Unsupported Warning Banner -->
-                <div id="scanlight-unsupported-banner" class="alert alert-error" style="display: none; margin-bottom: 1.5rem;">
-                    <strong>Browser Compatibility Error:</strong> WebSerial API is not supported on this browser. 
-                    Please use Google Chrome, Microsoft Edge, or another Chromium-based browser to connect to the Scanlight.
+                <div id="scanlight-unsupported-banner" class="alert alert-error"
+                    style="display: none; margin-bottom: 1.5rem;">
+                    <strong>Browser Compatibility Error:</strong> WebSerial API is not supported on this browser.
+                    Please use Google Chrome, Microsoft Edge, or another Chromium-based browser to connect to the
+                    Scanlight.
                 </div>
 
                 <!-- Main Layout Grid -->
@@ -586,66 +780,84 @@
                         <div class="card">
                             <h3 class="card-title">1. Device Connection</h3>
                             <div class="form-group flex-row-align">
-                                <button class="btn btn-primary btn-large" id="scanlight-connect-btn" data-tooltip="Connect to the Scanlight via WebSerial — browser will show a USB device picker">
+                                <button class="btn btn-primary btn-large" id="scanlight-connect-btn"
+                                    data-tooltip="Connect to the Scanlight via WebSerial — browser will show a USB device picker">
                                     🔌 Connect Big Scanlight
                                 </button>
-                                <button class="btn btn-secondary disable-on-sequence" id="scanlight-dfu-btn" data-tooltip="Put the Scanlight into DFU (Device Firmware Upgrade) bootloader mode for firmware updates" style="margin-top: 1rem; width: 100%; display: none;">
+                                <button class="btn btn-secondary disable-on-sequence" id="scanlight-dfu-btn"
+                                    data-tooltip="Put the Scanlight into DFU (Device Firmware Upgrade) bootloader mode for firmware updates"
+                                    style="margin-top: 1rem; width: 100%; display: none;">
                                     ⚡ Enter Firmware Upgrade (DFU)
                                 </button>
                             </div>
-                            
+
                             <!-- Low Power warning banner -->
-                            <div id="scanlight-low-power-banner" class="alert alert-error" style="display: none; margin-top: 1rem;">
-                                <strong>Insufficient Power:</strong> VBUS is low. Please plug the secondary USB-C port to an external power supply to enable the LEDs.
+                            <div id="scanlight-low-power-banner" class="alert alert-error"
+                                style="display: none; margin-top: 1rem;">
+                                <strong>Insufficient Power:</strong> VBUS is low. Please plug the secondary USB-C port
+                                to an external power supply to enable the LEDs.
                             </div>
                         </div>
 
                         <!-- Manual Control Card -->
                         <div class="card disable-on-disconnected" id="scanlight-active-controls">
                             <h3 class="card-title">2. Brightness Adjustment</h3>
-                            
+
                             <div class="scanlight-glow-wrapper" style="position: relative; margin-bottom: 1.25rem;">
                                 <div id="scanlight-color-glow" class="color-glow-indicator"></div>
                             </div>
-                            
+
                             <!-- Red Slider -->
                             <div class="form-group slider-group">
                                 <div class="slider-header">
                                     <label for="scanlight-red-slider">Red Channel</label>
-                                    <input type="number" id="scanlight-red-val" min="0" max="255" value="255" class="num-input disable-on-sequence">
+                                    <input type="number" id="scanlight-red-val" min="0" max="255" value="255"
+                                        class="num-input disable-on-sequence">
                                 </div>
-                                <input type="range" id="scanlight-red-slider" class="disable-on-sequence color-slider red-slider" min="0" max="255" value="255">
+                                <input type="range" id="scanlight-red-slider"
+                                    class="disable-on-sequence color-slider red-slider" min="0" max="255" value="255">
                             </div>
 
                             <!-- Green Slider -->
                             <div class="form-group slider-group">
                                 <div class="slider-header">
                                     <label for="scanlight-green-slider">Green Channel</label>
-                                    <input type="number" id="scanlight-green-val" min="0" max="255" value="255" class="num-input disable-on-sequence">
+                                    <input type="number" id="scanlight-green-val" min="0" max="255" value="255"
+                                        class="num-input disable-on-sequence">
                                 </div>
-                                <input type="range" id="scanlight-green-slider" class="disable-on-sequence color-slider green-slider" min="0" max="255" value="255">
+                                <input type="range" id="scanlight-green-slider"
+                                    class="disable-on-sequence color-slider green-slider" min="0" max="255" value="255">
                             </div>
 
                             <!-- Blue Slider -->
                             <div class="form-group slider-group">
                                 <div class="slider-header">
                                     <label for="scanlight-blue-slider">Blue Channel</label>
-                                    <input type="number" id="scanlight-blue-val" min="0" max="255" value="255" class="num-input disable-on-sequence">
+                                    <input type="number" id="scanlight-blue-val" min="0" max="255" value="255"
+                                        class="num-input disable-on-sequence">
                                 </div>
-                                <input type="range" id="scanlight-blue-slider" class="disable-on-sequence color-slider blue-slider" min="0" max="255" value="255">
+                                <input type="range" id="scanlight-blue-slider"
+                                    class="disable-on-sequence color-slider blue-slider" min="0" max="255" value="255">
                             </div>
 
                             <label class="form-label-header">Quick Channels Selection</label>
                             <div class="button-toggle-row">
-                                <button class="btn btn-secondary btn-channels disable-on-sequence" id="btn-sl-rgb">RGB</button>
-                                <button class="btn btn-secondary btn-channels disable-on-sequence" id="btn-sl-white">WHITE</button>
-                                <button class="btn btn-secondary btn-channels disable-on-sequence" id="btn-sl-off">OFF</button>
+                                <button class="btn btn-secondary btn-channels disable-on-sequence"
+                                    id="btn-sl-rgb">RGB</button>
+                                <button class="btn btn-secondary btn-channels disable-on-sequence"
+                                    id="btn-sl-white">WHITE</button>
+                                <button class="btn btn-secondary btn-channels disable-on-sequence"
+                                    id="btn-sl-off">OFF</button>
                             </div>
                             <div class="button-toggle-row" style="margin-top: 0.5rem;">
-                                <button class="btn btn-secondary btn-channel-dot disable-on-sequence" id="btn-sl-r">R</button>
-                                <button class="btn btn-secondary btn-channel-dot disable-on-sequence" id="btn-sl-g">G</button>
-                                <button class="btn btn-secondary btn-channel-dot disable-on-sequence" id="btn-sl-b">B</button>
-                                <button class="btn btn-secondary btn-channel-dot disable-on-sequence" id="btn-sl-ir" style="display: none;">IR</button>
+                                <button class="btn btn-secondary btn-channel-dot disable-on-sequence"
+                                    id="btn-sl-r">R</button>
+                                <button class="btn btn-secondary btn-channel-dot disable-on-sequence"
+                                    id="btn-sl-g">G</button>
+                                <button class="btn btn-secondary btn-channel-dot disable-on-sequence"
+                                    id="btn-sl-b">B</button>
+                                <button class="btn btn-secondary btn-channel-dot disable-on-sequence" id="btn-sl-ir"
+                                    style="display: none;">IR</button>
                             </div>
                         </div>
 
@@ -673,37 +885,61 @@
                                 </select>
                             </div>
                             <div class="button-grid-presets">
-                                <button class="btn btn-secondary disable-on-sequence" id="btn-sl-preset-load" data-tooltip="Apply the selected colour preset to the Scanlight">Load</button>
-                                <button class="btn btn-secondary disable-on-sequence" id="btn-sl-preset-create" data-tooltip="Save the current RGB values as a new named preset">Create</button>
-                                <button class="btn btn-secondary disable-on-sequence" id="btn-sl-preset-rename" data-tooltip="Rename the currently selected preset">Rename</button>
-                                <button class="btn btn-secondary disable-on-sequence" id="btn-sl-preset-delete" data-tooltip="Permanently delete the currently selected preset">Delete</button>
+                                <button class="btn btn-secondary disable-on-sequence" id="btn-sl-preset-load"
+                                    data-tooltip="Apply the selected color preset to the Scanlight">Load</button>
+                                <button class="btn btn-secondary disable-on-sequence" id="btn-sl-preset-create"
+                                    data-tooltip="Save the current RGB values as a new named preset">Create</button>
+                                <button class="btn btn-secondary disable-on-sequence" id="btn-sl-preset-rename"
+                                    data-tooltip="Rename the currently selected preset">Rename</button>
+                                <button class="btn btn-secondary disable-on-sequence" id="btn-sl-preset-delete"
+                                    data-tooltip="Permanently delete the currently selected preset">Delete</button>
                             </div>
-                            
+
                             <div style="margin-top: 1.5rem; display: flex; gap: 0.5rem; flex-wrap: wrap;">
-                                <button class="btn btn-secondary disable-on-sequence btn-small" id="btn-sl-default-write" data-tooltip="Save the current RGB values as the power-on default to the device's non-volatile memory">Set as Default</button>
-                                <button class="btn btn-secondary disable-on-sequence btn-small" id="btn-sl-default-load" data-tooltip="Recall the saved power-on default values from the device">Load Default</button>
-                                <button class="btn btn-secondary disable-on-sequence btn-small" id="btn-sl-trim-open" data-tooltip="Fine-tune per-channel brightness offsets to compensate for LED-to-LED variance" style="display: none;">Brightness Trimming</button>
+                                <button class="btn btn-secondary disable-on-sequence btn-small"
+                                    id="btn-sl-default-write"
+                                    data-tooltip="Save the current RGB values as the power-on default to the device's non-volatile memory">Set
+                                    as Default</button>
+                                <button class="btn btn-secondary disable-on-sequence btn-small" id="btn-sl-default-load"
+                                    data-tooltip="Recall the saved power-on default values from the device">Load
+                                    Default</button>
+                                <button class="btn btn-secondary disable-on-sequence btn-small" id="btn-sl-trim-open"
+                                    data-tooltip="Fine-tune per-channel brightness offsets to compensate for LED-to-LED variance"
+                                    style="display: none;">Brightness Trimming</button>
                             </div>
                         </div>
 
                         <!-- Automation Panel -->
                         <div class="card disable-on-disconnected">
                             <h3 class="card-title">4. Automation Capture Sequences</h3>
-                            
+
                             <div class="form-row">
                                 <div class="form-group">
-                                    <label for="scanlight-shutter-pulse" data-tooltip="Duration the shutter pin is held LOW to trigger the camera — typically 0.05–0.15 s">Shutter Length (s)</label>
-                                    <input type="number" id="scanlight-shutter-pulse" class="num-input disable-on-sequence" min="0.01" max="0.5" step="0.01" value="0.10" data-tooltip="Duration the shutter pin is held LOW to trigger the camera (0.01–0.50 s)">
+                                    <label for="scanlight-shutter-pulse"
+                                        data-tooltip="Duration the shutter pin is held LOW to trigger the camera — typically 0.05–0.15 s">Shutter
+                                        Length (s)</label>
+                                    <input type="number" id="scanlight-shutter-pulse"
+                                        class="num-input disable-on-sequence" min="0.01" max="0.5" step="0.01"
+                                        value="0.10"
+                                        data-tooltip="Duration the shutter pin is held LOW to trigger the camera (0.01–0.50 s)">
                                 </div>
                                 <div class="form-group">
-                                    <label for="scanlight-shutter-delay" data-tooltip="Wait time after each shutter trigger before switching to the next LED channel — allows the camera to write the RAW file">Post-Shutter Delay (s)</label>
-                                    <input type="number" id="scanlight-shutter-delay" class="num-input disable-on-sequence" min="0.1" max="12.75" step="0.05" value="1.00" data-tooltip="Wait time after each shutter trigger before switching to the next LED channel (0.1–12.75 s)">
+                                    <label for="scanlight-shutter-delay"
+                                        data-tooltip="Wait time after each shutter trigger before switching to the next LED channel — allows the camera to write the RAW file">Post-Shutter
+                                        Delay (s)</label>
+                                    <input type="number" id="scanlight-shutter-delay"
+                                        class="num-input disable-on-sequence" min="0.1" max="12.75" step="0.05"
+                                        value="1.00"
+                                        data-tooltip="Wait time after each shutter trigger before switching to the next LED channel (0.1–12.75 s)">
                                 </div>
                             </div>
 
                             <div class="form-group">
-                                <label for="scanlight-post-seq-light" data-tooltip="What to do with the LEDs after the automatic sequence completes">Post-Sequence Light State</label>
-                                <select id="scanlight-post-seq-light" class="select-presets disable-on-sequence" data-tooltip="What to do with the LEDs after the automatic sequence completes">
+                                <label for="scanlight-post-seq-light"
+                                    data-tooltip="What to do with the LEDs after the automatic sequence completes">Post-Sequence
+                                    Light State</label>
+                                <select id="scanlight-post-seq-light" class="select-presets disable-on-sequence"
+                                    data-tooltip="What to do with the LEDs after the automatic sequence completes">
                                     <option value="off">Turn Off</option>
                                     <option value="rgb" selected>Leave RGB On</option>
                                     <option value="white">Leave White On</option>
@@ -711,8 +947,11 @@
                             </div>
 
                             <div class="form-group">
-                                <label for="scanlight-trigger-method" data-tooltip="How to trigger the camera shutter during automation — Hardware Port uses the Scanlight's built-in trigger pin; USB Tether sends a command over the camera's USB connection">Shutter Trigger Method</label>
-                                <select id="scanlight-trigger-method" class="select-presets disable-on-sequence" data-tooltip="Hardware Port: uses the Scanlight's trigger pin. USB Tether: sends a capture command directly over USB">
+                                <label for="scanlight-trigger-method"
+                                    data-tooltip="How to trigger the camera shutter during automation — Hardware Port uses the Scanlight's built-in trigger pin; USB Tether sends a command over the camera's USB connection">Shutter
+                                    Trigger Method</label>
+                                <select id="scanlight-trigger-method" class="select-presets disable-on-sequence"
+                                    data-tooltip="Hardware Port: uses the Scanlight's trigger pin. USB Tether: sends a capture command directly over USB">
                                     <option value="scanlight">Scanlight Hardware Port</option>
                                     <option value="usb" selected>Direct USB (Camera Tether)</option>
                                 </select>
@@ -720,16 +959,29 @@
 
                             <label class="form-label-header">Run Sequence Mode</label>
                             <div class="button-grid-auto">
-                                <button class="btn btn-secondary disable-on-sequence" id="btn-seq-rgb" data-tooltip="Run the 3-shot R → G → B sequence — triggers a capture on each channel for colour film compositing">Auto R,G,B</button>
-                                <button class="btn btn-secondary disable-on-sequence" id="btn-seq-rgbir" data-tooltip="Run a 4-shot R → G → B → IR sequence for infrared-converted film" style="display: none;">Auto R,G,B,IR</button>
-                                <button class="btn btn-secondary disable-on-sequence" id="btn-seq-nwir" data-tooltip="Run an RGB+IR sequence (white light then IR) for hybrid scanning" style="display: none;">Auto RGB,IR</button>
-                                <button class="btn btn-secondary disable-on-sequence" id="btn-seq-bwir" data-tooltip="Run a White+IR dual-shot sequence" style="display: none;">Auto W,IR</button>
-                                <button class="btn btn-secondary disable-on-sequence" id="btn-seq-shutter-test" data-tooltip="Fire the shutter once without changing the LED state — confirms trigger timing is correct">Test Shutter</button>
+                                <button class="btn btn-secondary disable-on-sequence" id="btn-seq-rgb"
+                                    data-tooltip="Run the 3-shot R → G → B sequence — triggers a capture on each channel for color film compositing">Auto
+                                    R,G,B</button>
+                                <button class="btn btn-secondary disable-on-sequence" id="btn-seq-rgbir"
+                                    data-tooltip="Run a 4-shot R → G → B → IR sequence for infrared-converted film"
+                                    style="display: none;">Auto R,G,B,IR</button>
+                                <button class="btn btn-secondary disable-on-sequence" id="btn-seq-nwir"
+                                    data-tooltip="Run an RGB+IR sequence (white light then IR) for hybrid scanning"
+                                    style="display: none;">Auto RGB,IR</button>
+                                <button class="btn btn-secondary disable-on-sequence" id="btn-seq-bwir"
+                                    data-tooltip="Run a White+IR dual-shot sequence" style="display: none;">Auto
+                                    W,IR</button>
+                                <button class="btn btn-secondary disable-on-sequence" id="btn-seq-shutter-test"
+                                    data-tooltip="Fire the shutter once without changing the LED state — confirms trigger timing is correct">Test
+                                    Shutter</button>
                             </div>
 
-                            <div class="form-group" style="margin-top: 1.25rem; border-top: 1px solid var(--border-color); padding-top: 1rem;">
+                            <div class="form-group"
+                                style="margin-top: 1.25rem; border-top: 1px solid var(--border-color); padding-top: 1rem;">
                                 <label class="form-label-header">Exposure Calibration</label>
-                                <button class="btn btn-secondary disable-on-sequence" id="btn-sl-calibrate" data-tooltip="Automatically adjust per-channel LED brightness so that a white frame produces equal R, G, B exposure values — ensures neutral colour balance" style="width: 100%; display: flex; align-items: center; justify-content: center; gap: 0.5rem; background-color: rgba(14, 165, 233, 0.08); border-color: rgba(14, 165, 233, 0.25); color: var(--accent-blue);">
+                                <button class="btn btn-secondary disable-on-sequence" id="btn-sl-calibrate"
+                                    data-tooltip="Automatically adjust per-channel LED brightness so that a white frame produces equal R, G, B exposure values — ensures neutral color balance"
+                                    style="width: 100%; display: flex; align-items: center; justify-content: center; gap: 0.5rem; background-color: rgba(14, 165, 233, 0.08); border-color: rgba(14, 165, 233, 0.25); color: var(--accent-blue);">
                                     ⚖️ Auto-Calibrate RGB Exposures
                                 </button>
                             </div>
@@ -756,14 +1008,18 @@
                                     <strong id="scanlight-lbl-temp">--</strong>
                                 </div>
                             </div>
-                            <div class="telemetry-placeholder" id="scanlight-lbl-noinfo" style="text-align: center; color: var(--text-muted); font-size: 0.85rem; padding: 1rem 0;">
+                            <div class="telemetry-placeholder" id="scanlight-lbl-noinfo"
+                                style="text-align: center; color: var(--text-muted); font-size: 0.85rem; padding: 1rem 0;">
                                 Device disconnected. Plug in USB Serial connection to show metrics.
                             </div>
-                            
-                            <div id="scanlight-power-warning" class="alert alert-warning" style="display: none; margin-top: 1rem;">
-                                ⚠️ Operating at reduced brightness. Use a USB-C power source with 9V 18W or higher output for full brightness.
+
+                            <div id="scanlight-power-warning" class="alert alert-warning"
+                                style="display: none; margin-top: 1rem;">
+                                ⚠️ Operating at reduced brightness. Use a USB-C power source with 9V 18W or higher
+                                output for full brightness.
                             </div>
-                            <div id="scanlight-temp-warning" class="alert alert-error" style="display: none; margin-top: 1rem;">
+                            <div id="scanlight-temp-warning" class="alert alert-error"
+                                style="display: none; margin-top: 1rem;">
                                 🚨 LED temperature high! Light will turn off automatically at 80°C.
                             </div>
                         </div>
@@ -782,7 +1038,8 @@
                 <h4 id="lightbox-title">Frame_01_Positive.tiff</h4>
                 <p id="lightbox-desc">Size: 45MB | Path: C:/Users/...</p>
                 <div class="lightbox-actions">
-                    <a class="btn btn-secondary btn-small" id="lightbox-download-link" href="" target="_blank" download>Open Full Image</a>
+                    <a class="btn btn-secondary btn-small" id="lightbox-download-link" href="" target="_blank"
+                        download>Open Full Image</a>
                 </div>
             </div>
         </div>
@@ -800,7 +1057,8 @@
                     <!-- Dynamic breadcrumbs -->
                 </div>
                 <div class="browser-filter-bar">
-                    <input type="text" id="browser-filter-input" placeholder="Filter folders..." oninput="filterBrowserFolders()">
+                    <input type="text" id="browser-filter-input" placeholder="Filter folders..."
+                        oninput="filterBrowserFolders()">
                 </div>
                 <div class="browser-folder-list" id="browser-folder-list">
                     <!-- Dynamic folders list -->
@@ -842,7 +1100,9 @@
                     </div>
                 </div>
                 <p style="font-size: 0.75rem; color: var(--text-muted); margin-top: 1rem; line-height: 1.4;">
-                    Range for all trimming values is -127 to +127 (-50% to +50% drive strength). Offset trims the difference between left and right side LED PWM levels. Trimming offsets are saved in the light's nonvolatile memory.
+                    Range for all trimming values is -127 to +127 (-50% to +50% drive strength). Offset trims the
+                    difference between left and right side LED PWM levels. Trimming offsets are saved in the light's
+                    nonvolatile memory.
                 </p>
             </div>
             <div class="modal-footer">
@@ -858,4 +1118,5 @@
     <script src="{{ url_for('static', filename='js/scanlight.js') }}"></script>
     <script src="{{ url_for('static', filename='js/app.js') }}"></script>
 </body>
+
 </html>
