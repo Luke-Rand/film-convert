@@ -39,7 +39,7 @@ function startPythonBackend(port) {
     // In development, run python from the local virtual environment
     const venvBinDir = process.platform === 'win32' ? 'Scripts' : 'bin';
     pythonBin = path.join(__dirname, '.venv', venvBinDir, process.platform === 'win32' ? 'python.exe' : 'python');
-    args = [path.join(__dirname, 'web_ui.py')];
+    args = [path.join(__dirname, 'src', 'web_ui.py')];
   }
 
   console.log(`Starting Python backend: ${pythonBin} with args:`, args);

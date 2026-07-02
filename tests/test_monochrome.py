@@ -6,8 +6,8 @@ import numpy as np
 import tifffile
 import sys
 
-# Add root folder to python path so we can import modules
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# Add src/ folder to python path so we can import modules
+sys.path.append(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'src'))
 
 from inverter import process_positives
 

@@ -5,7 +5,7 @@
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "build:python": "node -e \"const { spawnSync } = require('child_process'); const path = require('path'); const isWin = process.platform === 'win32'; const pyinstaller = isWin ? path.join('.venv', 'Scripts', 'pyinstaller.exe') : path.join('.venv', 'bin', 'pyinstaller'); const res = spawnSync(pyinstaller, ['--clean', '--noconfirm', 'web_ui.spec'], { stdio: 'inherit', shell: isWin }); process.exit(res.status ?? 0);\"",
+    "build:python": "node -e \"const { spawnSync } = require('child_process'); const path = require('path'); const isWin = process.platform === 'win32'; const pyinstaller = isWin ? path.join('.venv', 'Scripts', 'pyinstaller.exe') : path.join('.venv', 'bin', 'pyinstaller'); const res = spawnSync(pyinstaller, ['--clean', '--noconfirm', 'src/web_ui.spec'], { stdio: 'inherit', shell: isWin }); process.exit(res.status ?? 0);\"",
     "dist": "npm run build:python && electron-builder"
   },
   "devDependencies": {

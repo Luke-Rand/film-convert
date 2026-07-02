@@ -4,8 +4,8 @@ import tempfile
 import unittest
 import sys
 
-# Add root folder to python path so we can import modules
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# Add src/ folder to python path so we can import modules
+sys.path.append(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'src'))
 
 from web_ui import SessionManager
 from scanning_session import get_next_frame_number as get_next_frame_number_session
