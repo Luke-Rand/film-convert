@@ -145,10 +145,10 @@ class CameraManager:
         return self.send_cmd("set_config", {"name": name, "value": value})
 
     def reconnect(self):
-        return self.send_cmd("reconnect", {})
+        return self.send_cmd("reconnect", {}, timeout=20.0)
 
     def capture_image(self, autofocus=True):
-        return self.send_cmd("capture", {"autofocus": autofocus})
+        return self.send_cmd("capture", {"autofocus": autofocus}, timeout=30.0)
 
     def set_liveview(self, active):
         self.live_view_active = active
