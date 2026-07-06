@@ -62,7 +62,8 @@ class CameraManager:
             "shutterspeed": "shutterspeed",
             "manualfocusdrive": "manualfocusdrive",
             "eosremoterelease": "eosremoterelease",
-            "autofocusdrive": "autofocusdrive"
+            "autofocusdrive": "autofocusdrive",
+            "focusmode": "focusmode"
         }
         self._physical_viewfinder_active = False
         
@@ -146,8 +147,8 @@ class CameraManager:
     def reconnect(self):
         return self.send_cmd("reconnect", {})
 
-    def capture_image(self):
-        return self.send_cmd("capture", {})
+    def capture_image(self, autofocus=True):
+        return self.send_cmd("capture", {"autofocus": autofocus})
 
     def set_liveview(self, active):
         self.live_view_active = active
@@ -284,7 +285,8 @@ class CameraManager:
                     ("shutterspeed", ["shutterspeed", "shutterspeed2"]),
                     ("manualfocusdrive", ["manualfocusdrive"]),
                     ("eosremoterelease", ["eosremoterelease"]),
-                    ("autofocusdrive", ["autofocusdrive"])
+                    ("autofocusdrive", ["autofocusdrive"]),
+                    ("focusmode", ["focusmode", "focus_mode", "lensfocusmode", "canonfocusmode"])
                 ]
                 for key, candidates in probe_targets:
                     for candidate in candidates:
@@ -443,15 +445,35 @@ class CameraManager:
                 return {"error": str(e)}
 
         elif cmd == "capture":
+            autofocus = args.get("autofocus", True)
             if self.simulated:
                 self.log("Simulating capture...")
                 time.sleep(0.8) # simulate shutter release sound/lag
                 return self._simulate_raw_capture()
             else:
-                self.log("Triggering camera capture...")
-                file_path = self.camera.capture(gp.GP_CAPTURE_IMAGE)
-                self.log(f"Capture successful. File created on camera: {file_path.folder}/{file_path.name}")
-                return self._download_camera_file(file_path.folder, file_path.name)
+                original_focus_mode = None
+                widget_name = self.resolved_names.get("focusmode")
+                if not autofocus and widget_name:
+                    try:
+                        original_focus_mode = self._query_camera_focus_mode()
+                        if original_focus_mode and original_focus_mode.lower() != "manual":
+                            self.log(f"Temporarily setting focus mode to Manual (was: {original_focus_mode})")
+                            self._set_camera_property("focusmode", "Manual")
+                    except Exception as e:
+                        self.log(f"Failed to temporarily set focus mode to Manual: {e}")
+                
+                try:
+                    self.log("Triggering camera capture...")
+                    file_path = self.camera.capture(gp.GP_CAPTURE_IMAGE)
+                    self.log(f"Capture successful. File created on camera: {file_path.folder}/{file_path.name}")
+                    return self._download_camera_file(file_path.folder, file_path.name)
+                finally:
+                    if original_focus_mode and original_focus_mode.lower() != "manual" and widget_name:
+                        try:
+                            self.log(f"Restoring focus mode to {original_focus_mode}")
+                            self._set_camera_property("focusmode", original_focus_mode)
+                        except Exception as e:
+                            self.log(f"Failed to restore focus mode to {original_focus_mode}: {e}")
 
         elif cmd == "autofocus":
             if self.simulated:
@@ -706,6 +728,19 @@ class CameraManager:
                 choices[key] = []
         return choices
 
+    def _query_camera_focus_mode(self):
+        if not self.camera:
+            return None
+        widget_name = self.resolved_names.get("focusmode")
+        if not widget_name:
+            return None
+        try:
+            widget = self.camera.get_single_config(widget_name)
+            return str(widget.get_value())
+        except Exception as e:
+            self.log(f"Error querying focus mode (widget '{widget_name}'): {e}")
+            return None
+
     def _set_camera_property(self, name, value):
         if not self.camera:
             return False
@@ -759,7 +794,7 @@ class CameraManager:
 
             if not matched_choice:
                 matched_choice = str(value)
-                if valid_choices:
+                if valid_choices and name.lower() != "focusmode":
                     self.log(f"Warning: Set value '{value}' not in camera choices {valid_choices}. Attempting raw set.")
 
             widget.set_value(matched_choice)

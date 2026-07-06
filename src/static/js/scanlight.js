@@ -746,7 +746,11 @@ class ScanlightUIController {
         if (this.triggerMethod === "usb") {
           this.log(`[Scanlight] Step ${i + 1}/${seqData.length}: Triggering camera capture via USB...`);
           try {
-            const res = await fetch('/api/camera/capture', { method: 'POST' });
+            const res = await fetch('/api/camera/capture', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ autofocus: false })
+            });
             const captureResult = await res.json();
             if (!captureResult.success) {
               throw new Error(captureResult.message || "Unknown capture error");

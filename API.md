@@ -76,6 +76,12 @@ Sequences an autofocus lock command on the camera by pressing half-way down, wai
 ### `POST /api/camera/capture`
 Triggers an immediate high-resolution capture and downloads the RAW image from the camera storage into the session's active `negatives/` directory.
 
+* **Request Body (Optional)**:
+  ```json
+  {
+    "autofocus": false  // Set to false to temporarily disable autofocus on capture (defaults to true)
+  }
+  ```
 * **Response (200 OK)**:
   ```json
   {
