@@ -2106,6 +2106,244 @@ function toggleLiveviewRotation() {
     }
 }
 
+// Exposure Optimization ETTR Feature
+window.isOptimizingExposure = false;
+
+function startLiveScannerExposureOptimization() {
+    if (!window.scanlightController) {
+        alert("Scanlight controller script is not loaded.");
+        return;
+    }
+    if (!window.scanlightController.connected) {
+        alert("Scanlight is not connected. Please connect the light source first.");
+        return;
+    }
+    
+    // Check system status for monitoring
+    const dot = document.getElementById('summary-status-dot');
+    const isMonitoring = (window.systemStatus === 'monitoring') || (dot && dot.classList.contains('monitoring'));
+    if (!isMonitoring) {
+        alert("Folder monitoring is not active. Please start the monitoring session in the 'Live Scanner' tab before optimizing exposure.");
+        return;
+    }
+    
+    // Check if camera is connected
+    const shutterSelect = document.getElementById("camera-shutter-select");
+    if (!shutterSelect || shutterSelect.disabled || shutterSelect.options.length === 0 || shutterSelect.value === "(No Camera)") {
+        alert("Camera is not connected. Please connect a camera first.");
+        return;
+    }
+    
+    if (!confirm("Start Exposure Optimization? This will reset the Scanlight to reference power (150), execute a test RGB sequence to analyze film density, and automatically set the optimal Shutter Speed and LED power levels to achieve balanced exposure (ETTR).")) {
+        return;
+    }
+    
+    appendLogLine("[Optimizer] Starting Exposure Optimization...");
+    window.isOptimizingExposure = true;
+    
+    // Reset Scanlight to reference power of 150
+    window.scanlightController.red = 150;
+    window.scanlightController.green = 150;
+    window.scanlightController.blue = 150;
+    window.scanlightController.setEnabledChannels([1, 1, 1, 0, 0]);
+    window.scanlightController.updateColor();
+    
+    // Sync UI elements
+    setTimeout(syncMiniScanlightUI, 100);
+    
+    // Notify mock backend for simulated camera capture matching reference power
+    fetch('/api/camera/update_mock_leds', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ red: 150, green: 150, blue: 150 })
+    }).catch(err => console.error(err));
+    
+    // Run RGB sequence (takes 3 captures)
+    window.scanlightController.runSequence("SequenceRGB", true)
+        .then(() => {
+            appendLogLine("[Optimizer] Calibration sequence complete. Waiting for composite analysis means...");
+        })
+        .catch(err => {
+            window.isOptimizingExposure = false;
+            appendLogLine(`[Optimizer Error] Capture sequence failed: ${err.message}`);
+            alert(`Optimization sequence failed: ${err.message}`);
+        });
+}
+
+function handleExposureOptimizationData(data) {
+    window.isOptimizingExposure = false;
+    appendLogLine(`[Optimizer] Received exposure means from composite: R=${data.r_mean.toFixed(0)}, G=${data.g_mean.toFixed(0)}, B=${data.b_mean.toFixed(0)}`);
+    
+    const r_mean = data.r_mean;
+    const g_mean = data.g_mean;
+    const b_mean = data.b_mean;
+    
+    if (r_mean <= 0 || g_mean <= 0 || b_mean <= 0) {
+        appendLogLine("[Optimizer Error] Invalid channel means received. Cannot optimize.");
+        alert("Optimization failed: channel exposure levels are zero.");
+        return;
+    }
+    
+    const shutterSelect = document.getElementById("camera-shutter-select");
+    if (!shutterSelect || shutterSelect.disabled || shutterSelect.options.length === 0) {
+        alert("Shutter speed configuration is unavailable.");
+        return;
+    }
+    
+    const current_ss_str = shutterSelect.value;
+    const choices = Array.from(shutterSelect.options).map(opt => opt.value).filter(val => val && val.toLowerCase() !== "auto" && !val.includes("(No Camera)"));
+    
+    const parseDuration = (ss) => {
+        ss = ss.toString().trim();
+        if (ss.includes("/")) {
+            const parts = ss.split("/");
+            return parseFloat(parts[0]) / parseFloat(parts[1]);
+        }
+        return parseFloat(ss);
+    };
+    
+    const current_duration = parseDuration(current_ss_str);
+    if (isNaN(current_duration) || current_duration <= 0) {
+        alert("Invalid current camera shutter speed.");
+        return;
+    }
+    
+    const min_mean = Math.min(r_mean, g_mean, b_mean);
+    const targetExposure = 55000;
+    const ref_LED = 150;
+    
+    // Calculate target duration for the weakest channel to reach targetExposure at LED = 255
+    const target_duration = current_duration * (targetExposure / min_mean) * (ref_LED / 255);
+    appendLogLine(`[Optimizer] Target duration calculated: ${target_duration.toFixed(4)}s`);
+    
+    // Find best camera shutter speed choice D >= target_duration
+    const parsedChoices = choices.map(c => ({ str: c, val: parseDuration(c) })).filter(c => !isNaN(c.val) && c.val > 0);
+    parsedChoices.sort((a, b) => a.val - b.val); // sort ascending
+    
+    if (parsedChoices.length === 0) {
+        alert("No valid camera shutter speed choices available.");
+        return;
+    }
+    
+    let chosen = null;
+    for (const choice of parsedChoices) {
+        if (choice.val >= target_duration) {
+            chosen = choice;
+            break;
+        }
+    }
+    
+    if (!chosen) {
+        // Fallback: all camera speeds are faster than target_duration. Choose slowest speed.
+        chosen = parsedChoices[parsedChoices.length - 1];
+        appendLogLine(`[Optimizer] All camera shutter speeds are faster than target. Selecting slowest speed: ${chosen.str}`);
+    }
+    
+    const chosen_duration = chosen.val;
+    const chosen_ss_str = chosen.str;
+    appendLogLine(`[Optimizer] Selected Camera Shutter Speed: ${chosen_ss_str} (${chosen_duration.toFixed(4)}s)`);
+    
+    // Calculate what the weakest channel exposure would be at LED = 255 and chosen_duration
+    const exposure_weakest_at_255 = min_mean * (255 / ref_LED) * (chosen_duration / current_duration);
+    const max_safe_exposure = 60000;
+    
+    let final_LED_R, final_LED_G, final_LED_B;
+    
+    if (exposure_weakest_at_255 <= max_safe_exposure) {
+        // ETTR target is safe without highlight clipping
+        appendLogLine(`[Optimizer] Shifting weakest channel to maximum LED power (255) at target exposure level ${exposure_weakest_at_255.toFixed(0)}`);
+        if (min_mean === r_mean) {
+            final_LED_R = 255;
+            final_LED_G = 255 * (r_mean / g_mean);
+            final_LED_B = 255 * (r_mean / b_mean);
+        } else if (min_mean === g_mean) {
+            final_LED_R = 255 * (g_mean / r_mean);
+            final_LED_G = 255;
+            final_LED_B = 255 * (g_mean / b_mean);
+        } else {
+            final_LED_R = 255 * (b_mean / r_mean);
+            final_LED_G = 255 * (b_mean / g_mean);
+            final_LED_B = 255;
+        }
+    } else {
+        // Capping to prevent highlight clipping at 60000
+        const scale = max_safe_exposure / exposure_weakest_at_255;
+        const target_LED_weakest = Math.round(255 * scale);
+        appendLogLine(`[Optimizer] Maximum LED power would clip. Scaling weakest channel to LED power: ${target_LED_weakest}`);
+        
+        if (min_mean === r_mean) {
+            final_LED_R = target_LED_weakest;
+            final_LED_G = target_LED_weakest * (r_mean / g_mean);
+            final_LED_B = target_LED_weakest * (r_mean / b_mean);
+        } else if (min_mean === g_mean) {
+            final_LED_R = target_LED_weakest * (g_mean / r_mean);
+            final_LED_G = target_LED_weakest;
+            final_LED_B = target_LED_weakest * (g_mean / b_mean);
+        } else {
+            final_LED_R = target_LED_weakest * (b_mean / r_mean);
+            final_LED_G = target_LED_weakest * (b_mean / g_mean);
+            final_LED_B = target_LED_weakest;
+        }
+    }
+    
+    const final_R = Math.min(Math.max(Math.round(final_LED_R), 0), 255);
+    const final_G = Math.min(Math.max(Math.round(final_LED_G), 0), 255);
+    const final_B = Math.min(Math.max(Math.round(final_LED_B), 0), 255);
+    
+    appendLogLine(`[Optimizer] Applying optimized settings:`);
+    appendLogLine(`[Optimizer]   -> Red LED: ${final_R}`);
+    appendLogLine(`[Optimizer]   -> Green LED: ${final_G}`);
+    appendLogLine(`[Optimizer]   -> Blue LED: ${final_B}`);
+    appendLogLine(`[Optimizer]   -> Shutter Speed: ${chosen_ss_str}`);
+    
+    // Apply camera configuration
+    setCameraConfig('shutterspeed', chosen_ss_str);
+    
+    // Apply Scanlight configuration
+    if (window.scanlightController) {
+        window.scanlightController.red = final_R;
+        window.scanlightController.green = final_G;
+        window.scanlightController.blue = final_B;
+        window.scanlightController.setEnabledChannels([1, 1, 1, 0, 0]);
+        window.scanlightController.updateColor();
+        setTimeout(syncMiniScanlightUI, 100);
+    }
+    
+    // Notify mock backend for simulated camera shifts
+    fetch('/api/camera/update_mock_leds', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ red: final_R, green: final_G, blue: final_B })
+    }).catch(err => console.error(err));
+    
+    alert(`Exposure Optimization Complete!\n\nNew Settings Applied:\n• Shutter Speed: ${chosen_ss_str}\n• Red LED: ${final_R}\n• Green LED: ${final_G}\n• Blue LED: ${final_B}`);
+
+    // Delete calibration frames from the filesystem
+    if (data.frame_number !== undefined) {
+        appendLogLine(`[Optimizer] Cleaning up calibration files for Frame ${data.frame_number}...`);
+        fetch('/api/session/delete_frame', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ frame_number: data.frame_number })
+        })
+        .then(res => res.json())
+        .then(resData => {
+            if (resData.success) {
+                appendLogLine(`[Optimizer] Successfully deleted calibration files: ${resData.deleted.length} files removed.`);
+                // Refresh folder preview list if function is present
+                if (window.fetchFilesList) {
+                    window.fetchFilesList();
+                }
+            } else {
+                appendLogLine(`[Optimizer Warning] Failed to clean up calibration files: ${resData.message}`);
+            }
+        })
+        .catch(err => console.error("Error deleting calibration frame:", err));
+    }
+}
+
+window.handleExposureOptimizationData = handleExposureOptimizationData;
+
 
 
 

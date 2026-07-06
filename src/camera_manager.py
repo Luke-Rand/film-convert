@@ -575,6 +575,9 @@ class CameraManager:
             f.write(f"ISO: {self.sim_settings['iso']}\n")
             f.write(f"Aperture: {self.sim_settings['aperture']}\n")
             f.write(f"Shutter: {self.sim_settings['shutterspeed']}\n")
+            f.write(f"LED_R: {self.mock_leds.get('red', 255)}\n")
+            f.write(f"LED_G: {self.mock_leds.get('green', 255)}\n")
+            f.write(f"LED_B: {self.mock_leds.get('blue', 255)}\n")
             
         self.log(f"Simulated capture saved: {local_name}")
         return local_path

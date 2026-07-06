@@ -80,19 +80,55 @@ def process_triplet(group, output_filepath, neutralize_base, compress_tiff, alig
             linear_rgb = np.zeros((h, w, 3), dtype=np.uint16)
             name_lower = Path(filepath).name.lower()
             
-            # Set one channel dominant based on mock filename hint
+            # Parse mock raw file for shutter speed and active mock LED values
+            shutter_str = "1/30"
+            led_r = 255.0
+            led_g = 255.0
+            led_b = 255.0
+            try:
+                with open(filepath, "r") as f:
+                    for line in f:
+                        if line.startswith("Shutter:"):
+                            shutter_str = line.split(":", 1)[1].strip()
+                        elif line.startswith("LED_R:"):
+                            led_r = float(line.split(":", 1)[1].strip())
+                        elif line.startswith("LED_G:"):
+                            led_g = float(line.split(":", 1)[1].strip())
+                        elif line.startswith("LED_B:"):
+                            led_b = float(line.split(":", 1)[1].strip())
+            except Exception:
+                pass
+
+            def parse_shutter(ss):
+                ss = ss.strip()
+                if "/" in ss:
+                    n, d = ss.split("/")
+                    return float(n) / float(d)
+                return float(ss)
+
+            try:
+                shutter_val = parse_shutter(shutter_str)
+            except Exception:
+                shutter_val = 0.0333
+
+            # Calculate mock pixel values using film base orange mask models
+            # BaseFactor = 12000, Red Transmission = 0.9, Green = 0.3, Blue = 0.1
+            r_val = int(np.clip(12000.0 * led_r * shutter_val * 0.9, 100, 65535))
+            g_val = int(np.clip(12000.0 * led_g * shutter_val * 0.3, 100, 65535))
+            b_val = int(np.clip(12000.0 * led_b * shutter_val * 0.1, 100, 65535))
+
             if "red" in name_lower or "_r" in name_lower:
-                linear_rgb[:, :, 0] = 52000
-                linear_rgb[:, :, 1] = 4000
-                linear_rgb[:, :, 2] = 4000
+                linear_rgb[:, :, 0] = r_val
+                linear_rgb[:, :, 1] = 100
+                linear_rgb[:, :, 2] = 100
             elif "green" in name_lower or "_g" in name_lower:
-                linear_rgb[:, :, 0] = 4000
-                linear_rgb[:, :, 1] = 52000
-                linear_rgb[:, :, 2] = 4000
+                linear_rgb[:, :, 0] = 100
+                linear_rgb[:, :, 1] = g_val
+                linear_rgb[:, :, 2] = 100
             else:
-                linear_rgb[:, :, 0] = 4000
-                linear_rgb[:, :, 1] = 4000
-                linear_rgb[:, :, 2] = 52000
+                linear_rgb[:, :, 0] = 100
+                linear_rgb[:, :, 1] = 100
+                linear_rgb[:, :, 2] = b_val
         else:
             with rawpy.imread(filepath) as raw:
                 # Decode RAW to linear 16-bit RGB

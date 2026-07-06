@@ -278,7 +278,8 @@ class SessionManager:
                             self.broadcast("triplet_means", {
                                 "r_mean": float(r_mean),
                                 "g_mean": float(g_mean),
-                                "b_mean": float(b_mean)
+                                "b_mean": float(b_mean),
+                                "frame_number": int(frame_number)
                             })
                             
                             # 2. Invert (redirect stdout to web log)
@@ -655,6 +656,44 @@ def start_session():
 def stop_session():
     success, msg = session.stop_monitoring()
     return jsonify({"success": success, "message": msg})
+
+@app.route('/api/session/delete_frame', methods=['POST'])
+def delete_frame():
+    data = request.json or {}
+    frame_number = data.get("frame_number")
+    if frame_number is None:
+        return jsonify({"success": False, "message": "Missing frame_number"}), 400
+    try:
+        frame_str = f"Frame_{int(frame_number):02d}_"
+        deleted_files = []
+        
+        # Check all directories in session.dirs
+        dirs_to_clean = []
+        if session and session.dirs:
+            dirs_to_clean = list(session.dirs.values())
+        else:
+            # Fallback to defaults
+            dirs_to_clean = [
+                os.path.abspath("./negatives"),
+                os.path.abspath("./positives"),
+                os.path.abspath("./processed_raws"),
+                os.path.abspath("./error_raws")
+            ]
+            
+        for d in dirs_to_clean:
+            if not d or not os.path.exists(d):
+                continue
+            for f in os.listdir(d):
+                if f.startswith(frame_str):
+                    full_path = os.path.join(d, f)
+                    if os.path.isfile(full_path):
+                        os.remove(full_path)
+                        deleted_files.append(full_path)
+                        
+        session.log(f"Cleaned up calibration frame {frame_number:02d}: deleted {len(deleted_files)} files.")
+        return jsonify({"success": True, "deleted": deleted_files})
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)}), 500
 
 @app.route('/api/logs', methods=['GET'])
 def get_logs():

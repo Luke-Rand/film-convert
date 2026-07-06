@@ -874,6 +874,12 @@ class ScanlightUIController {
   }
 
   handleCalibrationData(data) {
+    if (window.isOptimizingExposure) {
+      if (window.handleExposureOptimizationData) {
+        window.handleExposureOptimizationData(data);
+      }
+      return;
+    }
     if (!this.isCalibrating) return;
     
     this.log(`[Scanlight] Received exposure means from composite analysis: R=${data.r_mean.toFixed(0)}, G=${data.g_mean.toFixed(0)}, B=${data.b_mean.toFixed(0)}`);
@@ -937,6 +943,28 @@ class ScanlightUIController {
     
     // Alert the user
     alert(`Calibration complete!\nOptimal RGB values set to:\nRed: ${this.red}\nGreen: ${this.green}\nBlue: ${this.blue}`);
+
+    // Delete calibration frames from the filesystem
+    if (data.frame_number !== undefined) {
+        this.log(`[Scanlight] Cleaning up calibration files for Frame ${data.frame_number}...`);
+        fetch('/api/session/delete_frame', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ frame_number: data.frame_number })
+        })
+        .then(res => res.json())
+        .then(resData => {
+            if (resData.success) {
+                this.log(`[Scanlight] Successfully deleted calibration files: ${resData.deleted.length} files removed.`);
+                if (window.fetchFilesList) {
+                    window.fetchFilesList();
+                }
+            } else {
+                this.log(`[Scanlight Warning] Failed to clean up calibration files: ${resData.message}`);
+            }
+        })
+        .catch(err => console.error("Error deleting calibration frame:", err));
+    }
   }
 
   async loadDefault() {
