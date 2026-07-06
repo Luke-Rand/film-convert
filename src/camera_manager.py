@@ -10,7 +10,10 @@ from PIL import Image, ImageDraw
 try:
     import gphoto2 as gp
     GPHOTO2_AVAILABLE = True
-except ImportError:
+except ImportError as e:
+    import traceback
+    print(f"[Camera] Warning: Failed to import python-gphoto2 bindings: {e}")
+    traceback.print_exc()
     GPHOTO2_AVAILABLE = False
 
 class CameraManager:
@@ -145,10 +148,10 @@ class CameraManager:
         return self.send_cmd("set_config", {"name": name, "value": value})
 
     def reconnect(self):
-        return self.send_cmd("reconnect", {})
+        return self.send_cmd("reconnect", {}, timeout=20.0)
 
     def capture_image(self, autofocus=True):
-        return self.send_cmd("capture", {"autofocus": autofocus})
+        return self.send_cmd("capture", {"autofocus": autofocus}, timeout=30.0)
 
     def set_liveview(self, active):
         self.live_view_active = active
