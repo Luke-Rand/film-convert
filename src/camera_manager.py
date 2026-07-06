@@ -10,7 +10,10 @@ from PIL import Image, ImageDraw
 try:
     import gphoto2 as gp
     GPHOTO2_AVAILABLE = True
-except ImportError:
+except ImportError as e:
+    import traceback
+    print(f"[Camera] Warning: Failed to import python-gphoto2 bindings: {e}")
+    traceback.print_exc()
     GPHOTO2_AVAILABLE = False
 
 class CameraManager:

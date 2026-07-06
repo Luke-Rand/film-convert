@@ -52,6 +52,11 @@ function startPythonBackend(port) {
     PYTHONUNBUFFERED: '1'
   };
 
+  // Add Homebrew paths to PATH on macOS so dynamic packages find Homebrew libraries/tools
+  if (process.platform === 'darwin') {
+    env.PATH = `/opt/homebrew/bin:/usr/local/bin:${env.PATH || ''}`;
+  }
+
   pythonProcess = spawn(pythonBin, args, {
     cwd: isPackaged ? process.resourcesPath : __dirname,
     env: env
