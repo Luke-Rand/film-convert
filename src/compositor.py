@@ -8,6 +8,7 @@ import argparse
 import time
 import shutil
 import sys
+from dng_writer import write_linear_dng
 
 def align_channel(ref, mov, channel_name=""):
     """Aligns moving channel to reference channel using FFT phase correlation."""
@@ -61,7 +62,7 @@ def align_channel(ref, mov, channel_name=""):
     shifted[dst_y_start:dst_y_end, dst_x_start:dst_x_end] = mov[src_y_start:src_y_end, src_x_start:src_x_end]
     return shifted
 
-def process_triplet(group, output_filepath, neutralize_base, compress_tiff, align_channels=False):
+def process_triplet(group, output_filepath, neutralize_base, compress_dng, align_channels=False):
     """Processes exactly 3 RAW files into a single composite."""
     channels_data = {'red': None, 'green': None, 'blue': None}
     
@@ -170,9 +171,8 @@ def process_triplet(group, output_filepath, neutralize_base, compress_tiff, alig
     # Make array contiguous to avoid TIFF reader issues
     composite_rgb = np.ascontiguousarray(composite_rgb)
     
-    # Set up compression
-    tiff_compression = 'zlib' if compress_tiff else None
-    tifffile.imwrite(output_filepath, composite_rgb, photometric='rgb', compression=tiff_compression)
+    # Save composite using write_linear_dng
+    write_linear_dng(output_filepath, composite_rgb, is_monochrome=False, compress=compress_dng)
     
     print(f"  -> Saved composite to: {os.path.basename(output_filepath)}\n")
     return float(r_mean), float(g_mean), float(b_mean)
@@ -199,7 +199,7 @@ def get_next_frame_number(directory):
                     pass
     return max_num + 1
 
-def hot_folder_mode(directory_path, neutralize_base=False, compress_tiff=False, timeout=60, align_channels=False):
+def hot_folder_mode(directory_path, neutralize_base=False, compress_dng=False, timeout=60, align_channels=False):
     """Monitors a directory for RAW triplets and processes them."""
     print(f"\n{'='*60}")
     print(f"🔥 HOT FOLDER MODE ACTIVE 🔥")
@@ -235,12 +235,12 @@ def hot_folder_mode(directory_path, neutralize_base=False, compress_tiff=False, 
                     
                 print(f"\n{'-'*60}")
                 print(f"📸 Triplet detected! Processing Frame {frame_number:02d}...")
-                output_filename = f"Frame_{frame_number:02d}_Composite.tiff"
+                output_filename = f"Frame_{frame_number:02d}_Composite.dng"
                 # Save composites directly in the watched directory
                 output_filepath = os.path.join(directory_path, output_filename)
                 
                 try:
-                    process_triplet(group, output_filepath, neutralize_base, compress_tiff, align_channels)
+                    process_triplet(group, output_filepath, neutralize_base, compress_dng, align_channels)
                     
                     # Move original RAWs to processed folder
                     for f in group:
@@ -279,7 +279,7 @@ def hot_folder_mode(directory_path, neutralize_base=False, compress_tiff=False, 
             print("\nExiting Hot Folder Mode.")
             sys.exit(0)
 
-def process_roll(directory_path, output_dir=None, neutralize_base=False, compress_tiff=False, align_channels=False):
+def process_roll(directory_path, output_dir=None, neutralize_base=False, compress_dng=False, align_channels=False):
     """
     Scans for RAW files, groups by 3, auto-detects colors, and creates linear TIFFs.
     """
@@ -316,11 +316,11 @@ def process_roll(directory_path, output_dir=None, neutralize_base=False, compres
         group = raw_files[i:i+3]
         print(f"Frame {frame_number:02d}:")
         
-        output_filename = f"Frame_{frame_number:02d}_Composite.tiff"
+        output_filename = f"Frame_{frame_number:02d}_Composite.dng"
         output_filepath = os.path.join(output_dir, output_filename)
         
         try:
-            process_triplet(group, output_filepath, neutralize_base, compress_tiff, align_channels)
+            process_triplet(group, output_filepath, neutralize_base, compress_dng, align_channels)
         except Exception as e:
             print(f"  -> ERROR processing Frame {frame_number:02d}: {e}\n")
             
@@ -335,7 +335,7 @@ if __name__ == "__main__":
     parser.add_argument("-i", "--input", type=str, required=True, 
                         help="Path to the directory containing RAW files (.CR3, .RAF, or .NEF)")
     parser.add_argument("-c", "--compress", action="store_true", 
-                        help="Enable lossless compression (zlib/deflate) for output TIFFs")
+                        help="Enable lossless compression (zlib/deflate) for output DNGs")
     parser.add_argument("-n", "--neutralize", action="store_true", 
                         help="Automatically balance the color channels to neutralize the film base")
     parser.add_argument("--hotfolder", action="store_true", 
@@ -349,7 +349,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
     
     if args.hotfolder:
-        hot_folder_mode(args.input, neutralize_base=args.neutralize, compress_tiff=args.compress, timeout=args.timeout, align_channels=args.align)
+        hot_folder_mode(args.input, neutralize_base=args.neutralize, compress_dng=args.compress, timeout=args.timeout, align_channels=args.align)
     else:
         # The output directory will automatically be created as a subfolder inside the input path
-        process_roll(args.input, neutralize_base=args.neutralize, compress_tiff=args.compress, align_channels=args.align)
+        process_roll(args.input, neutralize_base=args.neutralize, compress_dng=args.compress, align_channels=args.align)

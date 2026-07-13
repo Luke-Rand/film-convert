@@ -62,7 +62,7 @@ class SessionManager:
             "margin": 0.03,
             "autocrop": False,
             "global_levels": False,
-            "compress_tiff": True,
+            "compress_dng": True,
             "neutralize": False,  # compositor neutralization
             "align_channels": False,
             "monochrome": False,
@@ -261,7 +261,7 @@ class SessionManager:
                         frame_number = self.get_next_frame_number(neg_dir)
                         self.log(f"Triplet detected! Processing Frame {frame_number:02d}...")
                         
-                        composite_filename = f"Frame_{frame_number:02d}_Composite.tiff"
+                        composite_filename = f"Frame_{frame_number:02d}_Composite.dng"
                         composite_filepath = os.path.join(neg_dir, composite_filename)
                         
                         try:
@@ -271,7 +271,7 @@ class SessionManager:
                                     group=group,
                                     output_filepath=composite_filepath,
                                     neutralize_base=self.config["neutralize"],
-                                    compress_tiff=self.config["compress_tiff"],
+                                    compress_dng=self.config["compress_dng"],
                                     align_channels=self.config["align_channels"]
                                 )
                             
@@ -288,7 +288,7 @@ class SessionManager:
                                     output_dir=self.dirs['positives'],
                                     clip=self.config["clip"],
                                     gamma=self.config["gamma"],
-                                    compress_tiff=self.config["compress_tiff"],
+                                    compress_dng=self.config["compress_dng"],
                                     global_levels=self.config["global_levels"],
                                     ignore_margin=self.config["margin"],
                                     scurve=self.config["scurve"],
@@ -339,7 +339,7 @@ class SessionManager:
                                     output_dir=self.dirs['positives'],
                                     clip=self.config["clip"],
                                     gamma=self.config["gamma"],
-                                    compress_tiff=self.config["compress_tiff"],
+                                    compress_dng=self.config["compress_dng"],
                                     global_levels=self.config["global_levels"],
                                     ignore_margin=self.config["margin"],
                                     scurve=self.config["scurve"],
@@ -411,14 +411,14 @@ class SessionManager:
                     for i in range(0, total_files - 2, 3):
                         group = raw_files[i:i+3]
                         self.log(f"Processing Frame {frame_number:02d} ({[os.path.basename(f) for f in group]})...")
-                        output_filepath = os.path.join(out_dir, f"Frame_{frame_number:02d}_Composite.tiff")
+                        output_filepath = os.path.join(out_dir, f"Frame_{frame_number:02d}_Composite.dng")
                         
                         with contextlib.redirect_stdout(redirector):
                             process_triplet(
                                 group=group,
                                 output_filepath=output_filepath,
                                 neutralize_base=self.config["neutralize"],
-                                compress_tiff=self.config["compress_tiff"],
+                                compress_dng=self.config["compress_dng"],
                                 align_channels=self.config["align_channels"]
                             )
                         frame_number += 1
@@ -436,7 +436,7 @@ class SessionManager:
                             output_dir=None,  # let it auto-create subfolder Positives
                             clip=self.config["clip"],
                             gamma=self.config["gamma"],
-                            compress_tiff=self.config["compress_tiff"],
+                            compress_dng=self.config["compress_dng"],
                             global_levels=self.config["global_levels"],
                             ignore_margin=self.config["margin"],
                             scurve=self.config["scurve"],
@@ -742,7 +742,7 @@ def get_preview():
     try:
         # Load TIFF or other format using tifffile
         ext = os.path.splitext(img_path)[1].lower()
-        if ext in ['.tiff', '.tif']:
+        if ext in ['.tiff', '.tif', '.dng']:
             img = tifffile.imread(img_path)
             
             # Remove transparency or alpha channel if present
@@ -751,7 +751,13 @@ def get_preview():
                 
             # If 16-bit, scale to 8-bit for web viewer
             if img.dtype == np.uint16:
-                img_8bit = (img >> 8).astype(np.uint8)
+                if ext == '.dng':
+                    # Apply a standard 2.2 gamma curve to linear DNG data for web display
+                    img_float = img.astype(np.float32) / 65535.0
+                    img_gamma = np.clip(img_float ** (1.0 / 2.2) * 255.0, 0, 255)
+                    img_8bit = img_gamma.astype(np.uint8)
+                else:
+                    img_8bit = (img >> 8).astype(np.uint8)
             else:
                 img_8bit = img.astype(np.uint8)
                 

@@ -18,7 +18,7 @@ python src/scanning_session.py
 1. **Root Directory:** Choose the base directory where scan folders will be created (e.g., `~/Pictures/Scans`).
 2. **Scan Mode:** 
    * **Triplet:** Expects sequential triplets of RAW files (.CR3, .RAF, or .NEF) corresponding to Red, Green, and Blue exposures.
-   * **Single-shot:** Expects single DNG or TIFF captures (for standard white light sources).
+   * **Single-shot:** Expects single DNG captures (for standard white light sources).
 3. **Details:** Enter Film Stock name, Format (135, 120), and Roll Number.
 4. **Monochrome Check:** Specify if it's a Black & White scanning session and select a preferred extraction channel.
 
@@ -26,7 +26,7 @@ The script creates organized directories and runs a hot-folder loop:
 ```
 SessionName/
 ├── negatives/       <-- Capture your images here
-├── positives/       <-- Completed positive TIFs land here
+├── positives/       <-- Completed positive DNGs land here
 ├── processed_raws/  <-- Original RAWs are safely archived here
 └── error_raws/      <-- Errored shots are moved here to prevent pipeline blocks
 ```
@@ -35,7 +35,7 @@ SessionName/
 
 ## 2. RAW Tri-Color Compositor (`src/compositor.py`)
 
-The compositor sorts and groups RAW images (Canon `.CR3`, Fujifilm `.RAF`, or Nikon `.NEF`), auto-detects Red, Green, and Blue channels, and stacks them into a single 16-bit linear composite TIFF.
+The compositor sorts and groups RAW images (Canon `.CR3`, Fujifilm `.RAF`, or Nikon `.NEF`), auto-detects Red, Green, and Blue channels, and stacks them into a single 16-bit linear composite DNG.
 
 ### Basic Usage
 Combine files in a folder into composites inside a new `Composites` subdirectory:
@@ -44,7 +44,7 @@ python src/compositor.py -i /path/to/raw/files
 ```
 
 ### Advanced Usage (With Channel Alignment and Compression)
-Enable channel auto-alignment via FFT phase correlation, neutralize the film base orange cast, and compress the output TIFF:
+Enable channel auto-alignment via FFT phase correlation, neutralize the film base orange cast, and compress the output DNG:
 ```bash
 python src/compositor.py -i /path/to/raw/files --align --neutralize --compress
 ```
@@ -54,7 +54,7 @@ python src/compositor.py -i /path/to/raw/files --align --neutralize --compress
 | Argument | Short | Description |
 | :--- | :---: | :--- |
 | `--input` | `-i` | **(Required)** Path to the directory containing RAW files (`.CR3`, `.RAF`, or `.NEF`). |
-| `--compress` | `-c` | Enable lossless compression (`zlib`/`deflate`) for output TIFFs. |
+| `--compress` | `-c` | Enable lossless compression (`zlib`/`deflate`) for output DNGs. |
 | `--neutralize` | `-n` | Automatically balance the color channels to neutralize the film base. |
 | `--align` | `-a` | Auto-correct exposure alignment between channels (R, G, B) using FFT phase correlation. |
 | `--hotfolder` | | Run in Hot Folder mode to monitor a folder, composite files on the fly, and archive originals. |
@@ -64,7 +64,7 @@ python src/compositor.py -i /path/to/raw/files --align --neutralize --compress
 
 ## 3. Density Inverter (`src/inverter.py`)
 
-The inverter takes composite 16-bit linear TIFFs or single RAW DNG files and inverts them, applies S-curves, stretches levels, and crops borders.
+The inverter takes composite 16-bit linear DNGs or single RAW DNG files and inverts them, applies S-curves, stretches levels, and crops borders.
 
 ### Basic Usage
 Invert linear images inside a folder into positives in a new `Positives` subdirectory:
@@ -82,8 +82,8 @@ python src/inverter.py -i /path/to/Composites --clip 0.1 --gamma 2.2 --scurve 0.
 
 | Argument | Short | Description |
 | :--- | :---: | :--- |
-| `--input` | `-i` | **(Required)** Path to a single 16-bit composite TIFF/RAW DNG file, or a directory containing them. |
-| `--compress` | `-c` | Enable lossless compression (`zlib`/`deflate`) for output TIFFs. |
+| `--input` | `-i` | **(Required)** Path to a single 16-bit composite DNG or camera RAW DNG file, or a directory containing them. |
+| `--compress` | `-c` | Enable lossless compression (`zlib`/`deflate`) for output DNGs. |
 | `--clip` | `-p` | Percentile to clip for black/white points (default: `0.1`% to ignore dust/scratches). |
 | `--gamma` | `-g` | Gamma correction curve to apply (default: `2.2`). Set to `1.0` for strictly linear output. |
 | `--scurve` | `-s` | Strength of the contrast S-curve to apply (default: `0.0` = none). Try `0.2` to `0.5`. |

@@ -390,9 +390,9 @@
                                 <label>Mode</label>
                                 <select id="scanner-mode" class="select-presets"
                                     onchange="updateScannerModeUI(this.value)"
-                                    data-tooltip="Triplet: captures 3 sequential RAWs (R, G, B) and stacks them into one 16-bit TIFF. Single-Shot: captures a single DNG/TIFF and inverts it directly">
+                                    data-tooltip="Triplet: captures 3 sequential RAWs (R, G, B) and stacks them into one 16-bit DNG. Single-Shot: captures a single DNG and inverts it directly">
                                     <option value="triplet" selected>Triplet Mode (R-G-B Stacking)</option>
-                                    <option value="single">Single-Shot (DNG/TIFF Inversion)</option>
+                                    <option value="single">Single-Shot (DNG Inversion)</option>
                                 </select>
                             </div>
 
@@ -538,7 +538,7 @@
                             </div>
                             <div class="checkbox-grid" style="margin-top: 0.5rem;">
                                 <label class="checkbox-container"
-                                    data-tooltip="Automatically crop out the ignored outer margin region from the final TIFF output">
+                                    data-tooltip="Automatically crop out the ignored outer margin region from the final DNG output">
                                     <input type="checkbox" id="config-autocrop">
                                     <span class="checkmark"></span>
                                     <div class="checkbox-text"><strong>Auto-Crop Margins</strong></div>
@@ -550,10 +550,10 @@
                                     <div class="checkbox-text"><strong>Global Levels Stretch</strong></div>
                                 </label>
                                 <label class="checkbox-container"
-                                    data-tooltip="Apply zlib lossless compression to output TIFFs — reduces file size by ~40% with no quality loss">
+                                    data-tooltip="Apply zlib lossless compression to output DNGs — reduces file size by ~40% with no quality loss">
                                     <input type="checkbox" id="config-compress" checked>
                                     <span class="checkmark"></span>
-                                    <div class="checkbox-text"><strong>TIFF Compression (zlib)</strong></div>
+                                    <div class="checkbox-text"><strong>DNG Compression (zlib)</strong></div>
                                 </label>
                             </div>
                         </div>
@@ -582,7 +582,7 @@
                                     <div class="task-card">
                                         <h4>Composite RAWs</h4>
                                         <p>Stack sequential triplets (.CR3/.RAF/.NEF) in a directory into 16-bit linear
-                                            TIFFs inside a 'Composites' subfolder.</p>
+                                            DNGs inside a 'Composites' subfolder.</p>
                                     </div>
                                 </label>
                                 <label class="task-option">
@@ -590,7 +590,7 @@
                                         onclick="updateBatchTaskDesc()">
                                     <div class="task-card">
                                         <h4>Invert Negatives</h4>
-                                        <p>Perform density inversion, auto-color balancing, and curves on TIFF/DNG
+                                        <p>Perform density inversion, auto-color balancing, and curves on DNG
                                             negatives inside a 'Positives' subfolder.</p>
                                     </div>
                                 </label>
@@ -602,7 +602,7 @@
                             <div class="input-with-button">
                                 <input type="text" id="batch-input-path"
                                     placeholder="Path to the directory containing images to process..."
-                                    data-tooltip="Absolute path to the folder containing RAW triplets (composite mode) or TIFF/DNG negatives (invert mode)">
+                                    data-tooltip="Absolute path to the folder containing RAW triplets (composite mode) or DNG negatives (invert mode)">
                                 <button class="btn btn-secondary btn-input-action" type="button"
                                     onclick="openFolderBrowser('batch-input-path')"
                                     data-tooltip="Browse your filesystem to select the input folder">📁</button>
@@ -677,7 +677,7 @@
                                     <input type="checkbox" id="batch-compress" checked>
                                     <span class="checkmark"></span>
                                     <div class="checkbox-text">
-                                        <strong>TIFF Compression (zlib)</strong>
+                                        <strong>DNG Compression (zlib)</strong>
                                     </div>
                                 </label>
                                 <label class="checkbox-container">
@@ -1035,7 +1035,7 @@
         <div class="lightbox-content-wrapper" onclick="event.stopPropagation()">
             <img class="lightbox-img" id="lightbox-img" src="" alt="Scan High Res Preview">
             <div class="lightbox-meta">
-                <h4 id="lightbox-title">Frame_01_Positive.tiff</h4>
+                <h4 id="lightbox-title">Frame_01_Positive.dng</h4>
                 <p id="lightbox-desc">Size: 45MB | Path: C:/Users/...</p>
                 <div class="lightbox-actions">
                     <a class="btn btn-secondary btn-small" id="lightbox-download-link" href="" target="_blank"

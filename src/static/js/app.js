@@ -620,7 +620,7 @@ function syncConfigToUI(config) {
     document.getElementById('config-autocrop').checked = config.autocrop;
     document.getElementById('config-global-levels').checked = config.global_levels;
     document.getElementById('config-neutralize').checked = config.neutralize;
-    document.getElementById('config-compress').checked = config.compress_tiff;
+    document.getElementById('config-compress').checked = config.compress_dng;
     document.getElementById('config-align-channels').checked = config.align_channels;
     
     // Monochrome settings
@@ -672,7 +672,7 @@ function toggleMonitor() {
             autocrop: document.getElementById('config-autocrop').checked,
             global_levels: document.getElementById('config-global-levels').checked,
             neutralize: document.getElementById('config-neutralize').checked,
-            compress_tiff: document.getElementById('config-compress').checked,
+            compress_dng: document.getElementById('config-compress').checked,
             align_channels: document.getElementById('config-align-channels').checked,
             monochrome: document.getElementById('config-monochrome').checked,
             monochrome_channel: document.getElementById('config-monochrome-channel').value
@@ -785,7 +785,7 @@ function runBatchJob() {
         autocrop: document.getElementById('batch-autocrop').checked,
         global_levels: document.getElementById('batch-global-levels').checked,
         neutralize: document.getElementById('batch-neutralize').checked,
-        compress_tiff: document.getElementById('batch-compress').checked,
+        compress_dng: document.getElementById('batch-compress').checked,
         align_channels: document.getElementById('batch-align-channels').checked,
         monochrome: document.getElementById('batch-monochrome').checked,
         monochrome_channel: document.getElementById('batch-monochrome-channel').value
