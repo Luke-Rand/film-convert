@@ -111,3 +111,24 @@ To solve this, FilmConvert implements a background release loop on macOS in `src
    ```
 2. The loop runs at 100ms intervals, giving `libgphoto2` enough time to open a socket connection and bind the camera interface.
 3. If you still encounter connection issues, try switching the physical camera off and on to trigger a new USB enumeration.
+
+---
+
+## 6. Technical Specifications: DNG Stacking & Inversion
+
+FilmConvert outputs Digital Negative (DNG) files to offer standard RAW editing capabilities in editors like Lightroom.
+
+### DNG Metadata Structure
+DNG files are written using the `tifffile` library, packing 16-bit uint16 image arrays into a TIFF container containing standard DNG tags:
+- **`DNGVersion` (Tag 50706):** Configured to `1.4.0.0` (bytes `b'\x01\x04\x00\x00'`).
+- **`UniqueCameraModel` (Tag 50708):** Configured to `"FilmConvert Linear DNG"`.
+- **`PhotometricInterpretation` (Tag 262):** Set to `34892` (LinearRaw) for RGB color files, and `1` (minisblack) for Monochrome files.
+- **`ColorMatrix1` (Tag 50721):** Defines the transformation from CIE XYZ D50 to the native camera sRGB space (represented as `SRATIONAL` pairs).
+- **`AsShotNeutral` (Tag 50728):** Sets default white balance multipliers to `[1.0, 1.0, 1.0]`.
+- **`CalibrationIlluminant1` (Tag 50778):** Configured to `21` (D65).
+
+### Double-Gamma Correction Prevention
+To prevent double-gamma rendering in RAW editors (which automatically apply their own tone curves), `inverter.py` automatically bypasses gamma and contrast curve applications (forcing `effective_gamma = 1.0`) when exporting `.dng` files. 
+
+### Web UI Display Gamma
+Because output DNG files are saved strictly in their linear state, they would render too dark in standard web browsers. To solve this, the preview endpoint (`/api/preview` in `web_ui.py`) dynamically applies a standard `2.2` gamma display curve when generating preview thumbnails and lightbox images for the frontend.

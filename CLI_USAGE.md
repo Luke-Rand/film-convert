@@ -85,8 +85,8 @@ python src/inverter.py -i /path/to/Composites --clip 0.1 --gamma 2.2 --scurve 0.
 | `--input` | `-i` | **(Required)** Path to a single 16-bit composite DNG or camera RAW DNG file, or a directory containing them. |
 | `--compress` | `-c` | Enable lossless compression (`zlib`/`deflate`) for output DNGs. |
 | `--clip` | `-p` | Percentile to clip for black/white points (default: `0.1`% to ignore dust/scratches). |
-| `--gamma` | `-g` | Gamma correction curve to apply (default: `2.2`). Set to `1.0` for strictly linear output. |
-| `--scurve` | `-s` | Strength of the contrast S-curve to apply (default: `0.0` = none). Try `0.2` to `0.5`. |
+| `--gamma` | `-g` | Gamma correction curve to apply (default: `2.2`). Automatically bypassed for DNG outputs (saving as linear gamma `1.0` for RAW processors) and only applies to legacy TIFFs. |
+| `--scurve` | `-s` | Strength of the contrast S-curve to apply (default: `0.0` = none). Bypassed for DNG outputs and only applies to legacy TIFFs. |
 | `--margin` | `-m` | Fraction of outer edge to ignore when calculating levels (default: `0.03` = 3%). |
 | `--autocrop` | `-a` | Physically crop off the outer margins defined by `--margin` from the final saved image. |
 | `--global-levels` | | Stretch levels globally instead of per-channel (maintains compositor neutralization). |
