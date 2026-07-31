@@ -171,7 +171,7 @@ Returns the active configuration and operational state of the hot folder watcher
       "scurve": 1.2,
       "margin": 0.05,
       "autocrop": true,
-      "compress_tiff": true,
+      "compress_dng": true,
       "neutralize": true,
       "monochrome": false
     }

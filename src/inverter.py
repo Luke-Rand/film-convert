@@ -4,8 +4,9 @@ import numpy as np
 import tifffile
 import argparse
 import rawpy
+from dng_writer import write_linear_dng
 
-def process_positives(input_path, output_dir=None, clip=0.1, gamma=2.2, compress_tiff=False, global_levels=False, ignore_margin=0.15, scurve=0.0, autocrop=False, monochrome=False, monochrome_channel="luminance"):
+def process_positives(input_path, output_dir=None, clip=0.1, gamma=2.2, compress_dng=False, global_levels=False, ignore_margin=0.15, scurve=0.0, autocrop=False, monochrome=False, monochrome_channel="luminance"):
     """
     Processes 16-bit TIFF/DNG files: inverts, normalizes, applies gamma, crops, and saves.
     """
@@ -51,16 +52,20 @@ def process_positives(input_path, output_dir=None, clip=0.1, gamma=2.2, compress
             # Read file based on extension
             ext = os.path.splitext(filename)[1].lower()
             if ext == '.dng':
-                with rawpy.imread(filepath) as raw:
-                    # Extract as linear 16-bit
-                    img = raw.postprocess(
-                        gamma=(1, 1),
-                        no_auto_bright=True,
-                        use_camera_wb=False,
-                        user_wb=[1.0, 1.0, 1.0, 1.0],
-                        output_color=rawpy.ColorSpace.raw,
-                        output_bps=16
-                    )
+                try:
+                    with rawpy.imread(filepath) as raw:
+                        # Extract as linear 16-bit
+                        img = raw.postprocess(
+                            gamma=(1, 1),
+                            no_auto_bright=True,
+                            use_camera_wb=False,
+                            user_wb=[1.0, 1.0, 1.0, 1.0],
+                            output_color=rawpy.ColorSpace.raw,
+                            output_bps=16
+                        )
+                except Exception:
+                    # Fallback to tifffile for Linear DNGs
+                    img = tifffile.imread(filepath)
             else:
                 img = tifffile.imread(filepath)
             
@@ -136,20 +141,34 @@ def process_positives(input_path, output_dir=None, clip=0.1, gamma=2.2, compress
             # Clip values to 0-65535
             img_float = np.clip(img_float, 0, 65535)
             
+            # Generate output filename
+            base_name = os.path.splitext(filename)[0]
+            if "_Composite" in base_name:
+                out_filename = base_name.replace("_Composite", "_Positive") + ".dng"
+            else:
+                out_filename = f"Positive_{base_name}.dng"
+                
+            output_filepath = os.path.join(output_dir, out_filename)
+            
             # --- STEP 3: GAMMA AND CONTRAST ---
             # Apply gamma curve to lift midtones.
-            if gamma != 1.0 or scurve > 0.0:
-                print(f"  -> Applying tone curve (gamma={gamma}, scurve={scurve})...")
+            # Bypassed for DNG files to preserve linear raw data for raw processors.
+            is_dng_output = out_filename.endswith('.dng')
+            effective_gamma = 1.0 if is_dng_output else gamma
+            effective_scurve = 0.0 if is_dng_output else scurve
+            
+            if effective_gamma != 1.0 or effective_scurve > 0.0:
+                print(f"  -> Applying tone curve (gamma={effective_gamma}, scurve={effective_scurve})...")
                 # Normalize to 0.0-1.0
                 img_norm = img_float / 65535.0
                 
                 # Apply gamma curve
-                if gamma != 1.0:
-                    img_norm = img_norm ** (1.0 / gamma)
+                if effective_gamma != 1.0:
+                    img_norm = img_norm ** (1.0 / effective_gamma)
                 
                 # Apply S-Curve
-                if scurve > 0.0:
-                    c = 1.0 + scurve
+                if effective_scurve > 0.0:
+                    c = 1.0 + effective_scurve
                     mask = img_norm < 0.5
                     
                     # Piecewise curve to stretch midtones
@@ -164,19 +183,8 @@ def process_positives(input_path, output_dir=None, clip=0.1, gamma=2.2, compress
             final_img = img_float.astype(np.uint16)
             final_img = np.ascontiguousarray(final_img)
             
-            # Generate output filename
-            base_name = os.path.splitext(filename)[0]
-            if "_Composite" in base_name:
-                out_filename = base_name.replace("_Composite", "_Positive") + ".tiff"
-            else:
-                out_filename = f"Positive_{base_name}.tiff"
-                
-            output_filepath = os.path.join(output_dir, out_filename)
-            
-            # Set up compression
-            tiff_compression = 'zlib' if compress_tiff else None
-            photometric = 'minisblack' if is_monochrome else 'rgb'
-            tifffile.imwrite(output_filepath, final_img, photometric=photometric, compression=tiff_compression)
+            # Save positive using write_linear_dng
+            write_linear_dng(output_filepath, final_img, is_monochrome=is_monochrome, compress=compress_dng)
             
             print(f"  -> Saved positive to: {out_filename}\n")
             
@@ -192,7 +200,7 @@ if __name__ == "__main__":
     parser.add_argument("-i", "--input", type=str, required=True, 
                         help="Path to a single 16-bit composite TIFF/RAW DNG file, or a directory containing them")
     parser.add_argument("-c", "--compress", action="store_true", 
-                        help="Enable lossless compression (zlib/deflate) for output TIFFs")
+                        help="Enable lossless compression (zlib/deflate) for output DNGs")
     parser.add_argument("-p", "--clip", type=float, default=0.1,
                         help="Percentile to clip for black/white points (default: 0.1%% to ignore dust/scratches)")
     parser.add_argument("-g", "--gamma", type=float, default=2.2,
@@ -217,7 +225,7 @@ if __name__ == "__main__":
         input_path=args.input, 
         clip=args.clip, 
         gamma=args.gamma, 
-        compress_tiff=args.compress,
+        compress_dng=args.compress,
         global_levels=args.global_levels,
         ignore_margin=args.margin,
         scurve=args.scurve,

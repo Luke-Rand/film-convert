@@ -4,7 +4,7 @@
 
 # FilmConvert: Tri-Color Auto Compositor & Inverter
 
-FilmConvert is an automated application designed for archival film scanning setups. It combines separate Red, Green, and Blue RAW negatives (captured using monochromatic light sources) into high-quality, 16-bit linear composite TIFFs, and accurately inverts them into positive images in real-time.
+FilmConvert is an automated application designed for archival film scanning setups. It combines separate Red, Green, and Blue RAW negatives (captured using monochromatic light sources) into high-quality, 16-bit linear composite DNGs, and accurately inverts them into positive images in real-time.
 
 Whether you are using a manual setup or integrated LED controllers, FilmConvert streamlines your color and black-and-white film archiving pipeline.
 

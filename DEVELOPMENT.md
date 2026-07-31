@@ -105,10 +105,31 @@ The final installer package will be available in the `dist-app/` directory.
 ### macOS USB Daemon (`ptpcamerad`)
 macOS has a built-in background daemon (`ptpcamerad`) that claims any connected DSLR/mirrorless camera over USB as soon as it is powered on. This blocks third-party libraries (like `libgphoto2`) from claiming the USB device, resulting in `-53 (Could not claim the USB device)` or `-10 (Timeout)` connection errors.
 
-FilmConvert handles this automatically in `src/camera_manager.py`:
-1. Disables `com.apple.ptpcamerad` auto-respawn via `launchctl disable gui/$UID/com.apple.ptpcamerad`.
-2. Releases any running instance via `killall -9 ptpcamerad` and allows a 0.3s settling window for `libgphoto2` to bind USB Interface 0 cleanly.
+To solve this, FilmConvert implements a background release loop on macOS in `src/camera_manager.py`:
+1. When attempting connection, it spins up a background thread that executes:
+   ```bash
+   killall -9 ptpcamerad
+   ```
+2. The loop runs at 100ms intervals, giving `libgphoto2` enough time to open a socket connection and bind the camera interface.
+3. If you still encounter connection issues, try switching the physical camera off and on to trigger a new USB enumeration.
 
-### Canon EOS R-Series Cameras (R6 Mark III, R5, R3, etc.)
-- **CFexpress Type B Cards**: Inserting a CFexpress Type B card can cause Canon camera firmware to default to USB Mass Storage / Card Reader mode, blocking PTP tethering handshakes and causing `[-10] Timeout` errors. **Remove the CFexpress card** or ensure USB app mode is set to "Photo Import / Remote Control".
-- **Wireless Connections**: Disable Wi-Fi / Bluetooth in the camera menu (`Wi-Fi/Bluetooth connection` -> `Disable`) so the camera unlocks the USB PTP interface.
+---
+
+## 6. Technical Specifications: DNG Stacking & Inversion
+
+FilmConvert outputs Digital Negative (DNG) files to offer standard RAW editing capabilities in editors like Lightroom.
+
+### DNG Metadata Structure
+DNG files are written using the `tifffile` library, packing 16-bit uint16 image arrays into a TIFF container containing standard DNG tags:
+- **`DNGVersion` (Tag 50706):** Configured to `1.4.0.0` (bytes `b'\x01\x04\x00\x00'`).
+- **`UniqueCameraModel` (Tag 50708):** Configured to `"FilmConvert Linear DNG"`.
+- **`PhotometricInterpretation` (Tag 262):** Set to `34892` (LinearRaw) for RGB color files, and `1` (minisblack) for Monochrome files.
+- **`ColorMatrix1` (Tag 50721):** Defines the transformation from CIE XYZ D50 to the native camera sRGB space (represented as `SRATIONAL` pairs).
+- **`AsShotNeutral` (Tag 50728):** Sets default white balance multipliers to `[1.0, 1.0, 1.0]`.
+- **`CalibrationIlluminant1` (Tag 50778):** Configured to `21` (D65).
+
+### Double-Gamma Correction Prevention
+To prevent double-gamma rendering in RAW editors (which automatically apply their own tone curves), `inverter.py` automatically bypasses gamma and contrast curve applications (forcing `effective_gamma = 1.0`) when exporting `.dng` files. 
+
+### Web UI Display Gamma
+Because output DNG files are saved strictly in their linear state, they would render too dark in standard web browsers. To solve this, the preview endpoint (`/api/preview` in `web_ui.py`) dynamically applies a standard `2.2` gamma display curve when generating preview thumbnails and lightbox images for the frontend.
