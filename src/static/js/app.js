@@ -1229,11 +1229,75 @@ let cameraStatusInterval = null;
 
 // Focus Assist States
 let isZoomed = false;
+let zoomFactor = 1; // 1, 3, 6, 10
 let zoomX = 0.5;
 let zoomY = 0.5;
 let focusPeakingActive = false;
 let peakingThreshold = 30;
+let crispPixelsActive = true;
+let focusScorePeak = 0;
 let liveviewRotated180 = localStorage.getItem('liveviewRotated180') === 'true';
+
+function setZoomMagnification(factor) {
+    zoomFactor = factor;
+    
+    document.querySelectorAll('.btn-zoom-level').forEach(btn => btn.classList.remove('active'));
+    const activeBtn = document.getElementById(`btn-zoom-${factor}x`);
+    if (activeBtn) activeBtn.classList.add('active');
+    
+    const liveviewCanvas = document.getElementById('camera-liveview-canvas');
+    
+    if (factor === 5) {
+        // Canon 5x Native Hardware Sensor Zoom (1:1 Sensor-level Readout)
+        isZoomed = false;
+        if (liveviewCanvas) liveviewCanvas.style.cursor = 'default';
+        appendLogLine(`[Client] Enabling Canon 5x Native Hardware Sensor Zoom (1:1 Full Resolution)...`);
+        setCameraConfig('eoszoom', '5');
+    } else if (factor === 3) {
+        // 3x Digital Grain Loupe
+        isZoomed = true;
+        if (liveviewCanvas) liveviewCanvas.style.cursor = 'crosshair';
+        setCameraConfig('eoszoom', '1');
+    } else {
+        // 1x Full View
+        isZoomed = false;
+        if (liveviewCanvas) liveviewCanvas.style.cursor = 'zoom-in';
+        setCameraConfig('eoszoom', '1');
+    }
+    
+    if (marginOverlayVisible) {
+        updateMarginOverlay();
+    }
+}
+
+let isLiveviewFullscreen = false;
+
+function toggleLiveviewFullscreen() {
+    isLiveviewFullscreen = !isLiveviewFullscreen;
+    const card = document.querySelector('.liveview-card');
+    const btn = document.getElementById('btn-maximize-liveview');
+    const hud = document.getElementById('fullscreen-focus-hud');
+    
+    if (card) {
+        if (isLiveviewFullscreen) {
+            card.classList.add('fullscreen-focus-mode');
+            if (btn) btn.innerHTML = '✖ Exit Focus (ESC)';
+            if (hud) hud.style.display = 'flex';
+        } else {
+            card.classList.remove('fullscreen-focus-mode');
+            if (btn) btn.innerHTML = '🔍 Maximize Focus';
+            if (hud) hud.style.display = 'none';
+        }
+    }
+}
+
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && isLiveviewFullscreen) {
+        toggleLiveviewFullscreen();
+    }
+});
+
+
 
 // Initialize camera controls and fetch status
 function initCameraUI() {
@@ -1252,23 +1316,27 @@ function initCameraUI() {
             const x = e.clientX - rect.left;
             const y = e.clientY - rect.top;
             
-            if (isZoomed) {
-                isZoomed = false;
-                liveviewCanvas.style.cursor = 'zoom-in';
-            } else {
-                isZoomed = true;
-                if (liveviewRotated180) {
-                    zoomX = 1.0 - (x / rect.width);
-                    zoomY = 1.0 - (y / rect.height);
-                } else {
-                    zoomX = x / rect.width;
-                    zoomY = y / rect.height;
-                }
-                liveviewCanvas.style.cursor = 'zoom-out';
+            let normX = x / rect.width;
+            let normY = y / rect.height;
+            if (liveviewRotated180) {
+                normX = 1.0 - normX;
+                normY = 1.0 - normY;
             }
             
-            if (marginOverlayVisible) {
-                updateMarginOverlay();
+            if (isZoomed) {
+                const dx = Math.abs(normX - zoomX);
+                const dy = Math.abs(normY - zoomY);
+                if (dx < 0.1 && dy < 0.1) {
+                    setZoomMagnification(1);
+                } else {
+                    zoomX = normX;
+                    zoomY = normY;
+                    if (marginOverlayVisible) updateMarginOverlay();
+                }
+            } else {
+                zoomX = normX;
+                zoomY = normY;
+                setZoomMagnification(zoomFactor > 1 ? zoomFactor : 3);
             }
         });
     }
@@ -1473,9 +1541,9 @@ function pollLiveviewFrame() {
             }
             
             if (isZoomed) {
-                // 3x zoom crop window
-                const sw = nw / 3;
-                const sh = nh / 3;
+                const factor = zoomFactor > 1 ? zoomFactor : 3;
+                const sw = nw / factor;
+                const sh = nh / factor;
                 let sx = (zoomX * nw) - (sw / 2);
                 let sy = (zoomY * nh) - (sh / 2);
                 sx = Math.max(0, Math.min(nw - sw, sx));

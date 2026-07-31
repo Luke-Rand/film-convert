@@ -100,14 +100,15 @@ The final installer package will be available in the `dist-app/` directory.
 
 ---
 
-## 5. Technical Note: macOS USB Connection Daemon
+## 5. Technical Note: Camera Tethering & macOS USB Setup
 
+### macOS USB Daemon (`ptpcamerad`)
 macOS has a built-in background daemon (`ptpcamerad`) that claims any connected DSLR/mirrorless camera over USB as soon as it is powered on. This blocks third-party libraries (like `libgphoto2`) from claiming the USB device, resulting in `-53 (Could not claim the USB device)` or `-10 (Timeout)` connection errors.
 
-To solve this, FilmConvert implements a background release loop on macOS in `src/camera_manager.py`:
-1. When attempting connection, it spins up a background thread that executes:
-   ```bash
-   killall -9 ptpcamerad
-   ```
-2. The loop runs at 100ms intervals, giving `libgphoto2` enough time to open a socket connection and bind the camera interface.
-3. If you still encounter connection issues, try switching the physical camera off and on to trigger a new USB enumeration.
+FilmConvert handles this automatically in `src/camera_manager.py`:
+1. Disables `com.apple.ptpcamerad` auto-respawn via `launchctl disable gui/$UID/com.apple.ptpcamerad`.
+2. Releases any running instance via `killall -9 ptpcamerad` and allows a 0.3s settling window for `libgphoto2` to bind USB Interface 0 cleanly.
+
+### Canon EOS R-Series Cameras (R6 Mark III, R5, R3, etc.)
+- **CFexpress Type B Cards**: Inserting a CFexpress Type B card can cause Canon camera firmware to default to USB Mass Storage / Card Reader mode, blocking PTP tethering handshakes and causing `[-10] Timeout` errors. **Remove the CFexpress card** or ensure USB app mode is set to "Photo Import / Remote Control".
+- **Wireless Connections**: Disable Wi-Fi / Bluetooth in the camera menu (`Wi-Fi/Bluetooth connection` -> `Disable`) so the camera unlocks the USB PTP interface.
