@@ -730,6 +730,15 @@ class ScanlightUIController {
     this.isSequenceRunning = true;
     this.disableControlTriggers(true);
     
+    // Temporarily pause Live View during capture sequence so Continuous/Servo AF in Live View does not hunt when LED colors change
+    const liveviewToggle = document.getElementById('camera-liveview-toggle');
+    const wasLiveviewActive = liveviewToggle && liveviewToggle.checked;
+    if (wasLiveviewActive && typeof window.toggleCameraLiveview === 'function') {
+      this.log("[Scanlight] Temporarily pausing Live View stream during sequence...");
+      window.toggleCameraLiveview(false);
+      await new Promise(r => setTimeout(r, 200));
+    }
+
     const seqData = ScanlightConfig[sequence];
     this.log(`[Scanlight] Starting automated sequence: ${sequence} (${seqData.length} steps)`);
 
@@ -746,11 +755,7 @@ class ScanlightUIController {
         if (this.triggerMethod === "usb") {
           this.log(`[Scanlight] Step ${i + 1}/${seqData.length}: Triggering camera capture via USB...`);
           try {
-            const res = await fetch('/api/camera/capture', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ autofocus: false })
-            });
+            const res = await fetch('/api/camera/capture', { method: 'POST' });
             const captureResult = await res.json();
             if (!captureResult.success) {
               throw new Error(captureResult.message || "Unknown capture error");
@@ -785,6 +790,10 @@ class ScanlightUIController {
         }
       } else {
         this.setEnabledChannels([0, 0, 0, 0, 0]);
+      }
+      if (wasLiveviewActive && typeof window.toggleCameraLiveview === 'function') {
+        this.log("[Scanlight] Restoring Live View stream...");
+        window.toggleCameraLiveview(true);
       }
       this.log("[Scanlight] Automated sequence finished.");
     }

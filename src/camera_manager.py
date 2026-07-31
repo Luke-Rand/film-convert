@@ -205,7 +205,9 @@ class CameraManager:
                         with self.frame_lock:
                             self.latest_frame = frame
                 except Exception as e:
-                    self.log(f"Live view preview frame warning: {e}")
+                    err_str = str(e)
+                    if "-110" not in err_str and "I/O in progress" not in err_str:
+                        self.log(f"Live view preview frame warning: {e}")
                     time.sleep(0.05)
 
             # 3. Check for camera events (e.g., photo taken via hardware remote) — only when Live View is idle
@@ -340,7 +342,9 @@ class CameraManager:
                     ("eosremoterelease", ["eosremoterelease"]),
                     ("autofocusdrive", ["autofocusdrive"]),
                     ("focusmode", ["focusmode", "focus_mode", "lensfocusmode", "canonfocusmode"]),
-                    ("eoszoom", ["eoszoom", "zoom", "canonzoom", "eoszoomposition"])
+                    ("eoszoom", ["eoszoom", "zoom", "canonzoom", "eoszoomposition"]),
+                    ("movieservoaf", ["movieservoaf"]),
+                    ("continuousaf", ["continuousaf"])
                 ]
                 for key, candidates in probe_targets:
                     for candidate in candidates:
@@ -414,15 +418,14 @@ class CameraManager:
         abilities_list = gp.CameraAbilitiesList()
         abilities_list.load()
         
-        # 1. Try matching autodetected model name directly (e.g. 'Canon EOS R6 Mark III')
-        ab_idx = abilities_list.lookup_model(name)
+        # 1. Prefer generic 'USB PTP Class Camera' profile for direct shutter release without driver AF sequences
+        ab_idx = abilities_list.lookup_model('USB PTP Class Camera')
         if ab_idx >= 0:
-            self.log(f"Matched model abilities for '{name}' at index {ab_idx}.")
+            self.log(f"Using generic 'USB PTP Class Camera' profile for '{name}'.")
         else:
-            # 2. Fallback to generic USB PTP Class Camera
-            ab_idx = abilities_list.lookup_model('USB PTP Class Camera')
+            ab_idx = abilities_list.lookup_model(name)
             if ab_idx >= 0:
-                self.log(f"Using generic 'USB PTP Class Camera' profile for '{name}'.")
+                self.log(f"Matched model abilities for '{name}' at index {ab_idx}.")
         
         if ab_idx < 0:
             raise Exception(f"Could not find driver profile for '{name}' in gphoto2 abilities.")
@@ -556,35 +559,35 @@ class CameraManager:
                 return {"error": str(e)}
 
         elif cmd == "capture":
-            autofocus = args.get("autofocus", True)
             if self.simulated:
                 self.log("Simulating capture...")
                 time.sleep(0.8) # simulate shutter release sound/lag
                 return self._simulate_raw_capture()
             else:
-                original_focus_mode = None
-                widget_name = self.resolved_names.get("focusmode")
-                if not autofocus and widget_name:
-                    try:
-                        original_focus_mode = self._query_camera_focus_mode()
-                        if original_focus_mode and original_focus_mode.lower() != "manual":
-                            self.log(f"Temporarily setting focus mode to Manual (was: {original_focus_mode})")
-                            self._set_camera_property("focusmode", "Manual")
-                    except Exception as e:
-                        self.log(f"Failed to temporarily set focus mode to Manual: {e}")
-                
-                try:
+                if self.resolved_names.get("eosremoterelease"):
+                    self.log("Triggering manual focus capture via eosremoterelease (Press Full MF)...")
+                    self._set_camera_property("eosremoterelease", "Press Full MF")
+                    time.sleep(0.05)
+                    self._set_camera_property("eosremoterelease", "Release Full")
+                    
+                    t0 = time.time()
+                    file_path_info = None
+                    while time.time() - t0 < 6.0:
+                        event_type, event_data = self.camera.wait_for_event(200)
+                        if event_type == gp.GP_EVENT_FILE_ADDED:
+                            file_path_info = event_data
+                            break
+                    
+                    if file_path_info:
+                        self.log(f"Capture successful. File created on camera: {file_path_info.folder}/{file_path_info.name}")
+                        return self._download_camera_file(file_path_info.folder, file_path_info.name)
+                    else:
+                        raise Exception("Timeout waiting for captured file from camera.")
+                else:
                     self.log("Triggering camera capture...")
                     file_path = self.camera.capture(gp.GP_CAPTURE_IMAGE)
                     self.log(f"Capture successful. File created on camera: {file_path.folder}/{file_path.name}")
                     return self._download_camera_file(file_path.folder, file_path.name)
-                finally:
-                    if original_focus_mode and original_focus_mode.lower() != "manual" and widget_name:
-                        try:
-                            self.log(f"Restoring focus mode to {original_focus_mode}")
-                            self._set_camera_property("focusmode", original_focus_mode)
-                        except Exception as e:
-                            self.log(f"Failed to restore focus mode to {original_focus_mode}: {e}")
 
         elif cmd == "autofocus":
             if self.simulated:
