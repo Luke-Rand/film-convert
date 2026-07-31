@@ -100,9 +100,18 @@ def process_positives(input_path, output_dir=None, clip=0.1, gamma=2.2, compress
                     img_float = 0.299 * img_float[:, :, 0] + 0.587 * img_float[:, :, 1] + 0.114 * img_float[:, :, 2]
 
             # --- STEP 1: INVERSION ---
-            # True linear inversion: use division instead of subtraction for film density.
-            # Set minimum value to 1.0 to avoid division by zero.
-            img_float = 1.0 / np.maximum(img_float, 1.0)
+            # Optical Density Inversion: D = log10(Ibase / Iraw)
+            # Film density is logarithmically related to transmission. Using log10(Ibase / Iraw)
+            # neutralizes the orange film base mask and converts density to linear positive light.
+            if not is_monochrome and img_float.ndim == 3 and img_float.shape[2] == 3:
+                pos_density = np.zeros_like(img_float)
+                for c in range(3):
+                    c_base = np.percentile(img_float[:, :, c], 99.9)
+                    pos_density[:, :, c] = np.log10(np.maximum(c_base, 1.0) / np.maximum(img_float[:, :, c], 1.0))
+                img_float = pos_density
+            else:
+                c_base = np.percentile(img_float, 99.9)
+                img_float = np.log10(np.maximum(c_base, 1.0) / np.maximum(img_float, 1.0))
             
             # --- STEP 2: CROPPING & LEVELS NORMALIZATION ---
             h, w = img_float.shape[:2]
@@ -119,28 +128,6 @@ def process_positives(input_path, output_dir=None, clip=0.1, gamma=2.2, compress
                 # Use the center of the image to calculate percentiles
                 analysis_region = img_float[h_margin:h-h_margin, w_margin:w-w_margin]
                 
-            print(f"  -> Normalizing levels (clip={clip}%)...")
-            
-            if global_levels or is_monochrome:
-                # Global normalization
-                p_low = np.percentile(analysis_region, clip)
-                p_high = np.percentile(analysis_region, 100 - clip)
-                
-                if p_high > p_low:
-                    img_float = (img_float - p_low) / (p_high - p_low) * 65535.0
-            else:
-                # Per-channel normalization (Auto-Color) to remove color casts.
-                for c in range(3):
-                    analysis_channel = analysis_region[:, :, c]
-                    p_low = np.percentile(analysis_channel, clip)
-                    p_high = np.percentile(analysis_channel, 100 - clip)
-                    
-                    if p_high > p_low:
-                        img_float[:, :, c] = (img_float[:, :, c] - p_low) / (p_high - p_low) * 65535.0
-            
-            # Clip values to 0-65535
-            img_float = np.clip(img_float, 0, 65535)
-            
             # Generate output filename
             base_name = os.path.splitext(filename)[0]
             if "_Composite" in base_name:
@@ -149,11 +136,36 @@ def process_positives(input_path, output_dir=None, clip=0.1, gamma=2.2, compress
                 out_filename = f"Positive_{base_name}.dng"
                 
             output_filepath = os.path.join(output_dir, out_filename)
-            
-            # --- STEP 3: GAMMA AND CONTRAST ---
-            # Apply gamma curve to lift midtones.
-            # Bypassed for DNG files to preserve linear raw data for raw processors.
             is_dng_output = out_filename.endswith('.dng')
+
+            # Linear DNG RAW processors (Capture One, Lightroom) expect linear data with ~1.5 stops headroom (35% scale max)
+            # so built-in RAW tone curves map diffuse white to ~90% sRGB display brightness without clipping.
+            target_max = (65535.0 * 0.35) if is_dng_output else 65535.0
+
+            print(f"  -> Normalizing levels (clip={clip}%, target_max={target_max:.0f})...")
+            
+            if global_levels or is_monochrome:
+                # Global normalization
+                p_low = np.percentile(analysis_region, clip)
+                p_high = np.percentile(analysis_region, 100 - clip)
+                
+                if p_high > p_low:
+                    img_float = (img_float - p_low) / (p_high - p_low) * target_max
+            else:
+                # Per-channel normalization (Auto-Color) to remove color casts.
+                for c in range(3):
+                    analysis_channel = analysis_region[:, :, c]
+                    p_low = np.percentile(analysis_channel, clip)
+                    p_high = np.percentile(analysis_channel, 100 - clip)
+                    
+                    if p_high > p_low:
+                        img_float[:, :, c] = (img_float[:, :, c] - p_low) / (p_high - p_low) * target_max
+            
+            # Clip values to 0-65535
+            img_float = np.clip(img_float, 0, 65535)
+
+            # --- STEP 3: GAMMA AND CONTRAST ---
+            # Bypassed for DNG files to preserve strictly linear raw data (prevents double-gamma in RAW processors).
             effective_gamma = 1.0 if is_dng_output else gamma
             effective_scurve = 0.0 if is_dng_output else scurve
             
