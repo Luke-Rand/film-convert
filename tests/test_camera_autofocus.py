@@ -13,10 +13,11 @@ class TestCameraAutofocus(unittest.TestCase):
         self.app = app.test_client()
         self.app.testing = True
         
-        # Ensure camera is in simulated mode for testing
+        # Ensure camera is cleanly in simulated mode for testing
+        camera_manager.stop()
         camera_manager.simulated = True
-        if not camera_manager.worker_thread:
-            camera_manager.start()
+        camera_manager.disconnect()
+        camera_manager.start()
 
     def tearDown(self):
         camera_manager.stop()

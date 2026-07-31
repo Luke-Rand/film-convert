@@ -35,16 +35,16 @@ def write_linear_dng(filepath, img_data, is_monochrome=False, compress=False):
     # AsShotNeutral (RATIONAL, 3 values) - set to neutral (1.0, 1.0, 1.0)
     as_shot_neutral = [1, 1, 1, 1, 1, 1]
     
-    # Common extratags:
-    # Tag 254 (NewSubfileType) -> 0 (Main image)
-    # Tag 262 (PhotometricInterpretation) -> 34892 (LinearRaw) for RGB, 1 (minisblack) for Monochrome
-    # Tag 50706 (DNGVersion) -> [1, 4, 0, 0]
-    # Tag 50708 (UniqueCameraModel) -> "FilmConvert Linear DNG"
-    
+    # Standard DNG extratags for full RAW editor compatibility (Capture One, Lightroom, Photoshop)
     extratags = [
-        (254, 'I', 1, 0, True),
-        (50706, 'B', 4, dng_version, True),
-        (50708, 's', len(camera_model) + 1, camera_model, True),
+        (254, 'I', 1, 0, True),                  # NewSubfileType = 0 (Main Image)
+        (50706, 'B', 4, dng_version, True),       # DNGVersion = 1.4.0.0
+        (50708, 's', len(camera_model) + 1, camera_model, True), # UniqueCameraModel
+        (50714, '2I', 1, (0, 1), True),          # BlackLevel = 0
+        (50717, 'I', 1, 65535, True),            # WhiteLevel = 65535
+        (50730, '2i', 1, (0, 100), True),        # BaselineExposure = 0.0 EV (prevents auto RAW gain boost)
+        (50734, '2I', 1, (1, 1), True),          # LinearResponseLimit = 1.0
+        (50736, 'I', 1, 1, True),                # BaselineInterpretation = 1
     ]
     
     if not is_mono and img_data.ndim == 3 and img_data.shape[2] == 3:
@@ -59,7 +59,7 @@ def write_linear_dng(filepath, img_data, is_monochrome=False, compress=False):
     compression = 'zlib' if compress else None
     
     # Save using tifffile. TiffWriter writes it out.
-    # Set photometric to 1 for monochrome, 34892 for color RGB
+    # Set photometric to 1 for monochrome, 34892 for color RGB (LinearRaw)
     photometric = 1 if is_mono else 34892
     tifffile.imwrite(
         filepath,
