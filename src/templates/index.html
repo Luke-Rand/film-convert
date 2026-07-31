@@ -81,6 +81,10 @@
                             <div class="liveview-header">
                                 <h3 class="card-title">Live View</h3>
                                 <div class="liveview-controls-header">
+                                    <button class="btn btn-secondary btn-small" id="btn-maximize-liveview"
+                                        onclick="toggleLiveviewFullscreen()"
+                                        data-tooltip="Maximize live view to fill the entire screen for critical focus inspection"
+                                        style="font-size: 0.7rem; padding: 0.2rem 0.5rem; background: var(--accent-color, #4f46e5); color: #fff; border-color: transparent;">🔍 Maximize Focus</button>
                                     <button class="btn btn-secondary btn-small" id="btn-rotate-liveview"
                                         onclick="toggleLiveviewRotation()"
                                         data-tooltip="Rotate the live view 180° — useful when the camera is mounted upside-down"
@@ -105,6 +109,27 @@
                                     style="display: none; width: 100%; height: 100%; object-fit: contain; cursor: zoom-in;"></canvas>
                                 <!-- Margin overlay: inset box-shadow covers the ignored outer margin area -->
                                 <div id="margin-overlay" class="margin-overlay" style="display: none;"></div>
+                                
+                                <!-- Floating Fullscreen Focus HUD Overlay -->
+                                <div id="fullscreen-focus-hud" class="fullscreen-focus-hud" style="display: none; position: absolute; bottom: 1.5rem; left: 50%; transform: translateX(-50%); z-index: 100001; background: rgba(18, 18, 22, 0.92); backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.15); border-radius: 30px; padding: 0.5rem 1.25rem; gap: 1.25rem; align-items: center; box-shadow: 0 10px 30px rgba(0,0,0,0.5);">
+                                    <div style="display: flex; gap: 0.35rem; align-items: center;">
+                                        <span style="font-size: 0.75rem; color: #a1a1aa; font-weight: 600; text-transform: uppercase; margin-right: 0.35rem;">Zoom:</span>
+                                        <button class="btn btn-secondary btn-small" onclick="setZoomMagnification(1)">1x</button>
+                                        <button class="btn btn-secondary btn-small" onclick="setZoomMagnification(3)">3x Digital</button>
+                                        <button class="btn btn-secondary btn-small" onclick="setZoomMagnification(5)">5x Hardware</button>
+                                    </div>
+                                    <div style="height: 18px; width: 1px; background: rgba(255,255,255,0.2);"></div>
+                                    <div style="display: flex; gap: 0.35rem; align-items: center;">
+                                        <span style="font-size: 0.75rem; color: #a1a1aa; font-weight: 600; text-transform: uppercase; margin-right: 0.35rem;">Focus Step:</span>
+                                        <button class="btn btn-secondary btn-small" onclick="driveFocus('near', 3)">◀◀ Near</button>
+                                        <button class="btn btn-secondary btn-small" onclick="driveFocus('near', 1)">◀ Near</button>
+                                        <button class="btn btn-secondary btn-small" onclick="driveFocus('far', 1)">Far ▶</button>
+                                        <button class="btn btn-secondary btn-small" onclick="driveFocus('far', 3)">Far ▶▶</button>
+                                    </div>
+                                    <div style="height: 18px; width: 1px; background: rgba(255,255,255,0.2);"></div>
+                                    <button class="btn btn-danger btn-small" onclick="toggleLiveviewFullscreen()" style="border-radius: 20px; font-size: 0.75rem; padding: 0.25rem 0.75rem;">✖ Exit Fullscreen (ESC)</button>
+                                </div>
+
                                 <div id="liveview-placeholder" class="liveview-placeholder">
                                     <div class="placeholder-content">
                                         <span class="placeholder-icon">📷</span>
@@ -153,52 +178,42 @@
 
                         <!-- Focus Assist Controls -->
                         <div class="card" id="card-focus-assist">
-                            <h3 class="card-title">Focus Assist</h3>
+                            <h3 class="card-title">Focus Assist & Inspection</h3>
 
-                            <div class="form-row"
-                                style="display: grid; grid-template-columns: 1.2fr 0.8fr; gap: 0.5rem; align-items: center; margin-bottom: 0.75rem;">
-                                <label class="checkbox-container-mini"
-                                    style="display: flex; align-items: center; gap: 0.5rem; margin: 0;"
-                                    data-tooltip="Highlight in-focus edges in real time on the live view">
-                                    <input type="checkbox" id="focus-peaking-toggle"
-                                        onchange="toggleFocusPeaking(this.checked)">
-                                    <span>Focus Peaking</span>
-                                </label>
-                                <button class="btn btn-secondary btn-small" id="btn-trigger-af"
-                                    onclick="triggerAutofocus()"
-                                    data-tooltip="Command the camera to perform a one-shot autofocus cycle">Autofocus</button>
+                            <!-- Zoom Magnification Selector -->
+                            <div class="form-group" style="margin-bottom: 0.75rem;">
+                                <label style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; display: block; margin-bottom: 0.35rem;">Magnification & Zoom</label>
+                                <div style="display: grid; grid-template-columns: 1fr 1fr 1.2fr; gap: 0.35rem;">
+                                    <button class="btn btn-secondary btn-small btn-zoom-level active" id="btn-zoom-1x" onclick="setZoomMagnification(1)" data-tooltip="1x Full View">1x</button>
+                                    <button class="btn btn-secondary btn-small btn-zoom-level" id="btn-zoom-3x" onclick="setZoomMagnification(3)" data-tooltip="3x Interactive Loupe (Click anywhere)">3x Digital</button>
+                                    <button class="btn btn-secondary btn-small btn-zoom-level" id="btn-zoom-5x" onclick="setZoomMagnification(5)" data-tooltip="5x Canon Native Hardware Sensor Crop (1:1 Full Resolution)">5x Hardware</button>
+                                </div>
                             </div>
 
-                            <div class="form-group slider-group" id="peaking-sensitivity-group"
-                                style="display: none; margin-bottom: 1rem;">
+                            <!-- Focus Peaking & Autofocus -->
+                            <div class="form-row" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
+                                <label class="checkbox-container-mini" style="display: flex; align-items: center; gap: 0.35rem; margin: 0; font-size: 0.8rem;" data-tooltip="Highlight in-focus edges in real time on the live view">
+                                    <input type="checkbox" id="focus-peaking-toggle" onchange="toggleFocusPeaking(this.checked)">
+                                    <span>Peaking</span>
+                                </label>
+                                <button class="btn btn-secondary btn-small" id="btn-trigger-af" onclick="triggerAutofocus()" data-tooltip="Command the camera to perform a one-shot autofocus cycle" style="font-size: 0.75rem; padding: 0.25rem 0.5rem;">Autofocus</button>
+                            </div>
+
+                            <div class="form-group slider-group" id="peaking-sensitivity-group" style="display: none; margin-bottom: 0.75rem;">
                                 <div class="slider-header">
-                                    <label for="peaking-threshold"
-                                        data-tooltip="Edge detection sensitivity — higher values highlight more areas as in-focus">Peaking
-                                        Threshold</label>
+                                    <label for="peaking-threshold" data-tooltip="Edge detection sensitivity — higher values highlight more areas as in-focus">Peaking Threshold</label>
                                     <span class="slider-value" id="val-peaking-threshold">30</span>
                                 </div>
-                                <input type="range" id="peaking-threshold" min="5" max="100" step="5" value="30"
-                                    oninput="updateSliderVal('peaking-threshold'); updateFocusPeakingThreshold(this.value)"
-                                    data-tooltip="Edge detection sensitivity — higher values highlight more areas as in-focus">
+                                <input type="range" id="peaking-threshold" min="5" max="100" step="5" value="30" oninput="updateSliderVal('peaking-threshold'); updateFocusPeakingThreshold(this.value)">
                             </div>
 
                             <div class="form-group" style="margin-bottom: 0;">
-                                <label
-                                    style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; display: block; margin-bottom: 0.5rem;">Manual
-                                    Focus Stepping</label>
+                                <label style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; display: block; margin-bottom: 0.35rem;">Manual Focus Stepping</label>
                                 <div style="display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 0.35rem;">
-                                    <button class="btn btn-secondary btn-small" onclick="driveFocus('near', 3)"
-                                        data-tooltip="Large step toward Near focus — moves the lens significantly closer">◀◀
-                                        Near</button>
-                                    <button class="btn btn-secondary btn-small" onclick="driveFocus('near', 1)"
-                                        data-tooltip="Small micro-step toward Near focus — fine adjustment closer">◀
-                                        Near</button>
-                                    <button class="btn btn-secondary btn-small" onclick="driveFocus('far', 1)"
-                                        data-tooltip="Small micro-step toward Far focus — fine adjustment farther">Far
-                                        ▶</button>
-                                    <button class="btn btn-secondary btn-small" onclick="driveFocus('far', 3)"
-                                        data-tooltip="Large step toward Far focus — moves the lens significantly farther">Far
-                                        ▶▶</button>
+                                    <button class="btn btn-secondary btn-small" onclick="driveFocus('near', 3)" data-tooltip="Large step toward Near focus">◀◀ Near</button>
+                                    <button class="btn btn-secondary btn-small" onclick="driveFocus('near', 1)" data-tooltip="Fine step toward Near focus">◀ Near</button>
+                                    <button class="btn btn-secondary btn-small" onclick="driveFocus('far', 1)" data-tooltip="Fine step toward Far focus">Far ▶</button>
+                                    <button class="btn btn-secondary btn-small" onclick="driveFocus('far', 3)" data-tooltip="Large step toward Far focus">Far ▶▶</button>
                                 </div>
                             </div>
                         </div>
