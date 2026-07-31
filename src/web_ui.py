@@ -517,9 +517,7 @@ def camera_autofocus():
 @app.route('/api/camera/capture', methods=['POST'])
 def capture_camera_image():
     try:
-        data = request.get_json(silent=True) or {}
-        autofocus = data.get("autofocus", True)
-        path = camera_manager.capture_image(autofocus=autofocus)
+        path = camera_manager.capture_image()
         return jsonify({"success": True, "path": path})
     except Exception as e:
         return jsonify({"success": False, "message": str(e)}), 500

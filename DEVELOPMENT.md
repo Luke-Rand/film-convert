@@ -100,8 +100,9 @@ The final installer package will be available in the `dist-app/` directory.
 
 ---
 
-## 5. Technical Note: macOS USB Connection Daemon
+## 5. Technical Note: Camera Tethering & macOS USB Setup
 
+### macOS USB Daemon (`ptpcamerad`)
 macOS has a built-in background daemon (`ptpcamerad`) that claims any connected DSLR/mirrorless camera over USB as soon as it is powered on. This blocks third-party libraries (like `libgphoto2`) from claiming the USB device, resulting in `-53 (Could not claim the USB device)` or `-10 (Timeout)` connection errors.
 
 To solve this, FilmConvert implements a background release loop on macOS in `src/camera_manager.py`:
