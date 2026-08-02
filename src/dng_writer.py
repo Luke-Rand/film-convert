@@ -66,5 +66,6 @@ def write_linear_dng(filepath, img_data, is_monochrome=False, compress=False):
         img_data,
         photometric=photometric,
         compression=compression,
+        rowsperstrip=64,
         extratags=extratags
     )
