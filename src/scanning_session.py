@@ -126,7 +126,7 @@ def run_triplet_pipeline(dirs, is_mono, mono_chan):
                         group=group, 
                         output_filepath=composite_filepath, 
                         neutralize_base=False, 
-                        compress_dng=True
+                        compress_dng=False
                     )
                     
                     # 2. Invert to positive (per-channel levels remove orange mask)
@@ -135,7 +135,7 @@ def run_triplet_pipeline(dirs, is_mono, mono_chan):
                         output_dir=dirs['positives'],
                         clip=0.1,
                         gamma=2.2,
-                        compress_dng=True,
+                        compress_dng=False,
                         global_levels=False,
                         ignore_margin=0.03,
                         scurve=0.0,
@@ -202,7 +202,7 @@ def run_single_shot_pipeline(dirs, is_mono, mono_chan):
                         output_dir=dirs['positives'],
                         clip=0.1,
                         gamma=2.2,
-                        compress_dng=True,
+                        compress_dng=False,
                         global_levels=False, 
                         ignore_margin=0.03,
                         scurve=0.0,          

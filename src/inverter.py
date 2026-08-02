@@ -228,7 +228,7 @@ if __name__ == "__main__":
     parser.add_argument("-i", "--input", type=str, required=True, 
                         help="Path to a single 16-bit composite TIFF/RAW DNG file, or a directory containing them")
     parser.add_argument("-c", "--compress", action="store_true", 
-                        help="Enable lossless compression (zlib/deflate) for output DNGs")
+                        help="Enable optional zlib compression for output DNGs (default: uncompressed for DaVinci Resolve & NLE compatibility)")
     parser.add_argument("-p", "--clip", type=float, default=0.1,
                         help="Percentile to clip for black/white points (default: 0.1%% to ignore dust/scratches)")
     parser.add_argument("-g", "--gamma", type=float, default=2.2,

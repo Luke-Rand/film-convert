@@ -351,7 +351,7 @@ if __name__ == "__main__":
     parser.add_argument("-i", "--input", type=str, required=True, 
                         help="Path to the directory containing RAW files (.CR3, .RAF, or .NEF)")
     parser.add_argument("-c", "--compress", action="store_true", 
-                        help="Enable lossless compression (zlib/deflate) for output DNGs")
+                        help="Enable optional zlib compression for output DNGs (default: uncompressed for DaVinci Resolve & NLE compatibility)")
     parser.add_argument("-n", "--neutralize", action="store_true", 
                         help="Automatically balance the color channels to neutralize the film base")
     parser.add_argument("--hotfolder", action="store_true", 

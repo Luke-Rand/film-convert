@@ -62,7 +62,7 @@ class SessionManager:
             "margin": 0.03,
             "autocrop": False,
             "global_levels": False,
-            "compress_dng": True,
+            "compress_dng": False,
             "neutralize": False,  # compositor neutralization
             "align_channels": False,
             "monochrome": False,
