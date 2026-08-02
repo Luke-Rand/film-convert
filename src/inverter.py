@@ -49,25 +49,34 @@ def process_positives(input_path, output_dir=None, clip=0.1, gamma=2.2, compress
         print(f"Processing {filename}...")
         
         try:
-            # Read file based on extension
+            # Read file: use tifffile for Linear DNGs/TIFFs to avoid double-demosaicing grid artifacts,
+            # and rawpy with DHT demosaicing for camera RAW files to prevent AHD maze grid artifacts on grain.
             ext = os.path.splitext(filename)[1].lower()
-            if ext == '.dng':
+            img = None
+            if ext in ['.dng', '.tiff', '.tif']:
                 try:
-                    with rawpy.imread(filepath) as raw:
-                        # Extract as linear 16-bit
-                        img = raw.postprocess(
-                            gamma=(1, 1),
-                            no_auto_bright=True,
-                            use_camera_wb=False,
-                            user_wb=[1.0, 1.0, 1.0, 1.0],
-                            output_color=rawpy.ColorSpace.raw,
-                            output_bps=16
-                        )
+                    with tifffile.TiffFile(filepath) as tif:
+                        page = tif.pages[0]
+                        # Photometric 32803 indicates CFA raw sensor data needing rawpy demosaicing
+                        is_cfa = getattr(page, 'photometric', None) == 32803
+                    if not is_cfa:
+                        img = tifffile.imread(filepath)
                 except Exception:
-                    # Fallback to tifffile for Linear DNGs
-                    img = tifffile.imread(filepath)
-            else:
-                img = tifffile.imread(filepath)
+                    pass
+
+            if img is None:
+                demosaic_alg = getattr(rawpy.DemosaicAlgorithm, 'DHT', rawpy.DemosaicAlgorithm.AHD)
+                with rawpy.imread(filepath) as raw:
+                    img = raw.postprocess(
+                        gamma=(1, 1),
+                        no_auto_bright=True,
+                        use_camera_wb=False,
+                        user_wb=[1.0, 1.0, 1.0, 1.0],
+                        output_color=rawpy.ColorSpace.raw,
+                        output_bps=16,
+                        user_flip=0,
+                        demosaic_algorithm=demosaic_alg
+                    )
             
             # Check for 16-bit data
             if img.dtype != np.uint16:

@@ -95,20 +95,36 @@ def process_triplet(group, output_filepath, neutralize_base, compress_dng, align
                 linear_rgb[:, :, 1] = 4000
                 linear_rgb[:, :, 2] = 52000
         else:
-            with rawpy.imread(filepath) as raw:
-                # Decode RAW to linear 16-bit RGB
-                # Important settings:
-                # - output_color=rawpy.ColorSpace.raw prevents sRGB color matrix interference.
-                # - user_flip=0 ignores camera rotation metadata to avoid stacking errors.
-                linear_rgb = raw.postprocess(
-                    gamma=(1, 1),
-                    no_auto_bright=True,
-                    use_camera_wb=False,
-                    user_wb=[1.0, 1.0, 1.0, 1.0], 
-                    output_color=rawpy.ColorSpace.raw,
-                    output_bps=16,
-                    user_flip=0
-                )
+            ext = os.path.splitext(filepath)[1].lower()
+            linear_rgb = None
+            if ext in ['.dng', '.tiff', '.tif']:
+                try:
+                    with tifffile.TiffFile(filepath) as tif:
+                        page = tif.pages[0]
+                        is_cfa = getattr(page, 'photometric', None) == 32803
+                    if not is_cfa:
+                        linear_rgb = tifffile.imread(filepath)
+                except Exception:
+                    pass
+
+            if linear_rgb is None:
+                demosaic_alg = getattr(rawpy.DemosaicAlgorithm, 'DHT', rawpy.DemosaicAlgorithm.AHD)
+                with rawpy.imread(filepath) as raw:
+                    # Decode RAW to linear 16-bit RGB
+                    # Important settings:
+                    # - output_color=rawpy.ColorSpace.raw prevents sRGB color matrix interference.
+                    # - user_flip=0 ignores camera rotation metadata to avoid stacking errors.
+                    # - demosaic_algorithm=DHT prevents AHD maze grid artifacts on film grain.
+                    linear_rgb = raw.postprocess(
+                        gamma=(1, 1),
+                        no_auto_bright=True,
+                        use_camera_wb=False,
+                        user_wb=[1.0, 1.0, 1.0, 1.0], 
+                        output_color=rawpy.ColorSpace.raw,
+                        output_bps=16,
+                        user_flip=0,
+                        demosaic_algorithm=demosaic_alg
+                    )
         
             # Determine light source by finding the brightest channel
             means = [
