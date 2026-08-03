@@ -4,11 +4,11 @@ import numpy as np
 import tifffile
 import argparse
 import rawpy
-from dng_writer import write_linear_dng
+from tiff_writer import write_16bit_tiff
 
-def process_positives(input_path, output_dir=None, clip=0.1, gamma=2.2, compress_dng=False, global_levels=False, ignore_margin=0.15, scurve=0.0, autocrop=False, monochrome=False, monochrome_channel="luminance"):
+def process_positives(input_path, output_dir=None, clip=0.1, gamma=2.2, compress_tiff=False, global_levels=False, ignore_margin=0.15, scurve=0.0, autocrop=False, monochrome=False, monochrome_channel="luminance"):
     """
-    Processes 16-bit TIFF/DNG files: inverts, normalizes, applies gamma, crops, and saves.
+    Processes 16-bit TIFF/DNG files: inverts, normalizes, applies gamma/scurve, crops, and saves as 16-bit TIFF.
     """
     # Find supported image files
     supported_exts = {'.tiff', '.tif', '.dng'}
@@ -34,12 +34,9 @@ def process_positives(input_path, output_dir=None, clip=0.1, gamma=2.2, compress
 
     # Create output directory
     if output_dir is None:
-        # Check if the base directory name is "negatives"
         if os.path.basename(base_dir).lower() == "negatives":
-            # If so, place the 'Positives' folder one level up
             output_dir = os.path.join(os.path.dirname(base_dir), "Positives")
         else:
-            # Otherwise, place it as a subdirectory of the base
             output_dir = os.path.join(base_dir, "Positives")
     os.makedirs(output_dir, exist_ok=True)
 
@@ -89,7 +86,6 @@ def process_positives(input_path, output_dir=None, clip=0.1, gamma=2.2, compress
                 img = img[:, :, :3]
                 
             # --- STEP 1: INVERSION ---
-            # Convert to float32
             img_float = img.astype(np.float32)
             
             # --- STEP 0: MONOCHROME CONVERSION ---
@@ -120,28 +116,41 @@ def process_positives(input_path, output_dir=None, clip=0.1, gamma=2.2, compress
             else:
                 analysis_region = img_float[h_margin:h-h_margin, w_margin:w-w_margin]
 
-            # Generate output filename
+            # Generate output filename (16-bit TIFF)
             base_name = os.path.splitext(filename)[0]
             if "_Composite" in base_name:
-                out_filename = base_name.replace("_Composite", "_Positive") + ".dng"
+                out_filename = base_name.replace("_Composite", "_Positive") + ".tiff"
             else:
-                out_filename = f"Positive_{base_name}.dng"
+                out_filename = f"Positive_{base_name}.tiff"
                 
             output_filepath = os.path.join(output_dir, out_filename)
-            is_dng_output = out_filename.endswith('.dng')
 
             # --- STEP 2: FILM SENSITOMETRIC INVERSION & DENSITY TRANSFORMATION ---
             # Professional Film H&D Sensitometric Inversion:
             # 1. Optical Density: D = log10(c_base / max(I_raw, 1.0))
-            # 2. Normalized Density: D_norm = (D - p_low) / (p_high - p_low)  (0.0 = black shadow, 1.0 = white highlight)
+            # 2. Normalized Density: D_norm = (D - p_low) / (p_high - p_low)
             # 3. Linear Light Conversion: I_pos = ((10^(gamma_film * D_norm) - 1) / (10^gamma_film - 1)) * target_max
-            # This produces deep rich blacks (0..12), perfectly balanced midtones (~90..110), and crisp highlights (~170..190) with zero clipping.
             gamma_film = 0.8
-            target_max = (65535.0 * 0.40) if is_dng_output else 65535.0
+            target_max = 65535.0
             denom = (10.0 ** gamma_film) - 1.0
             print(f"  -> Inverting film transmission & balancing levels (clip={clip}%, target_max={target_max:.0f})...")
             
             is_mono = is_monochrome or (img_float.ndim == 2) or (img_float.ndim == 3 and img_float.shape[2] == 1)
+
+            def apply_film_characteristic_curve(D_norm, shoulder_start=0.85, toe_start=0.05):
+                """Applies a smooth H&D film shoulder and toe roll-off to prevent highlight/shadow clipping."""
+                y = np.copy(D_norm)
+                mask_high = y > shoulder_start
+                if np.any(mask_high):
+                    over = y[mask_high] - shoulder_start
+                    scale = 1.0 - shoulder_start
+                    y[mask_high] = shoulder_start + scale * (over / (over + scale))
+                mask_low = y < toe_start
+                if np.any(mask_low):
+                    under = toe_start - y[mask_low]
+                    scale = toe_start
+                    y[mask_low] = toe_start - scale * (under / (under + scale))
+                return np.clip(y, 0.0, 1.0)
 
             if not is_mono and img_float.ndim == 3 and img_float.shape[2] == 3:
                 pos_linear = np.zeros_like(img_float)
@@ -154,7 +163,8 @@ def process_positives(input_path, output_dir=None, clip=0.1, gamma=2.2, compress
                     p_high = np.percentile(D_raw_ana, 100 - clip)
                     
                     if p_high > p_low:
-                        D_norm = np.clip((D_raw_img - p_low) / (p_high - p_low), 0.0, 1.0)
+                        D_raw_scaled = (D_raw_img - p_low) / (p_high - p_low)
+                        D_norm = apply_film_characteristic_curve(D_raw_scaled, shoulder_start=0.85, toe_start=0.05)
                     else:
                         D_norm = np.zeros_like(D_raw_img)
                         
@@ -170,7 +180,8 @@ def process_positives(input_path, output_dir=None, clip=0.1, gamma=2.2, compress
                 p_high = np.percentile(D_raw_ana, 100 - clip)
                 
                 if p_high > p_low:
-                    D_norm = np.clip((D_raw_img - p_low) / (p_high - p_low), 0.0, 1.0)
+                    D_raw_scaled = (D_raw_img - p_low) / (p_high - p_low)
+                    D_norm = apply_film_characteristic_curve(D_raw_scaled, shoulder_start=0.85, toe_start=0.05)
                 else:
                     D_norm = np.zeros_like(D_raw_img)
                     
@@ -181,38 +192,26 @@ def process_positives(input_path, output_dir=None, clip=0.1, gamma=2.2, compress
             img_float = np.clip(img_float, 0, 65535)
 
             # --- STEP 3: GAMMA AND CONTRAST ---
-            # Bypassed for DNG files to preserve strictly linear raw data (prevents double-gamma in RAW processors).
-            effective_gamma = 1.0 if is_dng_output else gamma
-            effective_scurve = 0.0 if is_dng_output else scurve
-            
-            if effective_gamma != 1.0 or effective_scurve > 0.0:
-                print(f"  -> Applying tone curve (gamma={effective_gamma}, scurve={effective_scurve})...")
-                # Normalize to 0.0-1.0
+            if gamma != 1.0 or scurve > 0.0:
+                print(f"  -> Applying tone curve (gamma={gamma}, scurve={scurve})...")
                 img_norm = img_float / 65535.0
                 
-                # Apply gamma curve
-                if effective_gamma != 1.0:
-                    img_norm = img_norm ** (1.0 / effective_gamma)
+                if gamma != 1.0:
+                    img_norm = img_norm ** (1.0 / gamma)
                 
-                # Apply S-Curve
-                if effective_scurve > 0.0:
-                    c = 1.0 + effective_scurve
+                if scurve > 0.0:
+                    c = 1.0 + scurve
                     mask = img_norm < 0.5
-                    
-                    # Piecewise curve to stretch midtones
                     img_norm[mask] = 0.5 * (2.0 * img_norm[mask]) ** c
                     img_norm[~mask] = 1.0 - 0.5 * (2.0 * (1.0 - img_norm[~mask])) ** c
                 
-                # Scale back to 16-bit
                 img_float = img_norm * 65535.0
                 
             # --- STEP 4: SAVE OUT ---
-            # Convert back to contiguous 16-bit array
             final_img = img_float.astype(np.uint16)
             final_img = np.ascontiguousarray(final_img)
             
-            # Save positive using write_linear_dng
-            write_linear_dng(output_filepath, final_img, is_monochrome=is_monochrome, compress=compress_dng)
+            write_16bit_tiff(output_filepath, final_img, is_monochrome=is_monochrome, compress=compress_tiff)
             
             print(f"  -> Saved positive to: {out_filename}\n")
             
@@ -222,13 +221,13 @@ def process_positives(input_path, output_dir=None, clip=0.1, gamma=2.2, compress
     print("Inversion and normalization complete!")
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Invert, Normalize, and Gamma Correct 16-bit linear TIFF and RAW DNG film scans.")
+    parser = argparse.ArgumentParser(description="Invert, Normalize, and Gamma Correct 16-bit linear TIFF film scans.")
     
     # Define command line arguments
     parser.add_argument("-i", "--input", type=str, required=True, 
-                        help="Path to a single 16-bit composite TIFF/RAW DNG file, or a directory containing them")
+                        help="Path to a single 16-bit composite TIFF/RAW file, or a directory containing them")
     parser.add_argument("-c", "--compress", action="store_true", 
-                        help="Enable optional zlib compression for output DNGs (default: uncompressed for DaVinci Resolve & NLE compatibility)")
+                        help="Enable optional zlib compression for output TIFFs (default: uncompressed for max DaVinci Resolve & NLE compatibility)")
     parser.add_argument("-p", "--clip", type=float, default=0.1,
                         help="Percentile to clip for black/white points (default: 0.1%% to ignore dust/scratches)")
     parser.add_argument("-g", "--gamma", type=float, default=2.2,
@@ -253,7 +252,7 @@ if __name__ == "__main__":
         input_path=args.input, 
         clip=args.clip, 
         gamma=args.gamma, 
-        compress_dng=args.compress,
+        compress_tiff=args.compress,
         global_levels=args.global_levels,
         ignore_margin=args.margin,
         scurve=args.scurve,
