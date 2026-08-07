@@ -66,7 +66,9 @@ class SessionManager:
             "neutralize": False,  # compositor neutralization
             "align_channels": False,
             "monochrome": False,
-            "monochrome_channel": "luminance"
+            "monochrome_channel": "luminance",
+            "reversal": False,
+            "convert_to_tiff": True
         }
         self.logs = deque(maxlen=1000)
         self.monitor_thread = None
@@ -227,8 +229,8 @@ class SessionManager:
         return max_num + 1
 
     def _monitor_loop(self):
-        supported_triplet_exts = {'.cr3', '.raf', '.nef'}
-        supported_single_exts = {'.dng', '.tiff', '.tif'}
+        supported_triplet_exts = {'.cr3', '.raf', '.nef', '.arw', '.rw2', '.nrw', '.dcr'}
+        supported_single_exts = {'.dng', '.tiff', '.tif', '.cr3', '.raf', '.nef', '.arw', '.rw2', '.nrw', '.dcr'}
         
         self.log("Background scanner monitor loop active.")
         
@@ -294,7 +296,9 @@ class SessionManager:
                                     scurve=self.config["scurve"],
                                     autocrop=self.config["autocrop"],
                                     monochrome=self.config.get("monochrome", False),
-                                    monochrome_channel=self.config.get("monochrome_channel", "luminance")
+                                    monochrome_channel=self.config.get("monochrome_channel", "luminance"),
+                                    reversal=self.config.get("reversal", False),
+                                    convert_to_tiff=self.config.get("convert_to_tiff", True)
                                 )
                             
                             # 3. Move files
@@ -345,7 +349,9 @@ class SessionManager:
                                     scurve=self.config["scurve"],
                                     autocrop=self.config["autocrop"],
                                     monochrome=self.config.get("monochrome", False),
-                                    monochrome_channel=self.config.get("monochrome_channel", "luminance")
+                                    monochrome_channel=self.config.get("monochrome_channel", "luminance"),
+                                    reversal=self.config.get("reversal", False),
+                                    convert_to_tiff=self.config.get("convert_to_tiff", True)
                                 )
                             
                             shutil.move(filepath, os.path.join(self.dirs['processed'], filename))
@@ -442,7 +448,9 @@ class SessionManager:
                             scurve=self.config["scurve"],
                             autocrop=self.config["autocrop"],
                             monochrome=self.config.get("monochrome", False),
-                            monochrome_channel=self.config.get("monochrome_channel", "luminance")
+                            monochrome_channel=self.config.get("monochrome_channel", "luminance"),
+                            reversal=self.config.get("reversal", False),
+                            convert_to_tiff=self.config.get("convert_to_tiff", True)
                         )
                     self.log("Batch inversion complete!")
                     
@@ -677,7 +685,11 @@ def get_files():
         
         positives = []
         if positives_dir and os.path.exists(positives_dir):
-            files = glob.glob(os.path.join(positives_dir, "*.tif*"))
+            valid_exts = {'.tif', '.tiff', '.dng', '.cr3', '.raf', '.nef', '.arw', '.rw2', '.nrw', '.dcr', '.jpg', '.jpeg', '.png'}
+            files = [
+                os.path.join(positives_dir, f) for f in os.listdir(positives_dir)
+                if os.path.isfile(os.path.join(positives_dir, f)) and os.path.splitext(f)[1].lower() in valid_exts
+            ]
             files.sort()
             for f in files:
                 stat = os.stat(f)
@@ -760,6 +772,24 @@ def get_preview():
                 img_8bit = img.astype(np.uint8)
                 
             pil_img = Image.fromarray(img_8bit)
+        elif ext in ['.cr3', '.raf', '.nef', '.arw', '.rw2', '.nrw', '.dcr']:
+            try:
+                import rawpy
+                with rawpy.imread(img_path) as raw:
+                    try:
+                        thumb = raw.extract_thumb()
+                        if thumb.format == rawpy.ThumbFormat.JPEG:
+                            pil_img = Image.open(io.BytesIO(thumb.data))
+                        elif thumb.format == rawpy.ThumbFormat.BITMAP:
+                            pil_img = Image.fromarray(thumb.data)
+                        else:
+                            rgb = raw.postprocess(half_size=True)
+                            pil_img = Image.fromarray(rgb)
+                    except Exception:
+                        rgb = raw.postprocess(half_size=True)
+                        pil_img = Image.fromarray(rgb)
+            except Exception:
+                pil_img = Image.open(img_path)
         else:
             # Fallback for standard files like JPG/PNG
             pil_img = Image.open(img_path)
