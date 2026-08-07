@@ -62,7 +62,7 @@ class SessionManager:
             "margin": 0.03,
             "autocrop": False,
             "global_levels": False,
-            "compress_dng": True,
+            "compress_tiff": False,
             "neutralize": False,  # compositor neutralization
             "align_channels": False,
             "monochrome": False,
@@ -271,7 +271,7 @@ class SessionManager:
                                     group=group,
                                     output_filepath=composite_filepath,
                                     neutralize_base=self.config["neutralize"],
-                                    compress_dng=self.config["compress_dng"],
+                                    compress_tiff=self.config["compress_tiff"],
                                     align_channels=self.config["align_channels"]
                                 )
                             
@@ -288,7 +288,7 @@ class SessionManager:
                                     output_dir=self.dirs['positives'],
                                     clip=self.config["clip"],
                                     gamma=self.config["gamma"],
-                                    compress_dng=self.config["compress_dng"],
+                                    compress_tiff=self.config["compress_tiff"],
                                     global_levels=self.config["global_levels"],
                                     ignore_margin=self.config["margin"],
                                     scurve=self.config["scurve"],
@@ -339,7 +339,7 @@ class SessionManager:
                                     output_dir=self.dirs['positives'],
                                     clip=self.config["clip"],
                                     gamma=self.config["gamma"],
-                                    compress_dng=self.config["compress_dng"],
+                                    compress_tiff=self.config["compress_tiff"],
                                     global_levels=self.config["global_levels"],
                                     ignore_margin=self.config["margin"],
                                     scurve=self.config["scurve"],
@@ -418,7 +418,7 @@ class SessionManager:
                                 group=group,
                                 output_filepath=output_filepath,
                                 neutralize_base=self.config["neutralize"],
-                                compress_dng=self.config["compress_dng"],
+                                compress_tiff=self.config["compress_tiff"],
                                 align_channels=self.config["align_channels"]
                             )
                         frame_number += 1
@@ -436,7 +436,7 @@ class SessionManager:
                             output_dir=None,  # let it auto-create subfolder Positives
                             clip=self.config["clip"],
                             gamma=self.config["gamma"],
-                            compress_dng=self.config["compress_dng"],
+                            compress_tiff=self.config["compress_tiff"],
                             global_levels=self.config["global_levels"],
                             ignore_margin=self.config["margin"],
                             scurve=self.config["scurve"],
