@@ -286,57 +286,59 @@ class CameraManager:
                     time.sleep(0.3)
                     cl = gp.Camera.autodetect()
 
-                if len(cl) > 0:
-                    name, port_path = cl.get_name(0), cl.get_value(0)
-                    self.log(f"Autodetected device '{name}' on port '{port_path}'. Binding driver abilities...")
-                    
-                    port_info_list = gp.PortInfoList()
-                    port_info_list.load()
-                    port_idx = port_info_list.lookup_path(port_path)
-                    port_info = port_info_list[port_idx]
-                    
-                    abilities_list = gp.CameraAbilitiesList()
-                    abilities_list.load()
-                    
-                    model_indices = []
-                    ab_idx = abilities_list.lookup_model(name)
-                    if ab_idx >= 0:
-                        model_indices.append((name, ab_idx))
-                    
-                    ptp_idx = abilities_list.lookup_model('USB PTP Class Camera')
-                    if ptp_idx >= 0 and ptp_idx != ab_idx:
-                        model_indices.append(('USB PTP Class Camera', ptp_idx))
+                if len(cl) == 0:
+                    raise Exception("No autodetected USB camera found.")
 
-                    last_init_err = None
-                    camera = None
-                    for model_label, idx in model_indices:
-                        cam_try = None
-                        try:
-                            if sys.platform == 'darwin':
-                                subprocess.run(["killall", "-9", "ptpcamerad"], capture_output=True)
-                                subprocess.run(["killall", "-9", "icdd"], capture_output=True)
-                                time.sleep(0.15)
+                name, port_path = cl.get_name(0), cl.get_value(0)
+                self.log(f"Autodetected device '{name}' on port '{port_path}'. Binding driver abilities...")
+                
+                port_info_list = gp.PortInfoList()
+                port_info_list.load()
+                port_idx = port_info_list.lookup_path(port_path)
+                port_info = port_info_list[port_idx]
+                
+                abilities_list = gp.CameraAbilitiesList()
+                abilities_list.load()
+                
+                model_indices = []
+                ab_idx = abilities_list.lookup_model(name)
+                if ab_idx >= 0:
+                    model_indices.append((name, ab_idx))
+                
+                ptp_idx = abilities_list.lookup_model('USB PTP Class Camera')
+                if ptp_idx >= 0 and ptp_idx != ab_idx:
+                    model_indices.append(('USB PTP Class Camera', ptp_idx))
 
-                            self.log(f"Attempting camera init with driver profile '{model_label}' (index {idx})...")
-                            cam_try = gp.Camera()
-                            cam_try.set_abilities(abilities_list[idx])
-                            cam_try.set_port_info(port_info)
-                            cam_try.init()
-                            camera = cam_try
-                            self.log(f"Successfully initialized camera using driver profile '{model_label}'")
-                            break
-                        except Exception as err:
-                            self.log(f"Init with driver profile '{model_label}' failed: {err}")
-                            if cam_try:
-                                try:
-                                    cam_try.exit()
-                                except Exception:
-                                    pass
-                            last_init_err = err
-                            time.sleep(0.2)
+                last_init_err = None
+                camera = None
+                for model_label, idx in model_indices:
+                    cam_try = None
+                    try:
+                        if sys.platform == 'darwin':
+                            subprocess.run(["killall", "-9", "ptpcamerad"], capture_output=True)
+                            subprocess.run(["killall", "-9", "icdd"], capture_output=True)
+                            time.sleep(0.15)
 
-                    if not camera:
-                        raise last_init_err or Exception("Failed to initialize camera with any driver profile.")
+                        self.log(f"Attempting camera init with driver profile '{model_label}' (index {idx})...")
+                        cam_try = gp.Camera()
+                        cam_try.set_abilities(abilities_list[idx])
+                        cam_try.set_port_info(port_info)
+                        cam_try.init()
+                        camera = cam_try
+                        self.log(f"Successfully initialized camera using driver profile '{model_label}'")
+                        break
+                    except Exception as err:
+                        self.log(f"Init with driver profile '{model_label}' failed: {err}")
+                        if cam_try:
+                            try:
+                                cam_try.exit()
+                            except Exception:
+                                pass
+                        last_init_err = err
+                        time.sleep(0.2)
+
+                if not camera:
+                    raise last_init_err or Exception("Failed to initialize camera with any driver profile.")
 
                 self.camera = camera
                 self.camera_connected = True
@@ -638,8 +640,13 @@ class CameraManager:
                 try:
                     if self.resolved_names.get("eosremoterelease"):
                         self.log("Triggering autofocus via eosremoterelease (Canon)...")
-                        self._set_camera_property("eosremoterelease", "Press Half AF")
-                        time.sleep(1.0)
+                        try:
+                            self._set_camera_property("eosremoterelease", "Release Half")
+                            time.sleep(0.05)
+                        except Exception:
+                            pass
+                        self._set_camera_property("eosremoterelease", "Press Half")
+                        time.sleep(1.2)
                         self._set_camera_property("eosremoterelease", "Release Half")
                     elif self.resolved_names.get("autofocusdrive"):
                         self.log("Triggering autofocus via autofocusdrive (Nikon/Generic)...")
@@ -1075,6 +1082,14 @@ class CameraManager:
                     
                 for choice in valid_choices:
                     if str(choice).lower() in targets:
+                        matched_choice = choice
+                        break
+
+            if name.lower() == "eosremoterelease":
+                v_lower = str(value).lower()
+                for choice in valid_choices:
+                    c_lower = str(choice).lower()
+                    if v_lower in c_lower or c_lower in v_lower or ("press half" in v_lower and "press half" in c_lower):
                         matched_choice = choice
                         break
 
