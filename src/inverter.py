@@ -6,12 +6,13 @@ import argparse
 import rawpy
 from tiff_writer import write_16bit_tiff
 
-def process_positives(input_path, output_dir=None, clip=0.1, gamma=2.2, compress_tiff=False, global_levels=False, ignore_margin=0.15, scurve=0.0, autocrop=False, monochrome=False, monochrome_channel="luminance"):
+def process_positives(input_path, output_dir=None, clip=0.1, gamma=2.2, compress_tiff=False, global_levels=False, ignore_margin=0.15, scurve=0.0, autocrop=False, monochrome=False, monochrome_channel="luminance", reversal=False, convert_to_tiff=True):
     """
-    Processes 16-bit TIFF/DNG files: inverts, normalizes, applies gamma/scurve, crops, and saves as 16-bit TIFF.
+    Processes 16-bit TIFF/DNG files: inverts (or normalizes positive reversal film scans), applies gamma/scurve, crops, and saves as 16-bit TIFF.
+    If convert_to_tiff is False, the input RAW/image files are added directly to the positives folder without converting to TIFF.
     """
     # Find supported image files
-    supported_exts = {'.tiff', '.tif', '.dng'}
+    supported_exts = {'.tiff', '.tif', '.dng', '.cr3', '.raf', '.nef', '.arw', '.rw2', '.nrw', '.dcr'}
     image_files = []
     
     if os.path.isfile(input_path):
@@ -29,7 +30,7 @@ def process_positives(input_path, output_dir=None, clip=0.1, gamma=2.2, compress
         return
     
     if not image_files:
-        print(f"No valid .tiff, .tif, or .dng files found for input: {input_path}")
+        print(f"No valid image files found for input: {input_path}")
         return
 
     # Create output directory
@@ -46,9 +47,27 @@ def process_positives(input_path, output_dir=None, clip=0.1, gamma=2.2, compress
         print(f"Processing {filename}...")
         
         try:
+            ext = os.path.splitext(filename)[1].lower()
+
+            if not convert_to_tiff:
+                base_name = os.path.splitext(filename)[0]
+                if "_Composite" in base_name:
+                    out_filename = base_name.replace("_Composite", "_Positive") + ext
+                elif "_Capture" in base_name:
+                    out_filename = base_name.replace("_Capture", "_Positive") + ext
+                elif base_name.startswith("Positive_"):
+                    out_filename = base_name + ext
+                else:
+                    out_filename = f"Positive_{base_name}" + ext
+                    
+                output_filepath = os.path.join(output_dir, out_filename)
+                import shutil
+                shutil.copy2(filepath, output_filepath)
+                print(f"  -> Added RAW positive file directly to: {out_filename}\n")
+                continue
+
             # Read file: use tifffile for Linear DNGs/TIFFs to avoid double-demosaicing grid artifacts,
             # and rawpy with DHT demosaicing for camera RAW files to prevent AHD maze grid artifacts on grain.
-            ext = os.path.splitext(filename)[1].lower()
             img = None
             if ext in ['.dng', '.tiff', '.tif']:
                 try:
@@ -120,44 +139,89 @@ def process_positives(input_path, output_dir=None, clip=0.1, gamma=2.2, compress
             base_name = os.path.splitext(filename)[0]
             if "_Composite" in base_name:
                 out_filename = base_name.replace("_Composite", "_Positive") + ".tiff"
+            elif "_Capture" in base_name:
+                out_filename = base_name.replace("_Capture", "_Positive") + ".tiff"
+            elif base_name.startswith("Positive_"):
+                out_filename = base_name + ".tiff"
             else:
                 out_filename = f"Positive_{base_name}.tiff"
                 
             output_filepath = os.path.join(output_dir, out_filename)
 
-            # --- STEP 2: FILM SENSITOMETRIC INVERSION & DENSITY TRANSFORMATION ---
-            # Professional Film H&D Sensitometric Inversion:
-            # 1. Optical Density: D = log10(c_base / max(I_raw, 1.0))
-            # 2. Normalized Density: D_norm = (D - p_low) / (p_high - p_low)
-            # 3. Linear Light Conversion: I_pos = ((10^(gamma_film * D_norm) - 1) / (10^gamma_film - 1)) * target_max
-            gamma_film = 0.8
+            # --- STEP 2: FILM SENSITOMETRIC PROCESSING ---
             target_max = 65535.0
-            denom = (10.0 ** gamma_film) - 1.0
-            print(f"  -> Inverting film transmission & balancing levels (clip={clip}%, target_max={target_max:.0f})...")
-            
             is_mono = is_monochrome or (img_float.ndim == 2) or (img_float.ndim == 3 and img_float.shape[2] == 1)
 
-            def apply_film_characteristic_curve(D_norm, shoulder_start=0.85, toe_start=0.05):
-                """Applies a smooth H&D film shoulder and toe roll-off to prevent highlight/shadow clipping."""
-                y = np.copy(D_norm)
-                mask_high = y > shoulder_start
-                if np.any(mask_high):
-                    over = y[mask_high] - shoulder_start
-                    scale = 1.0 - shoulder_start
-                    y[mask_high] = shoulder_start + scale * (over / (over + scale))
-                mask_low = y < toe_start
-                if np.any(mask_low):
-                    under = toe_start - y[mask_low]
-                    scale = toe_start
-                    y[mask_low] = toe_start - scale * (under / (under + scale))
-                return np.clip(y, 0.0, 1.0)
+            if reversal:
+                print(f"  -> Processing reversal film (positive scan) without inversion (clip={clip}%, target_max={target_max:.0f})...")
+                if not is_mono and img_float.ndim == 3 and img_float.shape[2] == 3:
+                    if global_levels:
+                        p_low = np.percentile(analysis_region, clip)
+                        p_high = np.percentile(analysis_region, 100 - clip)
+                        if p_high > p_low:
+                            img_float = np.clip((img_float - p_low) / (p_high - p_low), 0.0, 1.0) * target_max
+                    else:
+                        pos_linear = np.zeros_like(img_float)
+                        for c in range(3):
+                            p_low = np.percentile(analysis_region[:, :, c], clip)
+                            p_high = np.percentile(analysis_region[:, :, c], 100 - clip)
+                            if p_high > p_low:
+                                pos_linear[:, :, c] = np.clip((img_float[:, :, c] - p_low) / (p_high - p_low), 0.0, 1.0) * target_max
+                            else:
+                                pos_linear[:, :, c] = img_float[:, :, c]
+                        img_float = pos_linear
+                else:
+                    p_low = np.percentile(analysis_region, clip)
+                    p_high = np.percentile(analysis_region, 100 - clip)
+                    if p_high > p_low:
+                        img_float = np.clip((img_float - p_low) / (p_high - p_low), 0.0, 1.0) * target_max
+            else:
+                # Professional Film H&D Sensitometric Inversion:
+                # 1. Optical Density: D = log10(c_base / max(I_raw, 1.0))
+                # 2. Normalized Density: D_norm = (D - p_low) / (p_high - p_low)
+                # 3. Linear Light Conversion: I_pos = ((10^(gamma_film * D_norm) - 1) / (10^gamma_film - 1)) * target_max
+                gamma_film = 0.8
+                denom = (10.0 ** gamma_film) - 1.0
+                print(f"  -> Inverting film transmission & balancing levels (clip={clip}%, target_max={target_max:.0f})...")
 
-            if not is_mono and img_float.ndim == 3 and img_float.shape[2] == 3:
-                pos_linear = np.zeros_like(img_float)
-                for c in range(3):
-                    c_base = np.percentile(analysis_region[:, :, c], 99.9)
-                    D_raw_img = np.log10(np.maximum(c_base, 1.0) / np.maximum(img_float[:, :, c], 1.0))
-                    D_raw_ana = np.log10(np.maximum(c_base, 1.0) / np.maximum(analysis_region[:, :, c], 1.0))
+                def apply_film_characteristic_curve(D_norm, shoulder_start=0.85, toe_start=0.05):
+                    """Applies a smooth H&D film shoulder and toe roll-off to prevent highlight/shadow clipping."""
+                    y = np.copy(D_norm)
+                    mask_high = y > shoulder_start
+                    if np.any(mask_high):
+                        over = y[mask_high] - shoulder_start
+                        scale = 1.0 - shoulder_start
+                        y[mask_high] = shoulder_start + scale * (over / (over + scale))
+                    mask_low = y < toe_start
+                    if np.any(mask_low):
+                        under = toe_start - y[mask_low]
+                        scale = toe_start
+                        y[mask_low] = toe_start - scale * (under / (under + scale))
+                    return np.clip(y, 0.0, 1.0)
+
+                if not is_mono and img_float.ndim == 3 and img_float.shape[2] == 3:
+                    pos_linear = np.zeros_like(img_float)
+                    for c in range(3):
+                        c_base = np.percentile(analysis_region[:, :, c], 99.9)
+                        D_raw_img = np.log10(np.maximum(c_base, 1.0) / np.maximum(img_float[:, :, c], 1.0))
+                        D_raw_ana = np.log10(np.maximum(c_base, 1.0) / np.maximum(analysis_region[:, :, c], 1.0))
+                        
+                        p_low = np.percentile(D_raw_ana, clip)
+                        p_high = np.percentile(D_raw_ana, 100 - clip)
+                        
+                        if p_high > p_low:
+                            D_raw_scaled = (D_raw_img - p_low) / (p_high - p_low)
+                            D_norm = apply_film_characteristic_curve(D_raw_scaled, shoulder_start=0.85, toe_start=0.05)
+                        else:
+                            D_norm = np.zeros_like(D_raw_img)
+                            
+                        I_pos = (10.0 ** (gamma_film * D_norm) - 1.0) / denom
+                        pos_linear[:, :, c] = I_pos * target_max
+                    img_float = pos_linear
+                else:
+                    c_base = np.percentile(analysis_region, 99.9)
+                    D_raw_img = np.log10(np.maximum(c_base, 1.0) / np.maximum(img_float, 1.0))
+                    D_raw_ana = np.log10(np.maximum(c_base, 1.0) / np.maximum(analysis_region, 1.0))
                     
                     p_low = np.percentile(D_raw_ana, clip)
                     p_high = np.percentile(D_raw_ana, 100 - clip)
@@ -169,24 +233,7 @@ def process_positives(input_path, output_dir=None, clip=0.1, gamma=2.2, compress
                         D_norm = np.zeros_like(D_raw_img)
                         
                     I_pos = (10.0 ** (gamma_film * D_norm) - 1.0) / denom
-                    pos_linear[:, :, c] = I_pos * target_max
-                img_float = pos_linear
-            else:
-                c_base = np.percentile(analysis_region, 99.9)
-                D_raw_img = np.log10(np.maximum(c_base, 1.0) / np.maximum(img_float, 1.0))
-                D_raw_ana = np.log10(np.maximum(c_base, 1.0) / np.maximum(analysis_region, 1.0))
-                
-                p_low = np.percentile(D_raw_ana, clip)
-                p_high = np.percentile(D_raw_ana, 100 - clip)
-                
-                if p_high > p_low:
-                    D_raw_scaled = (D_raw_img - p_low) / (p_high - p_low)
-                    D_norm = apply_film_characteristic_curve(D_raw_scaled, shoulder_start=0.85, toe_start=0.05)
-                else:
-                    D_norm = np.zeros_like(D_raw_img)
-                    
-                I_pos = (10.0 ** (gamma_film * D_norm) - 1.0) / denom
-                img_float = I_pos * target_max
+                    img_float = I_pos * target_max
 
             # Scale to 16-bit linear light array
             img_float = np.clip(img_float, 0, 65535)
@@ -245,6 +292,11 @@ if __name__ == "__main__":
     parser.add_argument("--monochrome-channel", "--bw-channel", type=str, default="luminance",
                         choices=["luminance", "average", "red", "green", "blue"],
                         help="Method to convert RGB to monochrome. Default: luminance (weighted). 'green' is recommended for high resolution on standard Bayer sensors.")
+    parser.add_argument("--reversal", "--reversal-film", action="store_true",
+                        help="Enable reversal / slide film support (positive film). Processes images without density inversion directly into the positives folder.")
+    parser.add_argument("--no-tiff", "--raw-positives", dest="convert_to_tiff", action="store_false",
+                        help="Bypass conversion to TIFF and add original RAW files directly to the positives folder.")
+    parser.set_defaults(convert_to_tiff=True)
     
     args = parser.parse_args()
     
@@ -258,5 +310,7 @@ if __name__ == "__main__":
         scurve=args.scurve,
         autocrop=args.autocrop,
         monochrome=args.monochrome,
-        monochrome_channel=args.monochrome_channel
+        monochrome_channel=args.monochrome_channel,
+        reversal=args.reversal,
+        convert_to_tiff=args.convert_to_tiff
     )

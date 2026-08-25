@@ -266,15 +266,16 @@ class CameraManager:
             t = None
             stop_kill = None
             if sys.platform == 'darwin':
-                self.log("Detected macOS: Disabling ptpcamerad daemon via launchctl...")
+                self.log("Detected macOS: Disabling ptpcamerad & icdd daemons...")
                 try:
                     import os
                     uid = os.getuid()
                     subprocess.run(["launchctl", "disable", f"gui/{uid}/com.apple.ptpcamerad"], capture_output=True)
                     subprocess.run(["killall", "-9", "ptpcamerad"], capture_output=True)
+                    subprocess.run(["killall", "-9", "icdd"], capture_output=True)
                 except Exception:
                     pass
-                time.sleep(0.3) # allow USB port to settle after releasing ptpcamerad
+                time.sleep(0.3) # allow USB port to settle after releasing ptpcamerad and icdd
                 
             try:
                 # 1. Primary connection path: Autodetect connected USB device and bind matching abilities & port
@@ -285,56 +286,59 @@ class CameraManager:
                     time.sleep(0.3)
                     cl = gp.Camera.autodetect()
 
-                if len(cl) > 0:
-                    name, port_path = cl.get_name(0), cl.get_value(0)
-                    self.log(f"Autodetected device '{name}' on port '{port_path}'. Binding driver abilities...")
-                    
-                    port_info_list = gp.PortInfoList()
-                    port_info_list.load()
-                    port_idx = port_info_list.lookup_path(port_path)
-                    port_info = port_info_list[port_idx]
-                    
-                    abilities_list = gp.CameraAbilitiesList()
-                    abilities_list.load()
-                    
-                    model_indices = []
-                    ab_idx = abilities_list.lookup_model(name)
-                    if ab_idx >= 0:
-                        model_indices.append((name, ab_idx))
-                    
-                    ptp_idx = abilities_list.lookup_model('USB PTP Class Camera')
-                    if ptp_idx >= 0 and ptp_idx != ab_idx:
-                        model_indices.append(('USB PTP Class Camera', ptp_idx))
+                if len(cl) == 0:
+                    raise Exception("No autodetected USB camera found.")
 
-                    last_init_err = None
-                    camera = None
-                    for model_label, idx in model_indices:
-                        cam_try = None
-                        try:
-                            if sys.platform == 'darwin':
-                                subprocess.run(["killall", "-9", "ptpcamerad"], capture_output=True)
-                                time.sleep(0.15)
+                name, port_path = cl.get_name(0), cl.get_value(0)
+                self.log(f"Autodetected device '{name}' on port '{port_path}'. Binding driver abilities...")
+                
+                port_info_list = gp.PortInfoList()
+                port_info_list.load()
+                port_idx = port_info_list.lookup_path(port_path)
+                port_info = port_info_list[port_idx]
+                
+                abilities_list = gp.CameraAbilitiesList()
+                abilities_list.load()
+                
+                model_indices = []
+                ab_idx = abilities_list.lookup_model(name)
+                if ab_idx >= 0:
+                    model_indices.append((name, ab_idx))
+                
+                ptp_idx = abilities_list.lookup_model('USB PTP Class Camera')
+                if ptp_idx >= 0 and ptp_idx != ab_idx:
+                    model_indices.append(('USB PTP Class Camera', ptp_idx))
 
-                            self.log(f"Attempting camera init with driver profile '{model_label}' (index {idx})...")
-                            cam_try = gp.Camera()
-                            cam_try.set_abilities(abilities_list[idx])
-                            cam_try.set_port_info(port_info)
-                            cam_try.init()
-                            camera = cam_try
-                            self.log(f"Successfully initialized camera using driver profile '{model_label}'")
-                            break
-                        except Exception as err:
-                            self.log(f"Init with driver profile '{model_label}' failed: {err}")
-                            if cam_try:
-                                try:
-                                    cam_try.exit()
-                                except Exception:
-                                    pass
-                            last_init_err = err
-                            time.sleep(0.2)
+                last_init_err = None
+                camera = None
+                for model_label, idx in model_indices:
+                    cam_try = None
+                    try:
+                        if sys.platform == 'darwin':
+                            subprocess.run(["killall", "-9", "ptpcamerad"], capture_output=True)
+                            subprocess.run(["killall", "-9", "icdd"], capture_output=True)
+                            time.sleep(0.15)
 
-                    if not camera:
-                        raise last_init_err or Exception("Failed to initialize camera with any driver profile.")
+                        self.log(f"Attempting camera init with driver profile '{model_label}' (index {idx})...")
+                        cam_try = gp.Camera()
+                        cam_try.set_abilities(abilities_list[idx])
+                        cam_try.set_port_info(port_info)
+                        cam_try.init()
+                        camera = cam_try
+                        self.log(f"Successfully initialized camera using driver profile '{model_label}'")
+                        break
+                    except Exception as err:
+                        self.log(f"Init with driver profile '{model_label}' failed: {err}")
+                        if cam_try:
+                            try:
+                                cam_try.exit()
+                            except Exception:
+                                pass
+                        last_init_err = err
+                        time.sleep(0.2)
+
+                if not camera:
+                    raise last_init_err or Exception("Failed to initialize camera with any driver profile.")
 
                 self.camera = camera
                 self.camera_connected = True
@@ -497,15 +501,26 @@ class CameraManager:
                 raise ValueError(f"Unknown setting: {name}")
             else:
                 self.pause_preview = True
-                time.sleep(0.12)
+                time.sleep(0.15)
                 try:
+                    # Drain any pending PTP events to clear USB bus before updating property
+                    if self.camera:
+                        with self.lock:
+                            try:
+                                for _ in range(5):
+                                    evt_type, _ = self.camera.wait_for_event(30)
+                                    if evt_type == gp.GP_EVENT_TIMEOUT:
+                                        break
+                            except Exception:
+                                pass
                     self._set_camera_property(name, val)
+                    self.camera_settings[name] = val
+                    return True
                 except Exception as e:
-                    self.log(f"Warning setting camera property '{name}' to '{val}': {e}. Cache updated.")
+                    self.log(f"Error setting camera property '{name}' to '{val}': {e}")
+                    raise e
                 finally:
                     self.pause_preview = False
-                self.camera_settings[name] = val
-                return True
                 
         elif cmd == "test_widgets":
             if self.simulated or not self.camera:
@@ -625,8 +640,13 @@ class CameraManager:
                 try:
                     if self.resolved_names.get("eosremoterelease"):
                         self.log("Triggering autofocus via eosremoterelease (Canon)...")
-                        self._set_camera_property("eosremoterelease", "Press Half AF")
-                        time.sleep(1.0)
+                        try:
+                            self._set_camera_property("eosremoterelease", "Release Half")
+                            time.sleep(0.05)
+                        except Exception:
+                            pass
+                        self._set_camera_property("eosremoterelease", "Press Half")
+                        time.sleep(1.2)
                         self._set_camera_property("eosremoterelease", "Release Half")
                     elif self.resolved_names.get("autofocusdrive"):
                         self.log("Triggering autofocus via autofocusdrive (Nikon/Generic)...")
@@ -996,10 +1016,25 @@ class CameraManager:
         if not widget_name:
             widget_name = name.lower()
             
-        try:
-            widget = self.camera.get_single_config(widget_name)
-        except Exception as e:
-            raise Exception(f"Setting '{name}' (widget '{widget_name}') not supported or found: {e}")
+        widget = None
+        for attempt in range(4):
+            try:
+                with self.lock:
+                    widget = self.camera.get_single_config(widget_name)
+                break
+            except Exception as e:
+                if attempt < 3 and ("-110" in str(e) or "I/O in progress" in str(e) or "busy" in str(e).lower()):
+                    with self.lock:
+                        try:
+                            for _ in range(5):
+                                evt_type, _ = self.camera.wait_for_event(30)
+                                if evt_type == gp.GP_EVENT_TIMEOUT:
+                                    break
+                        except Exception:
+                            pass
+                    time.sleep(0.1)
+                else:
+                    raise Exception(f"Setting '{name}' (widget '{widget_name}') not supported or found: {e}")
 
         # If it's a range widget (like manualfocusdrive on Nikon), handle mapping from speed/dir string to step integer
         try:
@@ -1050,6 +1085,14 @@ class CameraManager:
                         matched_choice = choice
                         break
 
+            if name.lower() == "eosremoterelease":
+                v_lower = str(value).lower()
+                for choice in valid_choices:
+                    c_lower = str(choice).lower()
+                    if v_lower in c_lower or c_lower in v_lower or ("press half" in v_lower and "press half" in c_lower):
+                        matched_choice = choice
+                        break
+
             if matched_choice is None:
                 for choice in valid_choices:
                     if str(choice).lower() == str(value).lower():
@@ -1060,32 +1103,55 @@ class CameraManager:
                 matched_choice = value
             self._set_widget_value_safely(widget, matched_choice)
 
-        try:
-            with self.lock:
-                try:
+        max_retries = 4
+        last_err = None
+        for attempt in range(max_retries):
+            try:
+                with self.lock:
+                    for _ in range(3):
+                        evt_type, _ = self.camera.wait_for_event(20)
+                        if evt_type == gp.GP_EVENT_TIMEOUT:
+                            break
                     self.camera.set_single_config(widget_name, widget)
-                except Exception as first_err:
-                    if name.lower() == "eoszoom":
-                        self.log(f"Initial set_single_config for eoszoom='{value}' failed: {first_err}. Probing alternative variants...")
-                        success = False
-                        for alt in [0, 1, '0', '1', 'Off', 'normal']:
-                            try:
-                                self._set_widget_value_safely(widget, alt)
+                self.log(f"Setting updated: {name} (widget '{widget_name}') = {matched_choice}")
+                return True
+            except Exception as first_err:
+                last_err = first_err
+                err_str = str(first_err)
+                if name.lower() == "eoszoom":
+                    self.log(f"Initial set_single_config for eoszoom='{value}' failed: {first_err}. Probing alternative variants...")
+                    success = False
+                    for alt in [0, 1, '0', '1', 'Off', 'normal']:
+                        try:
+                            self._set_widget_value_safely(widget, alt)
+                            with self.lock:
                                 self.camera.set_single_config(widget_name, widget)
-                                matched_choice = alt
-                                success = True
-                                self.log(f"Successfully applied eoszoom using alternative variant: {alt}")
-                                break
-                            except Exception:
-                                pass
-                        if not success:
-                            raise first_err
-                    else:
-                        raise first_err
-            self.log(f"Setting updated: {name} (widget '{widget_name}') = {matched_choice}")
-        except Exception as e:
-            self.log(f"Error applying setting '{name}' = '{value}': {e}")
-            raise e
+                            matched_choice = alt
+                            success = True
+                            self.log(f"Successfully applied eoszoom using alternative variant: {alt}")
+                            break
+                        except Exception:
+                            pass
+                    if success:
+                        return True
+
+                if ("-110" in err_str or "I/O in progress" in err_str or "busy" in err_str.lower()) and attempt < max_retries - 1:
+                    self.log(f"Setting '{name}' attempt {attempt+1}/{max_retries} encountered I/O in progress. Retrying after event drain...")
+                    with self.lock:
+                        try:
+                            for _ in range(5):
+                                evt_type, _ = self.camera.wait_for_event(30)
+                                if evt_type == gp.GP_EVENT_TIMEOUT:
+                                    break
+                        except Exception:
+                            pass
+                    time.sleep(0.15)
+                else:
+                    break
+
+        if last_err:
+            self.log(f"Error applying setting '{name}' = '{value}': {last_err}")
+            raise last_err
         return True
 
     def _generate_simulated_frame(self, iso, aperture, shutter, r_led, g_led, b_led, is_monochrome):

@@ -433,6 +433,18 @@
                                     <span>Monochrome (B&W) Film</span>
                                 </label>
                                 <label class="checkbox-container-mini"
+                                    style="display: flex; align-items: center; gap: 0.5rem;"
+                                    data-tooltip="Process positive slide/reversal film scans directly into the positives folder without density inversion">
+                                    <input type="checkbox" id="config-reversal">
+                                    <span>Reversal (Slide) Film</span>
+                                </label>
+                                <label class="checkbox-container-mini"
+                                    style="display: flex; align-items: center; gap: 0.5rem;"
+                                    data-tooltip="Render 16-bit TIFF positives in the positives folder. If unchecked, original RAW files are added directly to positives without TIFF conversion">
+                                    <input type="checkbox" id="config-convert-tiff" checked>
+                                    <span>Convert to 16-Bit TIFF</span>
+                                </label>
+                                <label class="checkbox-container-mini"
                                     style="display: flex; align-items: center; gap: 0.5rem; border-top: 1px solid var(--border-color); padding-top: 0.5rem; margin-top: 0.25rem;"
                                     data-tooltip="Show or hide the Live View / Histogram panel in the first column">
                                     <input type="checkbox" id="ui-show-liveview" checked
@@ -708,6 +720,22 @@
                                     <span class="checkmark"></span>
                                     <div class="checkbox-text">
                                         <strong>Monochrome (B&W)</strong>
+                                    </div>
+                                </label>
+                                <label class="checkbox-container"
+                                    data-tooltip="Process positive slide/reversal film scans directly into the positives folder without density inversion">
+                                    <input type="checkbox" id="batch-reversal">
+                                    <span class="checkmark"></span>
+                                    <div class="checkbox-text">
+                                        <strong>Reversal (Slide) Film</strong>
+                                    </div>
+                                </label>
+                                <label class="checkbox-container"
+                                    data-tooltip="Render 16-bit TIFF positives in the positives folder. If unchecked, original RAW files are added directly to positives without TIFF conversion">
+                                    <input type="checkbox" id="batch-convert-tiff" checked>
+                                    <span class="checkmark"></span>
+                                    <div class="checkbox-text">
+                                        <strong>Convert to 16-Bit TIFF</strong>
                                     </div>
                                 </label>
                             </div>

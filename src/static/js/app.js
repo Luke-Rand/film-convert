@@ -591,7 +591,8 @@ function disableInputs(disabled) {
     document.getElementById('scanner-stock').disabled = disabled;
     document.getElementById('scanner-format').disabled = disabled;
     document.getElementById('scanner-roll').disabled = disabled;
-    document.getElementsByName('scanner-mode').forEach(rad => rad.disabled = disabled);
+    const scannerModeEl = document.getElementById('scanner-mode');
+    if (scannerModeEl) scannerModeEl.disabled = disabled;
     
     // Sliders
     document.getElementById('config-gamma').disabled = disabled;
@@ -629,6 +630,19 @@ function syncConfigToUI(config) {
     document.getElementById('config-monochrome-channel').value = config.monochrome_channel || 'luminance';
     const monoGroup = document.getElementById('mini-mono-channel-group');
     if (monoGroup) monoGroup.style.display = isMono ? 'block' : 'none';
+
+    // Reversal / slide film setting
+    const isReversal = config.reversal || false;
+    const cfgReversal = document.getElementById('config-reversal');
+    if (cfgReversal) cfgReversal.checked = isReversal;
+    const bchReversal = document.getElementById('batch-reversal');
+    if (bchReversal) bchReversal.checked = isReversal;
+    
+    const convertTiff = config.convert_to_tiff !== undefined ? config.convert_to_tiff : true;
+    const cfgConvertTiff = document.getElementById('config-convert-tiff');
+    if (cfgConvertTiff) cfgConvertTiff.checked = convertTiff;
+    const bchConvertTiff = document.getElementById('batch-convert-tiff');
+    if (bchConvertTiff) bchConvertTiff.checked = convertTiff;
     
     // Update labels
     document.getElementById('val-gamma').textContent = config.gamma;
@@ -654,10 +668,8 @@ function toggleMonitor() {
         const format = document.getElementById('scanner-format').value.trim();
         const roll = document.getElementById('scanner-roll').value.trim();
         
-        let mode = 'triplet';
-        document.getElementsByName('scanner-mode').forEach(rad => {
-            if (rad.checked) mode = rad.value;
-        });
+        const modeEl = document.getElementById('scanner-mode');
+        const mode = modeEl ? modeEl.value : 'triplet';
 
         if (!rootDir) {
             alert("Please provide a root directory path.");
@@ -675,7 +687,9 @@ function toggleMonitor() {
             compress_tiff: document.getElementById('config-compress').checked,
             align_channels: document.getElementById('config-align-channels').checked,
             monochrome: document.getElementById('config-monochrome').checked,
-            monochrome_channel: document.getElementById('config-monochrome-channel').value
+            monochrome_channel: document.getElementById('config-monochrome-channel').value,
+            reversal: document.getElementById('config-reversal') ? document.getElementById('config-reversal').checked : false,
+            convert_to_tiff: document.getElementById('config-convert-tiff') ? document.getElementById('config-convert-tiff').checked : true
         };
 
         const payload = {
@@ -788,7 +802,9 @@ function runBatchJob() {
         compress_tiff: document.getElementById('batch-compress').checked,
         align_channels: document.getElementById('batch-align-channels').checked,
         monochrome: document.getElementById('batch-monochrome').checked,
-        monochrome_channel: document.getElementById('batch-monochrome-channel').value
+        monochrome_channel: document.getElementById('batch-monochrome-channel').value,
+        reversal: document.getElementById('batch-reversal') ? document.getElementById('batch-reversal').checked : false,
+        convert_to_tiff: document.getElementById('batch-convert-tiff') ? document.getElementById('batch-convert-tiff').checked : true
     };
 
     const payload = {

@@ -38,6 +38,10 @@ def setup_session():
     fmt = input("Format (e.g., 135, 120): ").strip() 
     roll = input("Roll Number (e.g., 02): ").strip().zfill(2)
     
+    is_reversal = input("Is this a Reversal / Slide Film session? (y/n) [default: n]: ").strip().lower() == 'y'
+    
+    convert_to_tiff = input("Convert scans to 16-bit TIFF? (y/n) [default: y]: ").strip().lower() != 'n'
+
     is_monochrome = input("Is this a Black & White film session? (y/n) [default: n]: ").strip().lower() == 'y'
     monochrome_channel = "luminance"
     if is_monochrome:
@@ -59,7 +63,7 @@ def setup_session():
         os.makedirs(d, exist_ok=True)
         
     print(f"\n✅ Session initialized at: {session_dir}")
-    return dirs, mode, is_monochrome, monochrome_channel
+    return dirs, mode, is_mono if 'is_mono' in locals() else is_monochrome, monochrome_channel, is_reversal, convert_to_tiff
 
 def get_next_frame_number(dirs):
     """Figures out the next available frame number by looking at existing files."""
@@ -83,8 +87,8 @@ def get_next_frame_number(dirs):
                     pass
     return max_num + 1
 
-def run_triplet_pipeline(dirs, is_mono, mono_chan):
-    """Watches for RAW triplets, composites them, and inverts them to 16-bit TIFFs."""
+def run_triplet_pipeline(dirs, is_mono, mono_chan, is_reversal=False, convert_to_tiff=True):
+    """Watches for RAW triplets, composites them, and inverts/processes them to 16-bit TIFFs."""
     print(f"\n🔥 TRIPLET PIPELINE ACTIVE 🔥")
     print(f"Monitoring: {dirs['negatives']}")
     print(f"Waiting for RGB RAW triplets. Press Ctrl+C to exit.\n")
@@ -131,7 +135,9 @@ def run_triplet_pipeline(dirs, is_mono, mono_chan):
                         scurve=0.0,
                         autocrop=False,
                         monochrome=is_mono,
-                        monochrome_channel=mono_chan
+                        monochrome_channel=mono_chan,
+                        reversal=is_reversal,
+                        convert_to_tiff=convert_to_tiff
                     )
                     
                     for f in group:
@@ -154,13 +160,13 @@ def run_triplet_pipeline(dirs, is_mono, mono_chan):
             print("\nExiting scanning session.")
             break
 
-def run_single_shot_pipeline(dirs, is_mono, mono_chan):
-    """Watches for single TIFF/DNG negatives and inverts them."""
+def run_single_shot_pipeline(dirs, is_mono, mono_chan, is_reversal=False, convert_to_tiff=True):
+    """Watches for single TIFF/DNG negatives or positive reversal scans and processes them."""
     print(f"\n🔥 SINGLE-SHOT PIPELINE ACTIVE 🔥")
     print(f"Monitoring: {dirs['negatives']}")
-    print(f"Waiting for single TIFF/DNG negatives. Press Ctrl+C to exit.\n")
+    print(f"Waiting for single TIFF/DNG files. Press Ctrl+C to exit.\n")
     
-    supported_exts = {'.dng', '.tiff', '.tif'}
+    supported_exts = {'.dng', '.tiff', '.tif', '.cr3', '.raf', '.nef', '.arw', '.rw2', '.nrw', '.dcr'}
     
     while True:
         try:
@@ -178,7 +184,7 @@ def run_single_shot_pipeline(dirs, is_mono, mono_chan):
                     time.sleep(1)
                     continue
                     
-                print(f"{'-'*50}\n🎞️  Negative detected! Processing {filename}...")
+                print(f"{'-'*50}\n🎞️  File detected! Processing {filename}...")
                 
                 try:
                     process_positives(
@@ -192,7 +198,9 @@ def run_single_shot_pipeline(dirs, is_mono, mono_chan):
                         scurve=0.0,          
                         autocrop=False,
                         monochrome=is_mono,
-                        monochrome_channel=mono_chan
+                        monochrome_channel=mono_chan,
+                        reversal=is_reversal,
+                        convert_to_tiff=convert_to_tiff
                     )
                     
                     shutil.move(filepath, os.path.join(dirs['processed'], filename))
@@ -208,16 +216,16 @@ def run_single_shot_pipeline(dirs, is_mono, mono_chan):
             print("\nExiting scanning session.")
             break
 
-def run_pipeline(dirs, mode, is_mono, mono_chan):
+def run_pipeline(dirs, mode, is_mono, mono_chan, is_reversal=False, convert_to_tiff=True):
     """Dispatches to the correct pipeline based on user's choice."""
     if mode == 'triplet':
-        run_triplet_pipeline(dirs, is_mono, mono_chan)
+        run_triplet_pipeline(dirs, is_mono, mono_chan, is_reversal, convert_to_tiff)
     elif mode == 'single':
-        run_single_shot_pipeline(dirs, is_mono, mono_chan)
+        run_single_shot_pipeline(dirs, is_mono, mono_chan, is_reversal, convert_to_tiff)
 
 if __name__ == "__main__":
     try:
-        session_dirs, mode, is_mono, mono_chan = setup_session()
-        run_pipeline(session_dirs, mode, is_mono, mono_chan)
+        session_dirs, mode, is_mono, mono_chan, is_reversal, convert_to_tiff = setup_session()
+        run_pipeline(session_dirs, mode, is_mono, mono_chan, is_reversal, convert_to_tiff)
     except KeyboardInterrupt:
         print("\nSession setup cancelled.")
