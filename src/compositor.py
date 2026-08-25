@@ -11,57 +11,95 @@ import sys
 from PIL import Image
 from tiff_writer import write_16bit_tiff
 
+def fourier_shift_2d(img, dy, dx):
+    """
+    Shifts a 2D image by sub-pixel (dy, dx) using Fourier phase shift.
+    Positive dy shifts content downwards; positive dx shifts content rightwards.
+    Uses edge-reflection padding to completely eliminate wrap-around and zero-padding artifacts.
+    """
+    h, w = img.shape
+    pad_y = max(int(np.ceil(abs(dy))) + 8, 16)
+    pad_x = max(int(np.ceil(abs(dx))) + 8, 16)
+    
+    padded = np.pad(img, ((pad_y, pad_y), (pad_x, pad_x)), mode='edge').astype(np.float32)
+    ph, pw = padded.shape
+    
+    ky = np.fft.fftfreq(ph)[:, None]
+    kx = np.fft.fftfreq(pw)[None, :]
+    
+    shift_factor = np.exp(-2j * np.pi * (ky * dy + kx * dx))
+    shifted_padded = np.real(np.fft.ifft2(np.fft.fft2(padded) * shift_factor))
+    
+    shifted = shifted_padded[pad_y:pad_y + h, pad_x:pad_x + w]
+    return np.clip(shifted, 0, 65535).astype(img.dtype)
+
 def align_channel(ref, mov, channel_name=""):
-    """Aligns moving channel to reference channel using FFT phase correlation."""
+    """
+    Aligns moving channel to reference channel using windowed sub-pixel FFT phase correlation.
+    """
     h, w = ref.shape
-    size = 1024
+    size = min(1024, h, w)
     y_start = max(0, h // 2 - size // 2)
-    y_end = min(h, h // 2 + size // 2)
+    y_end = min(h, y_start + size)
     x_start = max(0, w // 2 - size // 2)
-    x_end = min(w, w // 2 + size // 2)
+    x_end = min(w, x_start + size)
     
     ref_crop = ref[y_start:y_end, x_start:x_end].astype(np.float32)
     mov_crop = mov[y_start:y_end, x_start:x_end].astype(np.float32)
     
-    # Compute FFT phase correlation
-    F = np.fft.fft2(ref_crop)
-    G = np.fft.fft2(mov_crop)
+    # Apply 2D Hann window to eliminate Fourier boundary spectral leakage
+    win_y = np.hanning(ref_crop.shape[0])
+    win_x = np.hanning(ref_crop.shape[1])
+    window = np.outer(win_y, win_x).astype(np.float32)
+    
+    ref_win = (ref_crop - np.mean(ref_crop)) * window
+    mov_win = (mov_crop - np.mean(mov_crop)) * window
+    
+    # Compute cross-power spectrum
+    F = np.fft.fft2(ref_win)
+    G = np.fft.fft2(mov_win)
     cross_power = F * np.conjugate(G)
     R = cross_power / (np.abs(cross_power) + 1e-8)
     r = np.fft.ifft2(R)
+    r_abs = np.abs(r)
     
-    peak = np.unravel_index(np.argmax(np.abs(r)), r.shape)
-    dy, dx = peak
-    if dy > r.shape[0] // 2:
-        dy -= r.shape[0]
-    if dx > r.shape[1] // 2:
-        dx -= r.shape[1]
-        
-    print(f"    - [{channel_name}] Detected shift offset: dy={dy}, dx={dx}")
+    peak = np.unravel_index(np.argmax(r_abs), r_abs.shape)
+    py, px = peak
+    
+    # Shift coordinate unwrapping
+    cy = py if py <= r.shape[0] // 2 else py - r.shape[0]
+    cx = px if px <= r.shape[1] // 2 else px - r.shape[1]
+    
+    # Sub-pixel quadratic peak refinement
+    sub_dy = float(cy)
+    sub_dx = float(cx)
+    
+    # 1D parabolic fit for Y
+    if 0 < py < r_abs.shape[0] - 1:
+        v_m1, v_0, v_p1 = r_abs[py - 1, px], r_abs[py, px], r_abs[py + 1, px]
+        denom = 2.0 * (2.0 * v_0 - v_m1 - v_p1)
+        if abs(denom) > 1e-6:
+            sub_dy += (v_p1 - v_m1) / denom
+            
+    # 1D parabolic fit for X
+    if 0 < px < r_abs.shape[1] - 1:
+        v_m1, v_0, v_p1 = r_abs[py, px - 1], r_abs[py, px], r_abs[py, px + 1]
+        denom = 2.0 * (2.0 * v_0 - v_m1 - v_p1)
+        if abs(denom) > 1e-6:
+            sub_dx += (v_p1 - v_m1) / denom
+            
+    print(f"    - [{channel_name}] Detected sub-pixel offset: dy={sub_dy:.2f}, dx={sub_dx:.2f}")
     
     # Safety threshold to avoid alignment distortion if files are mismatching
-    if abs(dy) > 20 or abs(dx) > 20:
-        print(f"      -> WARNING: Detected shift too large ({dy}, {dx}). Skipping alignment.")
+    if abs(sub_dy) > 25.0 or abs(sub_dx) > 25.0:
+        print(f"      -> WARNING: Detected shift too large ({sub_dy:.2f}, {sub_dx:.2f}). Skipping alignment.")
         return mov
         
-    if dy == 0 and dx == 0:
+    if abs(sub_dy) < 0.02 and abs(sub_dx) < 0.02:
         return mov
         
-    # Apply corrective shift (opposite of detected shift)
-    shifted = np.zeros_like(mov)
-    
-    src_y_start = max(0, dy)
-    src_y_end = min(h, h + dy)
-    src_x_start = max(0, dx)
-    src_x_end = min(w, w + dx)
-    
-    dst_y_start = max(0, -dy)
-    dst_y_end = min(h, h - dy)
-    dst_x_start = max(0, -dx)
-    dst_x_end = min(w, w - dx)
-    
-    shifted[dst_y_start:dst_y_end, dst_x_start:dst_x_end] = mov[src_y_start:src_y_end, src_x_start:src_x_end]
-    return shifted
+    # Apply corrective sub-pixel Fourier phase shift (sub_dy, sub_dx)
+    return fourier_shift_2d(mov, sub_dy, sub_dx)
 
 def process_triplet(group, output_filepath, neutralize_base=False, compress_tiff=False, align_channels=False):
     """Processes exactly 3 RAW files into a single 16-bit TIFF composite."""
@@ -109,7 +147,9 @@ def process_triplet(group, output_filepath, neutralize_base=False, compress_tiff
                     pass
 
             if linear_rgb is None:
-                demosaic_alg = getattr(rawpy.DemosaicAlgorithm, 'AHD', rawpy.DemosaicAlgorithm.DHT)
+                # Use LINEAR / DHT demosaicing without cross-channel gradient homogeneity switching (AHD)
+                # to prevent maze grid artifacts on monochromatic narrowband triplet shots and preserve natural grain.
+                demosaic_alg = getattr(rawpy.DemosaicAlgorithm, 'LINEAR', rawpy.DemosaicAlgorithm.DHT)
                 with rawpy.imread(filepath) as raw:
                     linear_rgb = raw.postprocess(
                         gamma=(1, 1),
@@ -120,18 +160,30 @@ def process_triplet(group, output_filepath, neutralize_base=False, compress_tiff
                         output_bps=16,
                         user_flip=0,
                         demosaic_algorithm=demosaic_alg,
-                        four_color_rgb=True,
-                        fbdd_noise_reduction=rawpy.FBDDNoiseReductionMode.Full
+                        four_color_rgb=False,
+                        fbdd_noise_reduction=rawpy.FBDDNoiseReductionMode.Off
                     )
         
             if linear_rgb is not None:
-                # Determine light source by finding the brightest channel
-                means = [
-                    np.mean(linear_rgb[:, :, 0]),
-                    np.mean(linear_rgb[:, :, 1]),
-                    np.mean(linear_rgb[:, :, 2])
-                ]
-                dominant_idx = int(np.argmax(means))
+                # Check filename hints first
+                fname_lower = Path(filepath).name.lower()
+                dominant_idx = None
+                if "_r." in fname_lower or "_red" in fname_lower or "_r_" in fname_lower:
+                    dominant_idx = 0
+                elif "_g." in fname_lower or "_green" in fname_lower or "_g_" in fname_lower:
+                    dominant_idx = 1
+                elif "_b." in fname_lower or "_blue" in fname_lower or "_b_" in fname_lower:
+                    dominant_idx = 2
+                
+                if dominant_idx is None:
+                    # Account for Bayer quantum efficiency (Green sensels are 2x as numerous & sensitive)
+                    weighted_means = [
+                        np.mean(linear_rgb[:, :, 0]) / 1.0,
+                        np.mean(linear_rgb[:, :, 1]) / 1.5,
+                        np.mean(linear_rgb[:, :, 2]) / 0.85
+                    ]
+                    dominant_idx = int(np.argmax(weighted_means))
+                    
                 if dominant_idx == 0:
                     channels_data['red'] = linear_rgb[:, :, 0]
                     print("      -> Detected as RED light shot")

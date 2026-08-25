@@ -91,7 +91,8 @@ def process_positives(input_path, output_dir=None, clip=0.1, gamma=2.2, compress
                         output_color=rawpy.ColorSpace.raw,
                         output_bps=16,
                         user_flip=0,
-                        demosaic_algorithm=demosaic_alg
+                        demosaic_algorithm=demosaic_alg,
+                        fbdd_noise_reduction=rawpy.FBDDNoiseReductionMode.Off
                     )
             
             # Check for 16-bit data
@@ -179,44 +180,69 @@ def process_positives(input_path, output_dir=None, clip=0.1, gamma=2.2, compress
                 # Professional Film H&D Sensitometric Inversion:
                 # 1. Optical Density: D = log10(c_base / max(I_raw, 1.0))
                 # 2. Normalized Density: D_norm = (D - p_low) / (p_high - p_low)
-                # 3. Linear Light Conversion: I_pos = ((10^(gamma_film * D_norm) - 1) / (10^gamma_film - 1)) * target_max
-                gamma_film = 0.8
-                denom = (10.0 ** gamma_film) - 1.0
-                print(f"  -> Inverting film transmission & balancing levels (clip={clip}%, target_max={target_max:.0f})...")
+                # 3. Linear Scene Radiance: I_pos = ((10^(D_norm / gamma_film) - 1) / (10^(1 / gamma_film) - 1)) * target_max
+                gamma_film = 0.70 if is_mono else 0.65
+                denom = (10.0 ** (1.0 / gamma_film)) - 1.0
+                print(f"  -> Inverting film transmission & balancing levels (clip={clip}%, gamma_film={gamma_film:.2f}, target_max={target_max:.0f})...")
 
-                def apply_film_characteristic_curve(D_norm, shoulder_start=0.85, toe_start=0.05):
-                    """Applies a smooth H&D film shoulder and toe roll-off to prevent highlight/shadow clipping."""
+                def apply_film_characteristic_curve(D_norm, shoulder_start=0.90, toe_start=0.08):
+                    """
+                    Applies a strictly monotonic, C1-continuous soft shoulder and toe roll-off.
+                    Guarantees monotonicity across the entire real line so negative overshoot values
+                    never collapse or jump abruptly to black.
+                    """
                     y = np.copy(D_norm)
-                    mask_high = y > shoulder_start
-                    if np.any(mask_high):
-                        over = y[mask_high] - shoulder_start
+                    mask_toe = y < toe_start
+                    if np.any(mask_toe):
+                        diff = (y[mask_toe] - toe_start) / max(toe_start, 1e-4)
+                        diff = np.clip(diff, -10.0, 0.0)
+                        y[mask_toe] = toe_start * np.exp(diff)
+                        
+                    mask_shoulder = y > shoulder_start
+                    if np.any(mask_shoulder):
+                        diff = (y[mask_shoulder] - shoulder_start) / max(1.0 - shoulder_start, 1e-4)
+                        diff = np.clip(diff, 0.0, 10.0)
                         scale = 1.0 - shoulder_start
-                        y[mask_high] = shoulder_start + scale * (over / (over + scale))
-                    mask_low = y < toe_start
-                    if np.any(mask_low):
-                        under = toe_start - y[mask_low]
-                        scale = toe_start
-                        y[mask_low] = toe_start - scale * (under / (under + scale))
+                        y[mask_shoulder] = 1.0 - scale * np.exp(-diff)
+                        
                     return np.clip(y, 0.0, 1.0)
 
                 if not is_mono and img_float.ndim == 3 and img_float.shape[2] == 3:
                     pos_linear = np.zeros_like(img_float)
+                    
+                    # Compute relative optical density per channel after neutralizing film base
+                    D_raw_img = np.zeros_like(img_float)
+                    D_raw_ana = np.zeros_like(analysis_region)
                     for c in range(3):
                         c_base = np.percentile(analysis_region[:, :, c], 99.9)
-                        D_raw_img = np.log10(np.maximum(c_base, 1.0) / np.maximum(img_float[:, :, c], 1.0))
-                        D_raw_ana = np.log10(np.maximum(c_base, 1.0) / np.maximum(analysis_region[:, :, c], 1.0))
+                        D_raw_img[:, :, c] = np.log10(np.maximum(c_base, 1.0) / np.maximum(img_float[:, :, c], 1.0))
+                        D_raw_ana[:, :, c] = np.log10(np.maximum(c_base, 1.0) / np.maximum(analysis_region[:, :, c], 1.0))
                         
+                    if global_levels:
+                        # Global exposure scaling: preserves scene color ratios without independent channel distortion
                         p_low = np.percentile(D_raw_ana, clip)
                         p_high = np.percentile(D_raw_ana, 100 - clip)
-                        
-                        if p_high > p_low:
-                            D_raw_scaled = (D_raw_img - p_low) / (p_high - p_low)
-                            D_norm = apply_film_characteristic_curve(D_raw_scaled, shoulder_start=0.85, toe_start=0.05)
-                        else:
-                            D_norm = np.zeros_like(D_raw_img)
+                        for c in range(3):
+                            if p_high > p_low:
+                                D_raw_scaled = (D_raw_img[:, :, c] - p_low) / (p_high - p_low)
+                                D_norm = apply_film_characteristic_curve(D_raw_scaled, shoulder_start=0.90, toe_start=0.08)
+                            else:
+                                D_norm = np.zeros_like(D_raw_img[:, :, c])
+                            I_pos = (10.0 ** (D_norm / gamma_film) - 1.0) / denom
+                            pos_linear[:, :, c] = I_pos * target_max
+                    else:
+                        for c in range(3):
+                            p_low = np.percentile(D_raw_ana[:, :, c], clip)
+                            p_high = np.percentile(D_raw_ana[:, :, c], 100 - clip)
                             
-                        I_pos = (10.0 ** (gamma_film * D_norm) - 1.0) / denom
-                        pos_linear[:, :, c] = I_pos * target_max
+                            if p_high > p_low:
+                                D_raw_scaled = (D_raw_img[:, :, c] - p_low) / (p_high - p_low)
+                                D_norm = apply_film_characteristic_curve(D_raw_scaled, shoulder_start=0.90, toe_start=0.08)
+                            else:
+                                D_norm = np.zeros_like(D_raw_img[:, :, c])
+                                
+                            I_pos = (10.0 ** (D_norm / gamma_film) - 1.0) / denom
+                            pos_linear[:, :, c] = I_pos * target_max
                     img_float = pos_linear
                 else:
                     c_base = np.percentile(analysis_region, 99.9)
@@ -228,11 +254,11 @@ def process_positives(input_path, output_dir=None, clip=0.1, gamma=2.2, compress
                     
                     if p_high > p_low:
                         D_raw_scaled = (D_raw_img - p_low) / (p_high - p_low)
-                        D_norm = apply_film_characteristic_curve(D_raw_scaled, shoulder_start=0.85, toe_start=0.05)
+                        D_norm = apply_film_characteristic_curve(D_raw_scaled, shoulder_start=0.90, toe_start=0.08)
                     else:
                         D_norm = np.zeros_like(D_raw_img)
                         
-                    I_pos = (10.0 ** (gamma_film * D_norm) - 1.0) / denom
+                    I_pos = (10.0 ** (D_norm / gamma_film) - 1.0) / denom
                     img_float = I_pos * target_max
 
             # Scale to 16-bit linear light array
