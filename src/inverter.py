@@ -92,6 +92,7 @@ def process_positives(input_path, output_dir=None, clip=0.1, gamma=2.2, compress
                         output_bps=16,
                         user_flip=0,
                         demosaic_algorithm=demosaic_alg,
+                        four_color_rgb=True,
                         fbdd_noise_reduction=rawpy.FBDDNoiseReductionMode.Off
                     )
             

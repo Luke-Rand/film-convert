@@ -160,7 +160,7 @@ def process_triplet(group, output_filepath, neutralize_base=False, compress_tiff
                         output_bps=16,
                         user_flip=0,
                         demosaic_algorithm=demosaic_alg,
-                        four_color_rgb=False,
+                        four_color_rgb=True,
                         fbdd_noise_reduction=rawpy.FBDDNoiseReductionMode.Off
                     )
         
