@@ -654,8 +654,11 @@ class CameraManager:
                             with self.lock:
                                 f_list = self.camera.folder_list_files(dcim_dir)
                                 initial_dcim_files = {f_list.get_name(i) for i in range(f_list.count())}
+                            self.log(f"Pre-capture DCIM snapshot ({dcim_dir}): {len(initial_dcim_files)} files.")
                         except Exception as list_err:
                             self.log(f"Notice: Pre-capture DCIM listing: {list_err}")
+                    else:
+                        self.log("Notice: DCIM folder not located prior to shutter release.")
 
                     file_path_info = None
                     result_path = None
@@ -670,24 +673,12 @@ class CameraManager:
                             pass
 
                         # For scanning film negatives, shutter release MUST NOT activate AF hunting
-                        # Try manual focus release first ("Press Half MF" -> "Press Full MF"), fallback to ("Press Half" -> "Press Full")
-                        self.log("Triggering camera shutter via eosremoterelease (MF release, no AF hunting)...")
-                        for half_opt in ["Press Half MF", "Press Half", "Press Half AF"]:
-                            try:
-                                self._set_camera_property("eosremoterelease", half_opt)
-                                break
-                            except Exception:
-                                pass
+                        # Canon EOS remote release: Press Half MF (metering only) -> Press Full MF (shutter trip)
+                        self.log("Triggering camera shutter via eosremoterelease (Press Half MF -> Press Full MF)...")
+                        self._set_camera_property("eosremoterelease", "Press Half MF")
+                        time.sleep(0.15) # Hold half-press for exposure metering
 
-                        time.sleep(0.12) # Hold half-press for exposure metering
-
-                        for full_opt in ["Press Full MF", "Press Full", "Press Full AF"]:
-                            try:
-                                self._set_camera_property("eosremoterelease", full_opt)
-                                break
-                            except Exception:
-                                pass
-
+                        self._set_camera_property("eosremoterelease", "Press Full MF")
                         time.sleep(0.25) # Hold full-press to trip shutter mechanism
 
                         # Release both switches
@@ -700,7 +691,7 @@ class CameraManager:
 
                         # Wait for capture event from camera or detect newly written file in storage
                         t0 = time.time()
-                        while time.time() - t0 < 6.0:
+                        while time.time() - t0 < 8.0:
                             # Check PTP events
                             with self.lock:
                                 try:
@@ -720,7 +711,7 @@ class CameraManager:
                                         cur_list = self.camera.folder_list_files(dcim_dir)
                                         cur_count = cur_list.count()
                                     if cur_count > len(initial_dcim_files):
-                                        for idx in range(cur_count - 1, max(-1, cur_count - 5), -1):
+                                        for idx in range(cur_count - 1, max(-1, cur_count - 10), -1):
                                             fname = cur_list.get_name(idx)
                                             if fname not in initial_dcim_files:
                                                 file_path_info = (dcim_dir, fname)
@@ -731,7 +722,7 @@ class CameraManager:
                                 except Exception:
                                     pass
 
-                            time.sleep(0.08)
+                            time.sleep(0.1)
 
                         if file_path_info:
                             folder, name = file_path_info
@@ -943,11 +934,13 @@ class CameraManager:
                                 if sub_dcim.count() > 0:
                                     target = f"{dcim_path}/{sub_dcim.get_name(sub_dcim.count() - 1)}"
                                     self._cached_dcim_folder = target
+                                    self.log(f"Located camera DCIM storage directory: {target}")
                                     return target
                                 self._cached_dcim_folder = dcim_path
+                                self.log(f"Located camera DCIM storage directory: {dcim_path}")
                                 return dcim_path
-                    except Exception:
-                        pass
+                    except Exception as sub_e:
+                        self.log(f"Notice inspecting storage top {top}: {sub_e}")
         except Exception as e:
             self.log(f"Notice finding DCIM folder: {e}")
         return None
@@ -1261,12 +1254,18 @@ class CameraManager:
                     matched_choice = default_zoom
 
             if name.lower() == "eosremoterelease":
-                v_lower = str(value).lower()
+                v_lower = str(value).strip().lower()
                 for choice in valid_choices:
-                    c_lower = str(choice).lower()
-                    if v_lower in c_lower or c_lower in v_lower or ("press half" in v_lower and "press half" in c_lower):
+                    c_lower = str(choice).strip().lower()
+                    if v_lower == c_lower:
                         matched_choice = choice
                         break
+                if matched_choice is None:
+                    for choice in valid_choices:
+                        c_lower = str(choice).strip().lower()
+                        if v_lower.replace(" ", "") == c_lower.replace(" ", ""):
+                            matched_choice = choice
+                            break
 
             if matched_choice is None:
                 for choice in valid_choices:
