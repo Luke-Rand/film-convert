@@ -7,10 +7,12 @@ publish:
   releaseType: release
 directories:
   output: dist-app
+electronDist: node_modules/electron/dist
 files:
   - main.js
   - preload.js
   - package.json
+  - assets/**
 extraResources:
   - from: dist/backend
     to: backend
