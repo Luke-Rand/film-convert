@@ -730,6 +730,13 @@ class ScanlightUIController {
     this.isSequenceRunning = true;
     this.disableControlTriggers(true);
     
+    // Disengage hardware zoom magnification so camera shutter is unlocked
+    if (typeof setZoomMagnification === 'function' && typeof zoomFactor !== 'undefined' && zoomFactor !== 1) {
+      this.log("[Scanlight] Disengaging zoom magnification (1x) prior to automated sequence to ensure shutter is unlocked...");
+      setZoomMagnification(1);
+      await new Promise(r => setTimeout(r, 250));
+    }
+
     // Temporarily pause Live View during capture sequence so Continuous/Servo AF in Live View does not hunt when LED colors change
     const liveviewToggle = document.getElementById('camera-liveview-toggle');
     const wasLiveviewActive = liveviewToggle && liveviewToggle.checked;

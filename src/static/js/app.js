@@ -1515,7 +1515,13 @@ function setCameraConfig(name, value) {
 // Toggle Live View streaming state
 function toggleCameraLiveview(active) {
     isLiveviewActive = active;
-    isZoomed = false; // Reset zoom state when toggling
+    
+    // When stopping live view, reset zoom magnification so hardware zoom is disengaged
+    if (!active && zoomFactor !== 1 && typeof setZoomMagnification === 'function') {
+        setZoomMagnification(1);
+    } else {
+        isZoomed = false; // Reset zoom state when toggling
+    }
     
     const canvas = document.getElementById('camera-liveview-canvas');
     const placeholder = document.getElementById('liveview-placeholder');
@@ -1718,6 +1724,11 @@ async function pollLiveviewFrame() {
 function triggerCameraCapture() {
     const btn = document.getElementById('btn-camera-capture');
     if (btn) btn.disabled = true;
+    
+    // Disengage hardware zoom prior to capture if active
+    if (zoomFactor !== 1 && typeof setZoomMagnification === 'function') {
+        setZoomMagnification(1);
+    }
     
     appendLogLine("[Client] Triggering capture command...");
     

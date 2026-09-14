@@ -605,26 +605,72 @@ class CameraManager:
                 # Reset viewfinder state so EVF stream is re-engaged cleanly after capture
                 self._physical_viewfinder_active = False
                 try:
+                    # Canon cameras lock the shutter if hardware sensor zoom is engaged.
+                    # Disengage eoszoom before triggering shutter release.
+                    if self.resolved_names.get("eoszoom"):
+                        try:
+                            cur_zoom = str(self.camera_settings.get("eoszoom", "0")).lower()
+                            if cur_zoom not in ('0', 'off', 'none'):
+                                self.log("Disengaging hardware zoom (eoszoom = 0) prior to capture to unlock shutter...")
+                                self._set_camera_property("eoszoom", 0)
+                                self.camera_settings["eoszoom"] = "0"
+                                time.sleep(0.15)
+                        except Exception as zoom_err:
+                            self.log(f"Notice: Pre-capture eoszoom check encountered: {zoom_err}")
+
+                    file_path_info = None
+                    result_path = None
+
                     if self.resolved_names.get("eosremoterelease"):
+                        # Ensure release state is clean before pressing
+                        try:
+                            self._set_camera_property("eosremoterelease", "Release Full")
+                            time.sleep(0.05)
+                        except Exception:
+                            pass
+
+                        # Primary trigger: Press Full MF (held 200ms) to bypass autofocus lag
                         self.log("Triggering manual focus capture via eosremoterelease (Press Full MF)...")
                         self._set_camera_property("eosremoterelease", "Press Full MF")
-                        time.sleep(0.05)
+                        time.sleep(0.2)
                         self._set_camera_property("eosremoterelease", "Release Full")
                         
                         t0 = time.time()
-                        file_path_info = None
-                        while time.time() - t0 < 6.0:
+                        while time.time() - t0 < 3.0:
                             with self.lock:
-                                event_type, event_data = self.camera.wait_for_event(200)
+                                event_type, event_data = self.camera.wait_for_event(150)
                             if event_type == gp.GP_EVENT_FILE_ADDED:
                                 file_path_info = event_data
                                 break
-                        
-                        if file_path_info:
+
+                        # Secondary trigger: If Press Full MF did not produce a file event within 3s
+                        # (e.g. lens/body is in autofocus / One-Shot mode), try Press Full AF
+                        if not file_path_info:
+                            self.log("Press Full MF produced no file event. Attempting secondary release via eosremoterelease (Press Full AF)...")
+                            try:
+                                self._set_camera_property("eosremoterelease", "Press Full AF")
+                                time.sleep(0.25)
+                                self._set_camera_property("eosremoterelease", "Release Full")
+                                t1 = time.time()
+                                while time.time() - t1 < 4.0:
+                                    with self.lock:
+                                        event_type, event_data = self.camera.wait_for_event(150)
+                                    if event_type == gp.GP_EVENT_FILE_ADDED:
+                                        file_path_info = event_data
+                                        break
+                            except Exception as af_err:
+                                self.log(f"Secondary release attempt error: {af_err}")
+
+                        # Tertiary fallback: direct driver capture via camera.capture(GP_CAPTURE_IMAGE)
+                        if not file_path_info:
+                            self.log("No file event from eosremoterelease. Falling back to camera.capture(GP_CAPTURE_IMAGE)...")
+                            with self.lock:
+                                file_path = self.camera.capture(gp.GP_CAPTURE_IMAGE)
+                            self.log(f"Capture successful via camera.capture fallback. File created: {file_path.folder}/{file_path.name}")
+                            result_path = self._download_camera_file(file_path.folder, file_path.name)
+                        else:
                             self.log(f"Capture successful. File created on camera: {file_path_info.folder}/{file_path_info.name}")
                             result_path = self._download_camera_file(file_path_info.folder, file_path_info.name)
-                        else:
-                            raise Exception("Timeout waiting for captured file from camera.")
                     else:
                         self.log("Triggering camera capture...")
                         with self.lock:
@@ -1085,17 +1131,23 @@ class CameraManager:
                 v_lower = str(value).lower()
                 if v_lower in ['0', '1', 'off', 'normal']:
                     targets = ['0', '1', 'off', 'normal']
+                    default_zoom = 0
                 elif '5' in v_lower:
                     targets = ['5', '5x']
+                    default_zoom = 5
                 elif '10' in v_lower:
                     targets = ['10', '10x']
+                    default_zoom = 10
                 else:
                     targets = [v_lower]
+                    default_zoom = 0
                     
                 for choice in valid_choices:
                     if str(choice).lower() in targets:
                         matched_choice = choice
                         break
+                if matched_choice is None:
+                    matched_choice = default_zoom
 
             if name.lower() == "eosremoterelease":
                 v_lower = str(value).lower()
@@ -1131,9 +1183,9 @@ class CameraManager:
                 last_err = first_err
                 err_str = str(first_err)
                 if name.lower() == "eoszoom":
-                    self.log(f"Initial set_single_config for eoszoom='{value}' failed: {first_err}. Probing alternative variants...")
+                    self.log(f"Initial set_single_config for eoszoom='{value}' failed: {first_err}. Probing integer variants [0, 1]...")
                     success = False
-                    for alt in [0, 1, '0', '1', 'Off', 'normal']:
+                    for alt in [0, 1]:
                         try:
                             self._set_widget_value_safely(widget, alt)
                             with self.lock:
