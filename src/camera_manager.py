@@ -338,30 +338,35 @@ class CameraManager:
                 last_init_err = None
                 camera = None
                 for model_label, idx in model_indices:
-                    cam_try = None
-                    try:
-                        if sys.platform == 'darwin':
-                            subprocess.run(["killall", "-9", "ptpcamerad"], capture_output=True)
-                            subprocess.run(["killall", "-9", "icdd"], capture_output=True)
-                            time.sleep(0.15)
+                    for attempt in range(3):
+                        cam_try = None
+                        try:
+                            if sys.platform == 'darwin':
+                                for _ in range(3):
+                                    subprocess.run(["killall", "-9", "ptpcamerad"], capture_output=True)
+                                    subprocess.run(["killall", "-9", "icdd"], capture_output=True)
+                                    time.sleep(0.05)
+                                time.sleep(0.1)
 
-                        self.log(f"Attempting camera init with driver profile '{model_label}' (index {idx})...")
-                        cam_try = gp.Camera()
-                        cam_try.set_abilities(abilities_list[idx])
-                        cam_try.set_port_info(port_info)
-                        cam_try.init()
-                        camera = cam_try
-                        self.log(f"Successfully initialized camera using driver profile '{model_label}'")
+                            self.log(f"Attempting camera init with driver profile '{model_label}' (index {idx}, attempt {attempt + 1}/3)...")
+                            cam_try = gp.Camera()
+                            cam_try.set_abilities(abilities_list[idx])
+                            cam_try.set_port_info(port_info)
+                            cam_try.init()
+                            camera = cam_try
+                            self.log(f"Successfully initialized camera using driver profile '{model_label}'")
+                            break
+                        except Exception as err:
+                            self.log(f"Init with driver profile '{model_label}' (attempt {attempt + 1}) failed: {err}")
+                            if cam_try:
+                                try:
+                                    cam_try.exit()
+                                except Exception:
+                                    pass
+                            last_init_err = err
+                            time.sleep(0.3)
+                    if camera:
                         break
-                    except Exception as err:
-                        self.log(f"Init with driver profile '{model_label}' failed: {err}")
-                        if cam_try:
-                            try:
-                                cam_try.exit()
-                            except Exception:
-                                pass
-                        last_init_err = err
-                        time.sleep(0.2)
 
                 if not camera:
                     raise last_init_err or Exception("Failed to initialize camera with any driver profile.")

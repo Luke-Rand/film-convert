@@ -486,7 +486,25 @@ camera_manager = CameraManager(session_manager=session)
 camera_manager.start()
 
 import atexit
-atexit.register(lambda: camera_manager.stop())
+import signal
+
+def _cleanup():
+    try:
+        camera_manager.stop()
+    except Exception:
+        pass
+
+atexit.register(_cleanup)
+
+def _sig_handler(signum, frame):
+    _cleanup()
+    sys.exit(0)
+
+try:
+    signal.signal(signal.SIGTERM, _sig_handler)
+    signal.signal(signal.SIGINT, _sig_handler)
+except (ValueError, AttributeError):
+    pass
 
 # --- WEB CONTROLLER ROUTES ---
 
