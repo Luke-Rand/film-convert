@@ -6,7 +6,7 @@
   "scripts": {
     "start": "electron .",
     "build:python": "node -e \"const { spawnSync } = require('child_process'); const path = require('path'); const isWin = process.platform === 'win32'; const pyinstaller = isWin ? path.join('.venv', 'Scripts', 'pyinstaller.exe') : path.join('.venv', 'bin', 'pyinstaller'); const env = { ...process.env, PYINSTALLER_CONFIG_DIR: path.join(process.cwd(), 'build', 'pyinstaller-cache') }; const res = spawnSync(pyinstaller, ['--clean', '--noconfirm', 'src/web_ui.spec'], { stdio: 'inherit', shell: isWin, env }); process.exit(res.status ?? 0);\"",
-    "package:mac": "npm run build:python && electron-builder --mac --dir && xattr -cr dist-app/mac-arm64/FilmConvert.app && codesign --force --deep --sign - --identifier \"com.filmconvert.app\" --entitlements build/entitlements.mac.plist dist-app/mac-arm64/FilmConvert.app",
+    "package:mac": "npm run build:python && electron-builder --mac --dir && (xattr -r -d com.apple.FinderInfo dist-app/mac-arm64/FilmConvert.app 2>/dev/null || true) && dot_clean dist-app/mac-arm64/FilmConvert.app && xattr -cr dist-app/mac-arm64/FilmConvert.app && codesign --force --deep --sign - --identifier \"com.filmconvert.app\" --entitlements build/entitlements.mac.plist dist-app/mac-arm64/FilmConvert.app",
     "deploy:mac": "npm run package:mac && rm -rf /Applications/FilmConvert.app && cp -R dist-app/mac-arm64/FilmConvert.app /Applications/FilmConvert.app",
     "dist": "npm run build:python && electron-builder"
   },
