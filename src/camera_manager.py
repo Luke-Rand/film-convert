@@ -198,13 +198,7 @@ class CameraManager:
     def _worker_loop(self):
         self.log("Worker loop entering active state.")
         while not self.stop_event.is_set():
-            if not self.simulated and not self.camera:
-                self._try_connect_physical_camera()
-                if not self.camera_connected:
-                    time.sleep(2.0)
-                    continue
-
-            # 1. Execute commands queued by Flask threads
+            # 1. Execute commands queued by Flask threads FIRST
             try:
                 while not self.cmd_queue.empty():
                     cmd, args, resp_q = self.cmd_queue.get_nowait()
@@ -215,6 +209,12 @@ class CameraManager:
                         resp_q.put((False, str(e)))
             except queue.Empty:
                 pass
+
+            if not self.simulated and not self.camera:
+                self._try_connect_physical_camera()
+                if not self.camera_connected:
+                    time.sleep(2.0)
+                    continue
 
             # Viewfinder state transition for Nikon/Canon
             if self.camera_connected and self.camera:
@@ -230,6 +230,9 @@ class CameraManager:
                     except Exception:
                         pass
                     self._physical_viewfinder_active = True
+                elif not self.live_view_active and self._physical_viewfinder_active:
+                    self._set_camera_viewfinder(0)
+                    self._physical_viewfinder_active = False
 
             # 2. Grab preview frame if live view is active and not paused for setting update
             if self.live_view_active and not self.pause_preview:
@@ -435,9 +438,19 @@ class CameraManager:
                     pass
             self.camera = None
             self.camera_connected = False
-            # Fallback to simulated mode if no camera is available
-            self.simulated = True
-            self.log(f"No physical camera detected. Falling back to Simulated Mode. (Reason: {e})")
+            # If no camera was autodetected on USB at all, fallback to simulated mode
+            # But if a USB camera exists and just timed out/was claimed, do not lock to simulated mode
+            try:
+                cl = gp.Camera.autodetect()
+                has_camera = len(cl) > 0
+            except Exception:
+                has_camera = False
+
+            if not has_camera:
+                self.simulated = True
+                self.log(f"No physical camera detected. Falling back to Simulated Mode. (Reason: {e})")
+            else:
+                self.log(f"Physical camera detected on USB but initialization failed ({e}). Will retry...")
 
     def _init_ptp_fallback(self):
         cl = gp.Camera.autodetect()
@@ -513,10 +526,12 @@ class CameraManager:
             }
 
         elif cmd == "reconnect":
+            self.disconnect()
             self.simulated = False
             self.camera = None
             self.camera_connected = False
-            return True
+            self._try_connect_physical_camera()
+            return self.camera_connected
 
         elif cmd == "set_config":
             name = args["name"].lower()
