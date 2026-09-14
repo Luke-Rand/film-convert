@@ -6,6 +6,32 @@ import threading
 from pathlib import Path
 from PIL import Image, ImageDraw
 
+def _configure_gphoto2_env():
+    import sys
+    import glob
+    if 'CAMLIBS' not in os.environ or 'IOLIBS' not in os.environ:
+        search_roots = []
+        if hasattr(sys, '_MEIPASS'):
+            search_roots.append(os.path.join(sys._MEIPASS, 'gphoto2'))
+            search_roots.append(sys._MEIPASS)
+        search_roots.extend(['/opt/homebrew/lib', '/usr/local/lib', '/usr/lib'])
+
+        for root in search_roots:
+            if 'CAMLIBS' not in os.environ:
+                matches = glob.glob(os.path.join(root, 'libgphoto2', '*')) + glob.glob(os.path.join(root, 'camlibs', '*'))
+                for m in sorted(matches, reverse=True):
+                    if os.path.isdir(m) and (os.path.exists(os.path.join(m, 'ptp2.so')) or os.path.exists(os.path.join(m, 'canon.so'))):
+                        os.environ['CAMLIBS'] = m
+                        break
+            if 'IOLIBS' not in os.environ:
+                matches = glob.glob(os.path.join(root, 'libgphoto2_port', '*')) + glob.glob(os.path.join(root, 'iolibs', '*'))
+                for m in sorted(matches, reverse=True):
+                    if os.path.isdir(m) and (os.path.exists(os.path.join(m, 'usb1.so')) or os.path.exists(os.path.join(m, 'disk.so'))):
+                        os.environ['IOLIBS'] = m
+                        break
+
+_configure_gphoto2_env()
+
 # Try to import gphoto2. If not installed, we fallback to simulated mode.
 try:
     import gphoto2 as gp

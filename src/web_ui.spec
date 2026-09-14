@@ -2,20 +2,33 @@
 import sys
 import os
 
+import glob
+
 block_cipher = None
 
 # Locate directories to package
 templates_path = os.path.abspath('src/templates')
 static_path = os.path.abspath('src/static')
 
+datas = [
+    (templates_path, 'templates'),
+    (static_path, 'static')
+]
+
+# Locate gphoto2 camlibs and iolibs if present
+for p in ['/opt/homebrew/lib', '/usr/local/lib']:
+    for m in glob.glob(os.path.join(p, 'libgphoto2', '*')):
+        if os.path.isdir(m) and os.path.exists(os.path.join(m, 'ptp2.so')):
+            datas.append((m, os.path.join('gphoto2', 'camlibs', os.path.basename(m))))
+    for m in glob.glob(os.path.join(p, 'libgphoto2_port', '*')):
+        if os.path.isdir(m) and os.path.exists(os.path.join(m, 'usb1.so')):
+            datas.append((m, os.path.join('gphoto2', 'iolibs', os.path.basename(m))))
+
 a = Analysis(
     ['web_ui.py'],
     pathex=['src'],
     binaries=[],
-    datas=[
-        (templates_path, 'templates'),
-        (static_path, 'static')
-    ],
+    datas=datas,
     hiddenimports=[
         'flask',
         'numpy',
