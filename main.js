@@ -55,6 +55,32 @@ function startPythonBackend(port) {
   // Add Homebrew paths to PATH on macOS so dynamic packages find Homebrew libraries/tools
   if (process.platform === 'darwin') {
     env.PATH = `/opt/homebrew/bin:/usr/local/bin:${env.PATH || ''}`;
+    const fs = require('fs');
+    const searchBases = ['/opt/homebrew/lib', '/usr/local/lib', '/usr/lib'];
+    for (const base of searchBases) {
+      if (!env.CAMLIBS) {
+        const camPath = path.join(base, 'libgphoto2');
+        if (fs.existsSync(camPath)) {
+          try {
+            const versions = fs.readdirSync(camPath).filter(f => fs.statSync(path.join(camPath, f)).isDirectory());
+            if (versions.length > 0) {
+              env.CAMLIBS = path.join(camPath, versions.sort().reverse()[0]);
+            }
+          } catch (e) {}
+        }
+      }
+      if (!env.IOLIBS) {
+        const ioPath = path.join(base, 'libgphoto2_port');
+        if (fs.existsSync(ioPath)) {
+          try {
+            const versions = fs.readdirSync(ioPath).filter(f => fs.statSync(path.join(ioPath, f)).isDirectory());
+            if (versions.length > 0) {
+              env.IOLIBS = path.join(ioPath, versions.sort().reverse()[0]);
+            }
+          } catch (e) {}
+        }
+      }
+    }
   }
 
   pythonProcess = spawn(pythonBin, args, {
