@@ -598,8 +598,8 @@ def camera_liveview_feed():
                 last_id = curr_id
                 yield (b'--frame\r\n'
                        b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
-            elif not camera_manager.live_view_active:
-                time.sleep(0.08)
+            else:
+                time.sleep(0.04)
     return Response(generate(), mimetype='multipart/x-mixed-replace; boundary=frame')
 
 @app.route('/api/camera/frame')
