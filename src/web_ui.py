@@ -152,36 +152,47 @@ class SessionManager:
             if self.status != "idle":
                 return False, f"Cannot start monitoring, current status is '{self.status}'"
 
-            self.root_folder = os.path.abspath(os.path.expanduser(root_dir))
-            os.makedirs(self.root_folder, exist_ok=True)
-            
-            self.session_name = session_name
-            self.mode = mode
-            self.config.update(config)
-            
-            session_dir = os.path.join(self.root_folder, self.session_name)
-            self.dirs = {
-                "negatives": os.path.join(session_dir, "negatives"),
-                "positives": os.path.join(session_dir, "positives"),
-                "processed": os.path.join(session_dir, "processed_raws"),
-                "errors": os.path.join(session_dir, "error_raws")
-            }
-            
-            for d in self.dirs.values():
-                os.makedirs(d, exist_ok=True)
+            try:
+                self.root_folder = os.path.abspath(os.path.expanduser(root_dir))
+                os.makedirs(self.root_folder, exist_ok=True)
                 
-            self.stop_event.clear()
-            self.status = "monitoring"
-            
-            self.monitor_thread = threading.Thread(
-                target=self._monitor_loop, 
-                name="ScannerMonitorThread",
-                daemon=True
-            )
-            self.monitor_thread.start()
-            
-            self.log(f"Started monitoring session: '{self.session_name}' ({self.mode} mode)")
-            self.log(f"Negatives folder: {self.dirs['negatives']}")
+                self.session_name = session_name
+                self.mode = mode
+                self.config.update(config)
+                
+                session_dir = os.path.join(self.root_folder, self.session_name)
+                self.dirs = {
+                    "negatives": os.path.join(session_dir, "negatives"),
+                    "positives": os.path.join(session_dir, "positives"),
+                    "processed": os.path.join(session_dir, "processed_raws"),
+                    "errors": os.path.join(session_dir, "error_raws")
+                }
+                
+                for d in self.dirs.values():
+                    os.makedirs(d, exist_ok=True)
+                    
+                self.stop_event.clear()
+                self.status = "monitoring"
+                
+                self.monitor_thread = threading.Thread(
+                    target=self._monitor_loop, 
+                    name="ScannerMonitorThread",
+                    daemon=True
+                )
+                self.monitor_thread.start()
+                
+                self.log(f"Started monitoring session: '{self.session_name}' ({self.mode} mode)")
+                self.log(f"Negatives folder: {self.dirs['negatives']}")
+            except PermissionError as e:
+                self.status = "idle"
+                err_msg = f"Permission denied accessing '{root_dir}': {e}. If using an external drive or network share, please grant FilmConvert 'Full Disk Access' or 'Files and Folders' in macOS System Settings."
+                self.log(f"Error starting monitor: {err_msg}")
+                return False, err_msg
+            except Exception as e:
+                self.status = "idle"
+                err_msg = f"Failed to initialize session directories: {str(e)}"
+                self.log(f"Error starting monitor: {err_msg}")
+                return False, err_msg
         
         self.broadcast_status()
         return True, "Monitoring started successfully"
@@ -363,11 +374,12 @@ class SessionManager:
                                 shutil.move(filepath, os.path.join(self.dirs['errors'], filename))
                             except Exception: pass
                 
+            except PermissionError as pe:
+                self.log(f"Permission denied accessing session directories: {pe}. Please grant FilmConvert 'Full Disk Access' or 'Files and Folders' (Network Volumes) in macOS System Settings.")
+                self.stop_event.wait(5.0)
             except Exception as e:
                 self.log(f"Monitor loop error: {str(e)}")
-                
-            # Sleep using event wait to enable clean stop
-            self.stop_event.wait(1.0)
+                self.stop_event.wait(1.0)
             
         self.log("Background scanner monitor loop stopped.")
 
@@ -643,21 +655,24 @@ def sse_stream():
 
 @app.route('/api/start', methods=['POST'])
 def start_session():
-    data = request.json or {}
-    root_dir = data.get("root_dir", "~/Pictures/Scans")
-    session_name = data.get("session_name", "")
-    mode = data.get("mode", "triplet")
-    config = data.get("config", {})
-    
-    if not session_name:
-        # Generate default session name based on film stock etc.
-        stock = data.get("stock", "FilmStock").replace(" ", "")
-        fmt = data.get("format", "135").replace(" ", "")
-        roll = str(data.get("roll", "01")).strip().zfill(2)
-        session_name = f"{stock}-{fmt}-{roll}"
+    try:
+        data = request.json or {}
+        root_dir = data.get("root_dir") or "~/Pictures/Scans"
+        session_name = data.get("session_name") or ""
+        mode = data.get("mode") or "triplet"
+        config = data.get("config") or {}
+        
+        if not session_name:
+            # Generate default session name based on film stock etc.
+            stock = str(data.get("stock") or "FilmStock").strip().replace(" ", "")
+            fmt = str(data.get("format") or "135").strip().replace(" ", "")
+            roll = str(data.get("roll") or "01").strip().zfill(2)
+            session_name = f"{stock}-{fmt}-{roll}"
 
-    success, msg = session.start_monitoring(root_dir, session_name, mode, config)
-    return jsonify({"success": success, "message": msg})
+        success, msg = session.start_monitoring(root_dir, session_name, mode, config)
+        return jsonify({"success": success, "message": msg})
+    except Exception as e:
+        return jsonify({"success": False, "message": f"Server error: {str(e)}"}), 500
 
 @app.route('/api/stop', methods=['POST'])
 def stop_session():

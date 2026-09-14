@@ -706,12 +706,20 @@ function toggleMonitor() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload)
         })
-        .then(res => res.json())
-        .then(data => {
-            if (data.success) {
+        .then(async res => {
+            const data = await res.json().catch(() => null);
+            if (!res.ok) {
+                const msg = (data && data.message) || `Server returned HTTP ${res.status}: ${res.statusText}`;
+                appendLogLine(`[Client Error] Failed to start: ${msg}`);
+                alert(`Error starting scanner: ${msg}`);
+                return;
+            }
+            if (data && data.success) {
                 appendLogLine(`[Client] Session monitor initialized successfully.`);
             } else {
-                alert(`Error starting scanner: ${data.message}`);
+                const msg = (data && data.message) || 'Unknown error starting session.';
+                appendLogLine(`[Client Error] Could not start session: ${msg}`);
+                alert(`Error starting scanner: ${msg}`);
             }
         })
         .catch(err => appendLogLine(`[Client Error] Failed to start: ${err}`));
