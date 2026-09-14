@@ -792,6 +792,8 @@ class ScanlightUIController {
         this.setEnabledChannels([0, 0, 0, 0, 0]);
       }
       if (wasLiveviewActive && typeof window.toggleCameraLiveview === 'function') {
+        this.log("[Scanlight] Letting camera USB pipeline settle before restoring Live View stream...");
+        await new Promise(r => setTimeout(r, 1200));
         this.log("[Scanlight] Restoring Live View stream...");
         window.toggleCameraLiveview(true);
       }

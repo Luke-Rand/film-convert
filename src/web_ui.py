@@ -588,19 +588,25 @@ def update_camera_mock_leds():
 @app.route('/api/camera/liveview')
 def camera_liveview_feed():
     def generate():
+        last_id = -1
         while True:
-            frame = camera_manager.get_latest_frame()
-            if frame:
+            camera_manager.frame_event.wait(timeout=0.05)
+            with camera_manager.frame_lock:
+                curr_id = camera_manager.frame_id
+                frame = camera_manager.latest_frame
+            if frame and curr_id != last_id:
+                last_id = curr_id
                 yield (b'--frame\r\n'
                        b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
-            time.sleep(0.04)  # ~25 FPS
+            elif not camera_manager.live_view_active:
+                time.sleep(0.08)
     return Response(generate(), mimetype='multipart/x-mixed-replace; boundary=frame')
 
 @app.route('/api/camera/frame')
 def get_camera_single_frame():
     frame = camera_manager.get_latest_frame()
     if not frame:
-        return jsonify({"error": "No frame available"}), 404
+        return Response(status=204)
     return Response(frame, mimetype='image/jpeg')
 
 @app.route('/api/debug/config_values')
