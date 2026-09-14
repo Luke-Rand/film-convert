@@ -743,7 +743,7 @@ class ScanlightUIController {
     if (wasLiveviewActive && typeof window.toggleCameraLiveview === 'function') {
       this.log("[Scanlight] Temporarily pausing Live View stream during sequence...");
       window.toggleCameraLiveview(false);
-      await new Promise(r => setTimeout(r, 200));
+      await new Promise(r => setTimeout(r, 800));
     }
 
     const seqData = ScanlightConfig[sequence];

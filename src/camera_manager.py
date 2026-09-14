@@ -445,6 +445,22 @@ class CameraManager:
                         self.log("Reset viewfinder to 0 on startup.")
                 except Exception:
                     pass
+
+            # Prevent camera from auto-powering off every 60 seconds while tethered
+            for ap_widget in ["autopoweroff", "auto_power_off"]:
+                try:
+                    with self.lock:
+                        ap = camera.get_single_config(ap_widget)
+                        valid_c = [str(ap.get_choice(i)) for i in range(ap.count_choices())]
+                        if '0' in valid_c:
+                            self._set_widget_value_safely(ap, '0')
+                        elif '1800' in valid_c:
+                            self._set_widget_value_safely(ap, '1800')
+                        camera.set_single_config(ap_widget, ap)
+                        self.log(f"Configured camera {ap_widget} to prevent idle sleep while tethered.")
+                        break
+                except Exception:
+                    pass
             
             # Query and cache settings and choices
             queried_settings = self._query_camera_settings()
@@ -605,8 +621,17 @@ class CameraManager:
                 # Reset viewfinder state so EVF stream is re-engaged cleanly after capture
                 self._physical_viewfinder_active = False
                 try:
-                    # Canon cameras lock the shutter if hardware sensor zoom is engaged.
-                    # Disengage eoszoom before triggering shutter release.
+                    # 1. Drain residual USB preview packets so bus is idle before setting configs or triggering shutter
+                    with self.lock:
+                        try:
+                            for _ in range(6):
+                                evt_type, _ = self.camera.wait_for_event(25)
+                                if evt_type == gp.GP_EVENT_TIMEOUT:
+                                    break
+                        except Exception:
+                            pass
+
+                    # 2. Disengage hardware sensor zoom (eoszoom) if active to unlock camera shutter
                     if self.resolved_names.get("eoszoom"):
                         try:
                             cur_zoom = str(self.camera_settings.get("eoszoom", "0")).lower()
@@ -614,60 +639,73 @@ class CameraManager:
                                 self.log("Disengaging hardware zoom (eoszoom = 0) prior to capture to unlock shutter...")
                                 self._set_camera_property("eoszoom", 0)
                                 self.camera_settings["eoszoom"] = "0"
-                                time.sleep(0.15)
+                                time.sleep(0.2)
                         except Exception as zoom_err:
-                            self.log(f"Notice: Pre-capture eoszoom check encountered: {zoom_err}")
+                            self.log(f"Notice: Pre-capture eoszoom check: {zoom_err}")
 
                     file_path_info = None
                     result_path = None
 
                     if self.resolved_names.get("eosremoterelease"):
-                        # Ensure release state is clean before pressing
+                        # Ensure release state is clean
                         try:
                             self._set_camera_property("eosremoterelease", "Release Full")
-                            time.sleep(0.05)
+                            time.sleep(0.04)
+                            self._set_camera_property("eosremoterelease", "Release Half")
                         except Exception:
                             pass
 
-                        # Primary trigger: Press Full MF (held 200ms) to bypass autofocus lag
-                        self.log("Triggering manual focus capture via eosremoterelease (Press Full MF)...")
-                        self._set_camera_property("eosremoterelease", "Press Full MF")
-                        time.sleep(0.2)
-                        self._set_camera_property("eosremoterelease", "Release Full")
-                        
+                        # Canon EOS requires two-stage release: Stage 1 (Press Half) then Stage 2 (Press Full)
+                        self.log("Triggering camera shutter via eosremoterelease (Press Half -> Press Full)...")
+                        half_pressed = False
+                        for half_opt in ["Press Half AF", "Press Half MF", "Press Half"]:
+                            try:
+                                self._set_camera_property("eosremoterelease", half_opt)
+                                half_pressed = True
+                                break
+                            except Exception:
+                                pass
+
+                        time.sleep(0.2) # Hold half-press for metering/AF lock
+
+                        full_pressed = False
+                        for full_opt in ["Press Full AF", "Press Full MF", "Press Full"]:
+                            try:
+                                self._set_camera_property("eosremoterelease", full_opt)
+                                full_pressed = True
+                                break
+                            except Exception:
+                                pass
+
+                        time.sleep(0.25) # Hold full-press to trip shutter mechanism
+
+                        # Release both switches
+                        try:
+                            self._set_camera_property("eosremoterelease", "Release Full")
+                            time.sleep(0.04)
+                            self._set_camera_property("eosremoterelease", "Release Half")
+                        except Exception:
+                            pass
+
+                        # Wait for capture event from camera
                         t0 = time.time()
-                        while time.time() - t0 < 3.0:
+                        while time.time() - t0 < 5.0:
                             with self.lock:
-                                event_type, event_data = self.camera.wait_for_event(150)
+                                event_type, event_data = self.camera.wait_for_event(100)
                             if event_type == gp.GP_EVENT_FILE_ADDED:
                                 file_path_info = event_data
                                 break
 
-                        # Secondary trigger: If Press Full MF did not produce a file event within 3s
-                        # (e.g. lens/body is in autofocus / One-Shot mode), try Press Full AF
+                        # Fallback to direct driver capture if remote release did not produce a file event
                         if not file_path_info:
-                            self.log("Press Full MF produced no file event. Attempting secondary release via eosremoterelease (Press Full AF)...")
+                            self.log("No file event from eosremoterelease. Attempting camera.capture(GP_CAPTURE_IMAGE) fallback...")
                             try:
-                                self._set_camera_property("eosremoterelease", "Press Full AF")
-                                time.sleep(0.25)
-                                self._set_camera_property("eosremoterelease", "Release Full")
-                                t1 = time.time()
-                                while time.time() - t1 < 4.0:
-                                    with self.lock:
-                                        event_type, event_data = self.camera.wait_for_event(150)
-                                    if event_type == gp.GP_EVENT_FILE_ADDED:
-                                        file_path_info = event_data
-                                        break
-                            except Exception as af_err:
-                                self.log(f"Secondary release attempt error: {af_err}")
-
-                        # Tertiary fallback: direct driver capture via camera.capture(GP_CAPTURE_IMAGE)
-                        if not file_path_info:
-                            self.log("No file event from eosremoterelease. Falling back to camera.capture(GP_CAPTURE_IMAGE)...")
-                            with self.lock:
-                                file_path = self.camera.capture(gp.GP_CAPTURE_IMAGE)
-                            self.log(f"Capture successful via camera.capture fallback. File created: {file_path.folder}/{file_path.name}")
-                            result_path = self._download_camera_file(file_path.folder, file_path.name)
+                                with self.lock:
+                                    file_path = self.camera.capture(gp.GP_CAPTURE_IMAGE)
+                                self.log(f"Capture successful via camera.capture. File: {file_path.folder}/{file_path.name}")
+                                result_path = self._download_camera_file(file_path.folder, file_path.name)
+                            except Exception as cap_err:
+                                raise Exception(f"Capture failed: {cap_err}")
                         else:
                             self.log(f"Capture successful. File created on camera: {file_path_info.folder}/{file_path_info.name}")
                             result_path = self._download_camera_file(file_path_info.folder, file_path_info.name)
