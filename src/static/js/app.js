@@ -606,6 +606,10 @@ function disableInputs(disabled) {
     document.getElementById('config-neutralize').disabled = disabled;
     document.getElementById('config-compress').disabled = disabled;
     document.getElementById('config-align-channels').disabled = disabled;
+    const cfgEmbed = document.getElementById('config-embed-metadata');
+    if (cfgEmbed) cfgEmbed.disabled = disabled;
+    const cfgProf = document.getElementById('config-color-profile');
+    if (cfgProf) cfgProf.disabled = disabled;
 }
 
 // Sync config from backend to HTML inputs
@@ -643,6 +647,19 @@ function syncConfigToUI(config) {
     if (cfgConvertTiff) cfgConvertTiff.checked = convertTiff;
     const bchConvertTiff = document.getElementById('batch-convert-tiff');
     if (bchConvertTiff) bchConvertTiff.checked = convertTiff;
+
+    // Metadata preservation and color profile
+    const embedMeta = config.embed_metadata !== undefined ? config.embed_metadata : true;
+    const cfgEmbed = document.getElementById('config-embed-metadata');
+    if (cfgEmbed) cfgEmbed.checked = embedMeta;
+    const bchEmbed = document.getElementById('batch-embed-metadata');
+    if (bchEmbed) bchEmbed.checked = embedMeta;
+
+    const colorProf = config.color_profile || 'adobe_rgb';
+    const cfgProf = document.getElementById('config-color-profile');
+    if (cfgProf) cfgProf.value = colorProf;
+    const bchProf = document.getElementById('batch-color-profile');
+    if (bchProf) bchProf.value = colorProf;
     
     // Update labels
     document.getElementById('val-gamma').textContent = config.gamma;
@@ -689,7 +706,9 @@ function toggleMonitor() {
             monochrome: document.getElementById('config-monochrome').checked,
             monochrome_channel: document.getElementById('config-monochrome-channel').value,
             reversal: document.getElementById('config-reversal') ? document.getElementById('config-reversal').checked : false,
-            convert_to_tiff: document.getElementById('config-convert-tiff') ? document.getElementById('config-convert-tiff').checked : true
+            convert_to_tiff: document.getElementById('config-convert-tiff') ? document.getElementById('config-convert-tiff').checked : true,
+            color_profile: document.getElementById('config-color-profile') ? document.getElementById('config-color-profile').value : 'adobe_rgb',
+            embed_metadata: document.getElementById('config-embed-metadata') ? document.getElementById('config-embed-metadata').checked : true
         };
 
         const payload = {
@@ -812,7 +831,9 @@ function runBatchJob() {
         monochrome: document.getElementById('batch-monochrome').checked,
         monochrome_channel: document.getElementById('batch-monochrome-channel').value,
         reversal: document.getElementById('batch-reversal') ? document.getElementById('batch-reversal').checked : false,
-        convert_to_tiff: document.getElementById('batch-convert-tiff') ? document.getElementById('batch-convert-tiff').checked : true
+        convert_to_tiff: document.getElementById('batch-convert-tiff') ? document.getElementById('batch-convert-tiff').checked : true,
+        color_profile: document.getElementById('batch-color-profile') ? document.getElementById('batch-color-profile').value : 'adobe_rgb',
+        embed_metadata: document.getElementById('batch-embed-metadata') ? document.getElementById('batch-embed-metadata').checked : true
     };
 
     const payload = {

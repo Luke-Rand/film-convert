@@ -101,8 +101,8 @@ def align_channel(ref, mov, channel_name=""):
     # Apply corrective sub-pixel Fourier phase shift (sub_dy, sub_dx)
     return fourier_shift_2d(mov, sub_dy, sub_dx)
 
-def process_triplet(group, output_filepath, neutralize_base=False, compress_tiff=False, align_channels=False):
-    """Processes exactly 3 RAW files into a single 16-bit TIFF composite."""
+def process_triplet(group, output_filepath, neutralize_base=False, compress_tiff=False, align_channels=False, icc_profile="adobe_rgb", preserve_metadata=True):
+    """Processes exactly 3 RAW files into a single 16-bit TIFF or True DNG composite with ICC profile and preserved metadata."""
     channels_data = {'red': None, 'green': None, 'blue': None}
     
     for filepath in group:
@@ -231,8 +231,16 @@ def process_triplet(group, output_filepath, neutralize_base=False, compress_tiff
     
     composite_rgb = np.ascontiguousarray(composite_rgb)
     
-    # Save composite using write_16bit_tiff
-    write_16bit_tiff(output_filepath, composite_rgb, is_monochrome=False, compress=compress_tiff)
+    # Save composite using write_16bit_tiff (with ICC profile & metadata preservation)
+    source_meta = (group[1] if len(group) > 1 else group[0]) if preserve_metadata else None
+    write_16bit_tiff(
+        output_filepath,
+        composite_rgb,
+        is_monochrome=False,
+        compress=compress_tiff,
+        icc_profile=icc_profile,
+        source_metadata_path=source_meta
+    )
     
     print(f"  -> Saved composite to: {os.path.basename(output_filepath)}\n")
     return float(r_mean), float(g_mean), float(b_mean)
@@ -259,7 +267,7 @@ def get_next_frame_number(directory):
                     pass
     return max_num + 1
 
-def hot_folder_mode(directory_path, neutralize_base=False, compress_tiff=False, timeout=60, align_channels=False):
+def hot_folder_mode(directory_path, neutralize_base=False, compress_tiff=False, timeout=60, align_channels=False, icc_profile="adobe_rgb", preserve_metadata=True):
     """Monitors a directory for RAW triplets and processes them."""
     print(f"\n{'='*60}")
     print(f"🔥 HOT FOLDER MODE ACTIVE 🔥")
@@ -297,7 +305,7 @@ def hot_folder_mode(directory_path, neutralize_base=False, compress_tiff=False, 
                 output_filepath = os.path.join(directory_path, output_filename)
                 
                 try:
-                    process_triplet(group, output_filepath, neutralize_base, compress_tiff, align_channels)
+                    process_triplet(group, output_filepath, neutralize_base, compress_tiff, align_channels, icc_profile=icc_profile, preserve_metadata=preserve_metadata)
                     
                     for f in group:
                         shutil.move(f, os.path.join(processed_dir, os.path.basename(f)))
@@ -333,7 +341,7 @@ def hot_folder_mode(directory_path, neutralize_base=False, compress_tiff=False, 
             print("\nExiting Hot Folder Mode.")
             sys.exit(0)
 
-def process_roll(directory_path, output_dir=None, neutralize_base=False, compress_tiff=False, align_channels=False):
+def process_roll(directory_path, output_dir=None, neutralize_base=False, compress_tiff=False, align_channels=False, icc_profile="adobe_rgb", preserve_metadata=True):
     """
     Scans for RAW files, groups by 3, auto-detects colors, and creates linear 16-bit TIFFs.
     """
@@ -370,7 +378,7 @@ def process_roll(directory_path, output_dir=None, neutralize_base=False, compres
         output_filepath = os.path.join(output_dir, output_filename)
         
         try:
-            process_triplet(group, output_filepath, neutralize_base, compress_tiff, align_channels)
+            process_triplet(group, output_filepath, neutralize_base, compress_tiff, align_channels, icc_profile=icc_profile, preserve_metadata=preserve_metadata)
         except Exception as e:
             print(f"  -> ERROR processing Frame {frame_number:02d}: {e}\n")
             
@@ -391,13 +399,17 @@ if __name__ == "__main__":
                         help="Run in Hot Folder mode: monitor the directory, composite automatically, and move originals.")
     parser.add_argument("-t", "--timeout", type=int, default=60, 
                         help="Timeout in seconds to wait for a 3rd image in hot folder mode (default: 60)")
-    
     parser.add_argument("-a", "--align", action="store_true", 
                         help="Auto-correct exposure alignment between channels (R, G, B) using FFT phase correlation")
+    parser.add_argument("--icc-profile", "--color-profile", type=str, default="adobe_rgb",
+                        choices=["adobe_rgb", "prophoto_rgb", "srgb", "none"],
+                        help="Embedded ICC color profile (default: adobe_rgb)")
+    parser.add_argument("--no-metadata", action="store_true",
+                        help="Disable embedding original camera RAW EXIF/IPTC metadata into composites")
     
     args = parser.parse_args()
     
     if args.hotfolder:
-        hot_folder_mode(args.input, neutralize_base=args.neutralize, compress_tiff=args.compress, timeout=args.timeout, align_channels=args.align)
+        hot_folder_mode(args.input, neutralize_base=args.neutralize, compress_tiff=args.compress, timeout=args.timeout, align_channels=args.align, icc_profile=args.icc_profile, preserve_metadata=not args.no_metadata)
     else:
-        process_roll(args.input, neutralize_base=args.neutralize, compress_tiff=args.compress, align_channels=args.align)
+        process_roll(args.input, neutralize_base=args.neutralize, compress_tiff=args.compress, align_channels=args.align, icc_profile=args.icc_profile, preserve_metadata=not args.no_metadata)

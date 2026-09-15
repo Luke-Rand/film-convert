@@ -9,10 +9,12 @@ block_cipher = None
 # Locate directories to package
 templates_path = os.path.abspath('src/templates')
 static_path = os.path.abspath('src/static')
+icc_path = os.path.abspath('src/icc_profiles')
 
 datas = [
     (templates_path, 'templates'),
-    (static_path, 'static')
+    (static_path, 'static'),
+    (icc_path, 'icc_profiles')
 ]
 
 # Locate gphoto2 camlibs and iolibs if present
@@ -34,6 +36,7 @@ a = Analysis(
         'numpy',
         'rawpy',
         'tifffile',
+        'piexif',
         'PIL',
         'PIL.Image',
         'PIL.ImageDraw'

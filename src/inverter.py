@@ -6,9 +6,9 @@ import argparse
 import rawpy
 from tiff_writer import write_16bit_tiff
 
-def process_positives(input_path, output_dir=None, clip=0.1, gamma=2.2, compress_tiff=False, global_levels=False, ignore_margin=0.15, scurve=0.0, autocrop=False, monochrome=False, monochrome_channel="luminance", reversal=False, convert_to_tiff=True):
+def process_positives(input_path, output_dir=None, clip=0.1, gamma=2.2, compress_tiff=False, global_levels=False, ignore_margin=0.15, scurve=0.0, autocrop=False, monochrome=False, monochrome_channel="luminance", reversal=False, convert_to_tiff=True, icc_profile="adobe_rgb", preserve_metadata=True):
     """
-    Processes 16-bit TIFF/DNG files: inverts (or normalizes positive reversal film scans), applies gamma/scurve, crops, and saves as 16-bit TIFF.
+    Processes 16-bit TIFF/DNG files: inverts (or normalizes positive reversal film scans), applies gamma/scurve, crops, and saves as 16-bit TIFF or True DNG with ICC profile and preserved metadata.
     If convert_to_tiff is False, the input RAW/image files are added directly to the positives folder without converting to TIFF.
     """
     # Find supported image files
@@ -285,7 +285,15 @@ def process_positives(input_path, output_dir=None, clip=0.1, gamma=2.2, compress
             final_img = img_float.astype(np.uint16)
             final_img = np.ascontiguousarray(final_img)
             
-            write_16bit_tiff(output_filepath, final_img, is_monochrome=is_monochrome, compress=compress_tiff)
+            source_meta = filepath if preserve_metadata else None
+            write_16bit_tiff(
+                output_filepath,
+                final_img,
+                is_monochrome=is_monochrome,
+                compress=compress_tiff,
+                icc_profile=icc_profile,
+                source_metadata_path=source_meta
+            )
             
             print(f"  -> Saved positive to: {out_filename}\n")
             
@@ -323,6 +331,11 @@ if __name__ == "__main__":
                         help="Enable reversal / slide film support (positive film). Processes images without density inversion directly into the positives folder.")
     parser.add_argument("--no-tiff", "--raw-positives", dest="convert_to_tiff", action="store_false",
                         help="Bypass conversion to TIFF and add original RAW files directly to the positives folder.")
+    parser.add_argument("--icc-profile", "--color-profile", type=str, default="adobe_rgb",
+                        choices=["adobe_rgb", "prophoto_rgb", "srgb", "none"],
+                        help="Embedded ICC color profile (default: adobe_rgb)")
+    parser.add_argument("--no-metadata", action="store_true",
+                        help="Disable embedding original camera RAW EXIF/IPTC metadata into positives")
     parser.set_defaults(convert_to_tiff=True)
     
     args = parser.parse_args()
@@ -339,5 +352,7 @@ if __name__ == "__main__":
         monochrome=args.monochrome,
         monochrome_channel=args.monochrome_channel,
         reversal=args.reversal,
-        convert_to_tiff=args.convert_to_tiff
+        convert_to_tiff=args.convert_to_tiff,
+        icc_profile=args.icc_profile,
+        preserve_metadata=not args.no_metadata
     )
