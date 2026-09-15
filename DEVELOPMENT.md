@@ -98,20 +98,37 @@ npm run dist
 
 The final installer package will be available in the `dist-app/` directory.
 
+### Step 3: Direct Local macOS Deployment
+To build the Python backend, package the Electron application, copy it to `/Applications/FilmConvert.app`, clear quarantine bits, and sign it with required USB/camera entitlements:
+```bash
+npm run deploy:mac
+```
+
 ---
 
 ## 5. Technical Note: Camera Tethering & macOS USB Setup
 
-### macOS USB Daemon (`ptpcamerad`)
-macOS has a built-in background daemon (`ptpcamerad`) that claims any connected DSLR/mirrorless camera over USB as soon as it is powered on. This blocks third-party libraries (like `libgphoto2`) from claiming the USB device, resulting in `-53 (Could not claim the USB device)` or `-10 (Timeout)` connection errors.
+### macOS USB Daemons (`icdd` & `ptpcamerad`)
+macOS includes system daemons that automatically claim any connected DSLR/mirrorless camera over USB as soon as it is plugged in or powered on:
+- `icdd` (Image Capture Device Daemon): Detects hardware hotplug events.
+- `ptpcamerad`: Manages PTP communications and locks the USB interface.
 
-To solve this, FilmConvert implements a background release loop on macOS in `src/camera_manager.py`:
-1. When attempting connection, it spins up a background thread that executes:
-   ```bash
-   killall -9 ptpcamerad
-   ```
-2. The loop runs at 100ms intervals, giving `libgphoto2` enough time to open a socket connection and bind the camera interface.
-3. If you still encounter connection issues, try switching the physical camera off and on to trigger a new USB enumeration.
+If active, third-party PTP libraries (like `libgphoto2`) are blocked from claiming the USB interface, resulting in `-53 (Could not claim the USB device)` or `-10 (Timeout)` errors.
+
+Because macOS `launchd` immediately respawns `ptpcamerad` if it simply exits from `SIGKILL`, FilmConvert manages both daemons via `src/camera_manager.py`:
+1. Suspends `icdd` with `SIGSTOP` (`killall -STOP icdd`) to suppress hotplug triggers.
+2. Terminates any existing `ptpcamerad` process (`killall -9 ptpcamerad`).
+3. Immediately places `ptpcamerad` into suspended state `T` with `SIGSTOP` (`killall -STOP ptpcamerad`). Because the process remains alive in state `T`, `launchd` does not respawn it and it cannot claim the USB interface, granting `libgphoto2` exclusive access.
+
+### Canon EOS Remote Release & Predictive Capture Retrieval
+For Canon EOS mirrorless and DSLR cameras (e.g., EOS R6 Mark III, EOS RP, EOS 5D):
+1. **Manual Focus Remote Release:** To prevent the camera from hunting for focus between multi-spectral color frames, FilmConvert sequences `eosremoterelease`:
+   - `Press Half MF` (engages metering without autofocus hunting)
+   - `Press Full MF` (trips shutter mechanism)
+   - `Release` (resets release switches)
+2. **Predictive Storage & RAM Buffer Download:** Depending on camera configuration (`capturetarget` set to Memory Card or Internal RAM):
+   - **RAM Capture:** The camera emits a PTP event `GP_EVENT_FILE_ADDED` with temporary buffer paths (e.g., `//capt0000.cr3`). FilmConvert catches this event and streams the RAW directly.
+   - **Card Storage:** If saved directly to the SD card, `libgphoto2` internal folder listings may cache directory contents. FilmConvert snapshots the last written DCIM file before exposure (e.g., `9H0A8504.CR3`), predicts the next sequential filename candidate (`9H0A8505.CR3`), and polls direct file retrieval until write completion.
 
 ---
 
