@@ -729,7 +729,7 @@ class CameraManager:
                             if dcim_dir and predicted_candidates:
                                 for cand_name in predicted_candidates:
                                     try:
-                                        result_path = self._download_camera_file(dcim_dir, cand_name)
+                                        result_path = self._download_camera_file(dcim_dir, cand_name, quiet=True)
                                         self.log(f"Successfully matched and downloaded predicted capture: {cand_name}")
                                         file_path_info = (dcim_dir, cand_name)
                                         break
@@ -960,7 +960,7 @@ class CameraManager:
             return f"{prefix}{next_num:0{num_len}d}{ext}"
         return None
 
-    def _download_camera_file(self, folder, name):
+    def _download_camera_file(self, folder, name, quiet=False):
         # Determine target directory
         target_dir = None
         if self.session_manager and getattr(self.session_manager, 'dirs', None):
@@ -984,7 +984,8 @@ class CameraManager:
         local_name = f"Frame_{frame_num:02d}_Capture_{int(time.time())}{ext}"
         local_path = os.path.join(target_dir, local_name)
         
-        self.log(f"Downloading {name} to {local_path}...")
+        if not quiet:
+            self.log(f"Downloading {name} to {local_path}...")
         
         try:
             with self.lock:
@@ -997,7 +998,8 @@ class CameraManager:
             self.log(f"Download complete: {local_name}")
             return local_path
         except Exception as e:
-            self.log(f"Failed to download file {name}: {e}")
+            if not quiet:
+                self.log(f"Failed to download file {name}: {e}")
             raise e
 
     def _simulate_raw_capture(self):
