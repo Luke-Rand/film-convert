@@ -403,8 +403,8 @@ function getContainedImageBounds(img, tempImg = null) {
     const containerWidth = container.clientWidth;
     const containerHeight = container.clientHeight;
     
-    const sourceWidth = tempImg ? tempImg.naturalWidth : (img.tagName === 'CANVAS' ? img.width : img.naturalWidth);
-    const sourceHeight = tempImg ? tempImg.naturalHeight : (img.tagName === 'CANVAS' ? img.height : img.naturalHeight);
+    const sourceWidth = tempImg ? (tempImg.naturalWidth || tempImg.width) : (img.tagName === 'CANVAS' ? img.width : img.naturalWidth);
+    const sourceHeight = tempImg ? (tempImg.naturalHeight || tempImg.height) : (img.tagName === 'CANVAS' ? img.height : img.naturalHeight);
     
     if (img.style.display === 'none' || !sourceWidth || !sourceHeight) {
         return {
@@ -706,12 +706,20 @@ function toggleMonitor() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload)
         })
-        .then(res => res.json())
-        .then(data => {
-            if (data.success) {
+        .then(async res => {
+            const data = await res.json().catch(() => null);
+            if (!res.ok) {
+                const msg = (data && data.message) || `Server returned HTTP ${res.status}: ${res.statusText}`;
+                appendLogLine(`[Client Error] Failed to start: ${msg}`);
+                alert(`Error starting scanner: ${msg}`);
+                return;
+            }
+            if (data && data.success) {
                 appendLogLine(`[Client] Session monitor initialized successfully.`);
             } else {
-                alert(`Error starting scanner: ${data.message}`);
+                const msg = (data && data.message) || 'Unknown error starting session.';
+                appendLogLine(`[Client Error] Could not start session: ${msg}`);
+                alert(`Error starting scanner: ${msg}`);
             }
         })
         .catch(err => appendLogLine(`[Client Error] Failed to start: ${err}`));
@@ -1404,24 +1412,48 @@ function fetchCameraStatus() {
         .then(res => res.json())
         .then(data => {
             const badge = document.getElementById('camera-status-badge');
+            const placeholder = document.getElementById('liveview-placeholder');
             if (badge) {
                 badge.className = 'camera-badge';
-                if (!data.connected) {
-                    badge.classList.add('badge-disconnected');
-                    badge.textContent = 'Disconnected';
-                } else if (data.simulated) {
+                if (data.simulated) {
                     badge.classList.add('badge-simulated');
                     badge.textContent = 'Simulated';
-                } else {
+                } else if (data.state === 'searching') {
+                    badge.classList.add('badge-disconnected');
+                    badge.textContent = 'Searching...';
+                } else if (data.state === 'capturing') {
                     badge.classList.add('badge-connected');
-                    badge.textContent = 'Connected';
+                    badge.textContent = 'Capturing...';
+                } else if (data.connected) {
+                    badge.classList.add('badge-connected');
+                    badge.textContent = data.model ? `Connected (${data.model})` : 'Connected';
+                } else {
+                    badge.classList.add('badge-disconnected');
+                    badge.textContent = 'Disconnected';
+                }
+            }
+
+            if (placeholder && !isLiveviewActive) {
+                const placeholderSpan = placeholder.querySelector('span:not(.placeholder-icon)');
+                if (placeholderSpan) {
+                    if (data.state === 'searching') {
+                        placeholderSpan.textContent = 'Searching for camera... Turn on camera or connect USB.';
+                    } else if (data.connected) {
+                        placeholderSpan.textContent = `Live Feed Inactive (${data.model || 'Camera Ready'})`;
+                    } else if (data.simulated) {
+                        placeholderSpan.textContent = 'Live Feed Inactive (Simulated Mode)';
+                    } else {
+                        placeholderSpan.textContent = 'Live Feed Inactive';
+                    }
                 }
             }
 
             // Populate property selects
-            populateCameraSelect('camera-iso-select', data.settings.iso, data.choices.iso);
-            populateCameraSelect('camera-aperture-select', data.settings.aperture, data.choices.aperture);
-            populateCameraSelect('camera-shutter-select', data.settings.shutterspeed, data.choices.shutterspeed);
+            if (data.settings && data.choices) {
+                populateCameraSelect('camera-iso-select', data.settings.iso, data.choices.iso);
+                populateCameraSelect('camera-aperture-select', data.settings.aperture, data.choices.aperture);
+                populateCameraSelect('camera-shutter-select', data.settings.shutterspeed, data.choices.shutterspeed);
+            }
         })
         .catch(err => console.error("Error fetching camera status:", err));
 }
@@ -1483,7 +1515,13 @@ function setCameraConfig(name, value) {
 // Toggle Live View streaming state
 function toggleCameraLiveview(active) {
     isLiveviewActive = active;
-    isZoomed = false; // Reset zoom state when toggling
+    
+    // When stopping live view, reset zoom magnification so hardware zoom is disengaged
+    if (!active && zoomFactor !== 1 && typeof setZoomMagnification === 'function') {
+        setZoomMagnification(1);
+    } else {
+        isZoomed = false; // Reset zoom state when toggling
+    }
     
     const canvas = document.getElementById('camera-liveview-canvas');
     const placeholder = document.getElementById('liveview-placeholder');
@@ -1505,8 +1543,9 @@ function toggleCameraLiveview(active) {
             if (placeholder) placeholder.style.display = 'none';
             if (canvas) canvas.style.display = 'block';
             
-            // Start the static polling loop to get real-time frames
+            // Start the adaptive live view frame loop
             if (liveviewTimeout) clearTimeout(liveviewTimeout);
+            isPollingFrame = false;
             pollLiveviewFrame();
         } else {
             if (canvas) {
@@ -1519,6 +1558,7 @@ function toggleCameraLiveview(active) {
                 clearTimeout(liveviewTimeout);
                 liveviewTimeout = null;
             }
+            isPollingFrame = false;
             clearHistogramCanvas();
             if (marginOverlayVisible) {
                 updateMarginOverlay();
@@ -1528,26 +1568,89 @@ function toggleCameraLiveview(active) {
     .catch(err => console.error("Error toggling live view:", err));
 }
 
-// Polling live view static frame loop (solves MJPEG canvas update bugs)
-function pollLiveviewFrame() {
+let isPollingFrame = false;
+
+// Adaptive live view frame fetcher (eliminates request backlog and handles 204 standby)
+async function pollLiveviewFrame() {
     if (!isLiveviewActive) return;
+    if (isPollingFrame) return;
+    isPollingFrame = true;
     
     const canvas = document.getElementById('camera-liveview-canvas');
-    if (!canvas) return;
+    if (!canvas) {
+        isPollingFrame = false;
+        return;
+    }
     const ctx = canvas.getContext('2d');
-    
     const startTime = Date.now();
     
-    // Create temporary image object to load the frame fully before displaying
-    const tempImg = new Image();
-    tempImg.onload = () => {
-        if (!isLiveviewActive) return;
+    try {
+        const response = await fetch('/api/camera/frame', { cache: 'no-store' });
+        if (!isLiveviewActive) {
+            isPollingFrame = false;
+            return;
+        }
         
-        const nw = tempImg.naturalWidth;
-        const nh = tempImg.naturalHeight;
+        if (response.status === 204) {
+            // Frame not ready or standby, poll again with short delay
+            const delay = 35;
+            liveviewTimeout = setTimeout(pollLiveviewFrame, delay);
+            isPollingFrame = false;
+            return;
+        }
+        
+        if (!response.ok) {
+            liveviewTimeout = setTimeout(pollLiveviewFrame, 150);
+            isPollingFrame = false;
+            return;
+        }
+        
+        const blob = await response.blob();
+        if (!blob || blob.size === 0) {
+            liveviewTimeout = setTimeout(pollLiveviewFrame, 35);
+            isPollingFrame = false;
+            return;
+        }
+        
+        let imgSource = null;
+        if (window.createImageBitmap) {
+            try {
+                imgSource = await createImageBitmap(blob);
+            } catch (e) {
+                imgSource = null;
+            }
+        }
+        
+        if (!imgSource) {
+            await new Promise((resolve, reject) => {
+                const img = new Image();
+                const url = URL.createObjectURL(blob);
+                img.onload = () => {
+                    URL.revokeObjectURL(url);
+                    imgSource = img;
+                    resolve();
+                };
+                img.onerror = () => {
+                    URL.revokeObjectURL(url);
+                    reject();
+                };
+                img.src = url;
+            });
+        }
+        
+        if (!isLiveviewActive || !imgSource) {
+            if (imgSource && imgSource.close) imgSource.close();
+            isPollingFrame = false;
+            return;
+        }
+        
+        const nw = imgSource.naturalWidth || imgSource.width;
+        const nh = imgSource.naturalHeight || imgSource.height;
         if (nw > 0 && nh > 0) {
-            canvas.width = nw;
-            canvas.height = nh;
+            if (canvas.width !== nw || canvas.height !== nh) {
+                canvas.width = nw;
+                canvas.height = nh;
+            }
             
             ctx.save();
             if (liveviewRotated180) {
@@ -1564,9 +1667,9 @@ function pollLiveviewFrame() {
                 let sy = (zoomY * nh) - (sh / 2);
                 sx = Math.max(0, Math.min(nw - sw, sx));
                 sy = Math.max(0, Math.min(nh - sh, sy));
-                ctx.drawImage(tempImg, sx, sy, sw, sh, 0, 0, nw, nh);
+                ctx.drawImage(imgSource, sx, sy, sw, sh, 0, 0, nw, nh);
             } else {
-                ctx.drawImage(tempImg, 0, 0, nw, nh);
+                ctx.drawImage(imgSource, 0, 0, nw, nh);
             }
             ctx.restore();
             
@@ -1575,55 +1678,57 @@ function pollLiveviewFrame() {
             }
         }
         
-        // Update margin overlay position and sizing to match actual frame bounds
+        // Update margin overlay position and sizing
         if (marginOverlayVisible) {
-            updateMarginOverlay(tempImg);
+            updateMarginOverlay(imgSource);
         }
         
-        // Draw onto offscreen canvas for real-time pixel extraction
+        // Draw onto offscreen canvas for real-time histogram calculation
         offscreenCanvas.width = 128;
         offscreenCanvas.height = 96;
-        offscreenCtx.drawImage(tempImg, 0, 0, 128, 96);
+        offscreenCtx.drawImage(imgSource, 0, 0, 128, 96);
+        if (imgSource.close) {
+            imgSource.close();
+        }
         
         try {
             const imgData = offscreenCtx.getImageData(0, 0, 128, 96);
             const pixels = imgData.data;
-            
             const rHist = new Array(256).fill(0);
             const gHist = new Array(256).fill(0);
             const bHist = new Array(256).fill(0);
-            
             for (let i = 0; i < pixels.length; i += 4) {
                 rHist[pixels[i]]++;
                 gHist[pixels[i+1]]++;
                 bHist[pixels[i+2]]++;
             }
-            
             renderRGBHistogram(rHist, gHist, bHist);
         } catch (e) {
             console.error("Histogram parsing failed:", e);
         }
         
-        // Schedule next frame poll at ~25 FPS
         const elapsed = Date.now() - startTime;
-        const delay = Math.max(5, 40 - elapsed);
+        const delay = Math.max(5, 33 - elapsed); // Target ~30 FPS
         liveviewTimeout = setTimeout(pollLiveviewFrame, delay);
-    };
-    
-    tempImg.onerror = () => {
-        if (!isLiveviewActive) return;
-        // Retry shortly after error
-        liveviewTimeout = setTimeout(pollLiveviewFrame, 500);
-    };
-    
-    // Append timestamp cache-buster to fetch fresh frame
-    tempImg.src = '/api/camera/frame?t=' + Date.now();
+        
+    } catch (err) {
+        if (isLiveviewActive) {
+            liveviewTimeout = setTimeout(pollLiveviewFrame, 150);
+        }
+    } finally {
+        isPollingFrame = false;
+    }
 }
 
 // Manual raw image capture
 function triggerCameraCapture() {
     const btn = document.getElementById('btn-camera-capture');
     if (btn) btn.disabled = true;
+    
+    // Disengage hardware zoom prior to capture if active
+    if (zoomFactor !== 1 && typeof setZoomMagnification === 'function') {
+        setZoomMagnification(1);
+    }
     
     appendLogLine("[Client] Triggering capture command...");
     

@@ -24,6 +24,13 @@ mac:
   gatekeeperAssess: false
   entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.plist
+  extendInfo:
+    NSCameraUsageDescription: "FilmConvert requires camera access for physical DSLR/mirrorless tethering and Live View."
+    NSDesktopFolderUsageDescription: "FilmConvert requires access to read and write scans to your Desktop."
+    NSDocumentsFolderUsageDescription: "FilmConvert requires access to read and write scans to your Documents."
+    NSDownloadsFolderUsageDescription: "FilmConvert requires access to read and write scans to your Downloads."
+    NSRemovableVolumesUsageDescription: "FilmConvert requires access to read and write scans to external drives and memory cards."
+    NSNetworkVolumesUsageDescription: "FilmConvert requires access to read and write scans to network volumes and NAS shares."
 win:
   target: nsis
   icon: assets/icon.png

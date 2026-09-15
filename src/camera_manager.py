@@ -48,6 +48,12 @@ class CameraManager:
         self.simulated = not GPHOTO2_AVAILABLE
         self.camera = None
         self.camera_connected = False
+        self.connection_state = "simulated" if self.simulated else "searching"
+        self.model_name = "Simulated Camera" if self.simulated else ""
+        self.is_canon = False
+        self.is_nikon = False
+        self.is_sony = False
+        self._daemons_suspended = False
         
         # Thread safety control
         self.cmd_queue = queue.Queue()
@@ -59,6 +65,8 @@ class CameraManager:
         self.live_view_active = False
         self.pause_preview = False
         self.latest_frame = None
+        self.frame_id = 0
+        self.frame_event = threading.Event()
         self.frame_lock = threading.Lock()
         
         # Simulated mode states
@@ -98,6 +106,7 @@ class CameraManager:
         }
         self._physical_viewfinder_active = False
         self._consecutive_preview_errors = 0
+        self._cached_dcim_folder = None
         
         # Internal log helper
         self.log_callback = print
@@ -130,12 +139,26 @@ class CameraManager:
         if self.camera:
             try:
                 self._set_camera_viewfinder(0)
-                self.camera.exit()
+                with self.lock:
+                    self.camera.exit()
             except Exception:
                 pass
             self.camera = None
         self.camera_connected = False
         self._physical_viewfinder_active = False
+        self._cached_dcim_folder = None
+        self.connection_state = "simulated" if self.simulated else "disconnected"
+        
+        # Safely resume macOS icdd daemon if suspended
+        import sys
+        import subprocess
+        if sys.platform == 'darwin' and self._daemons_suspended:
+            try:
+                subprocess.run(["killall", "-CONT", "icdd"], capture_output=True)
+                self._daemons_suspended = False
+            except Exception:
+                pass
+                
         self.log("Camera disconnected.")
 
     def get_status(self):
@@ -144,6 +167,8 @@ class CameraManager:
                 return {
                     "connected": True,
                     "simulated": True,
+                    "state": "simulated",
+                    "model": "Simulated Camera",
                     "settings": self.sim_settings,
                     "choices": self.sim_choices
                 }
@@ -151,6 +176,8 @@ class CameraManager:
                 return {
                     "connected": True,
                     "simulated": False,
+                    "state": self.connection_state,
+                    "model": self.model_name or "Physical Camera",
                     "settings": self.camera_settings,
                     "choices": self.camera_choices
                 }
@@ -158,6 +185,8 @@ class CameraManager:
                 return {
                     "connected": False,
                     "simulated": False,
+                    "state": self.connection_state,
+                    "model": self.model_name,
                     "settings": {},
                     "choices": {}
                 }
@@ -197,14 +226,9 @@ class CameraManager:
     # Private loop running on worker thread
     def _worker_loop(self):
         self.log("Worker loop entering active state.")
+        last_detect_attempt = 0.0
         while not self.stop_event.is_set():
-            if not self.simulated and not self.camera:
-                self._try_connect_physical_camera()
-                if not self.camera_connected:
-                    time.sleep(2.0)
-                    continue
-
-            # 1. Execute commands queued by Flask threads
+            # 1. Execute commands queued by Flask threads FIRST
             try:
                 while not self.cmd_queue.empty():
                     cmd, args, resp_q = self.cmd_queue.get_nowait()
@@ -216,47 +240,64 @@ class CameraManager:
             except queue.Empty:
                 pass
 
+            now = time.time()
+            # 2. If physical camera is not connected and not in forced simulated mode, attempt discovery
+            if not self.simulated and not self.camera:
+                if now - last_detect_attempt >= 2.0:
+                    last_detect_attempt = now
+                    self._try_connect_physical_camera()
+                if not self.camera_connected:
+                    time.sleep(0.15)
+                    continue
+
             # Viewfinder state transition for Nikon/Canon
             if self.camera_connected and self.camera:
                 if self.live_view_active and not self._physical_viewfinder_active:
-                    self._set_camera_viewfinder(1)
-                    # Brief event drain after enabling viewfinder
-                    try:
-                        with self.lock:
-                            for _ in range(3):
-                                evt_type, _ = self.camera.wait_for_event(30)
-                                if evt_type == gp.GP_EVENT_TIMEOUT:
-                                    break
-                    except Exception:
-                        pass
-                    self._physical_viewfinder_active = True
+                    success = self._set_camera_viewfinder(1)
+                    if success:
+                        self._physical_viewfinder_active = True
+                        self.connection_state = "streaming"
+                elif not self.live_view_active and self._physical_viewfinder_active:
+                    self._set_camera_viewfinder(0)
+                    self._physical_viewfinder_active = False
+                    self.connection_state = "connected"
 
-            # 2. Grab preview frame if live view is active and not paused for setting update
+            # 3. Grab preview frame if live view is active and not paused for setting update
             if self.live_view_active and not self.pause_preview:
                 try:
                     frame = self._grab_preview_frame()
                     if frame:
                         with self.frame_lock:
                             self.latest_frame = frame
+                            self.frame_id += 1
+                        self.frame_event.set()
+                        self.frame_event.clear()
                 except Exception as e:
                     err_str = str(e)
-                    if "-110" not in err_str and "I/O in progress" not in err_str:
+                    if "-52" in err_str or "Could not find the requested device" in err_str:
+                        self.log(f"Camera device disconnected or reset during Live View ([-52]). Resetting connection state...")
+                        self.disconnect()
+                        self.connection_state = "searching"
+                        time.sleep(1.0)
+                    elif "-110" in err_str or "I/O in progress" in err_str:
+                        time.sleep(0.1)
+                    else:
                         self.log(f"Live view preview frame warning: {e}")
-                    time.sleep(0.05)
+                        time.sleep(0.04)
 
-            # 3. Check for camera events (e.g., photo taken via hardware remote) — only when Live View is idle
+            # 4. Check for camera events (e.g., photo taken via hardware remote) — only when Live View is idle
             if self.camera_connected and self.camera and not self.live_view_active:
                 try:
-                    event_type, event_data = self.camera.wait_for_event(20)
+                    with self.lock:
+                        event_type, event_data = self.camera.wait_for_event(20)
                     if event_type == gp.GP_EVENT_FILE_ADDED:
                         self.log(f"Hardware shutter event detected! File added: {event_data.name}")
                         self._download_camera_file(event_data.folder, event_data.name)
                 except Exception:
                     pass
 
-            # 4. If live view is NOT active, periodically update physical settings cache to capture body dial changes
+            # 5. If live view is NOT active, periodically update physical settings cache to capture body dial changes
             if self.camera_connected and self.camera and not self.live_view_active:
-                now = time.time()
                 if not hasattr(self, '_last_settings_poll') or now - self._last_settings_poll > 5.0:
                     try:
                         polled = self._query_camera_settings()
@@ -271,8 +312,7 @@ class CameraManager:
             if not self.live_view_active:
                 time.sleep(0.08)
             else:
-                # Target ~20-25 FPS live view (40-50ms intervals)
-                time.sleep(0.04)
+                time.sleep(0.015)
 
         self.log("Worker loop exited.")
 
@@ -280,110 +320,116 @@ class CameraManager:
     def _try_connect_physical_camera(self):
         if not GPHOTO2_AVAILABLE or self.simulated:
             self.simulated = True
+            self.connection_state = "simulated"
             return
             
         try:
-            self.log("Attempting to connect to physical camera...")
-            
-            # On macOS, combat the ptpcamerad daemon that keeps locking USB camera ports
             import sys
             import subprocess
             
-            t = None
-            stop_kill = None
+            # On macOS, claim exclusive access by suspending icdd and terminating ptpcamerad
             if sys.platform == 'darwin':
-                self.log("Detected macOS: Disabling ptpcamerad & icdd daemons...")
                 try:
-                    import os
-                    uid = os.getuid()
-                    subprocess.run(["launchctl", "disable", f"gui/{uid}/com.apple.ptpcamerad"], capture_output=True)
+                    subprocess.run(["killall", "-STOP", "icdd"], capture_output=True)
                     subprocess.run(["killall", "-9", "ptpcamerad"], capture_output=True)
-                    subprocess.run(["killall", "-9", "icdd"], capture_output=True)
+                    time.sleep(0.15)
+                    subprocess.run(["killall", "-STOP", "ptpcamerad"], capture_output=True)
+                    self._daemons_suspended = True
                 except Exception:
                     pass
-                time.sleep(0.3) # allow USB port to settle after releasing ptpcamerad and icdd
+                time.sleep(0.3)
                 
-            try:
-                # 1. Primary connection path: Autodetect connected USB device and bind matching abilities & port
-                cl = gp.Camera.autodetect()
-                for retry in range(2):
-                    if len(cl) > 0:
-                        break
-                    time.sleep(0.3)
-                    cl = gp.Camera.autodetect()
+            cl = gp.Camera.autodetect()
+            if len(cl) == 0:
+                self.camera_connected = False
+                self.connection_state = "searching"
+                return
 
-                if len(cl) == 0:
-                    raise Exception("No autodetected USB camera found.")
+            name, port_path = cl.get_name(0), cl.get_value(0)
+            self.log(f"Autodetected device '{name}' on port '{port_path}'. Binding driver abilities...")
+            
+            name_lower = name.lower()
+            self.is_canon = "canon" in name_lower
+            self.is_nikon = "nikon" in name_lower
+            self.is_sony = "sony" in name_lower
+            self.model_name = name
+            
+            port_info_list = gp.PortInfoList()
+            port_info_list.load()
+            port_idx = port_info_list.lookup_path(port_path)
+            port_info = port_info_list[port_idx]
+            
+            abilities_list = gp.CameraAbilitiesList()
+            abilities_list.load()
+            
+            model_indices = []
+            ab_idx = abilities_list.lookup_model(name)
+            if ab_idx >= 0:
+                model_indices.append((name, ab_idx))
+            
+            ptp_idx = abilities_list.lookup_model('USB PTP Class Camera')
+            if ptp_idx >= 0 and ptp_idx != ab_idx:
+                model_indices.append(('USB PTP Class Camera', ptp_idx))
 
-                name, port_path = cl.get_name(0), cl.get_value(0)
-                self.log(f"Autodetected device '{name}' on port '{port_path}'. Binding driver abilities...")
-                
-                port_info_list = gp.PortInfoList()
-                port_info_list.load()
-                port_idx = port_info_list.lookup_path(port_path)
-                port_info = port_info_list[port_idx]
-                
-                abilities_list = gp.CameraAbilitiesList()
-                abilities_list.load()
-                
-                model_indices = []
-                ab_idx = abilities_list.lookup_model(name)
-                if ab_idx >= 0:
-                    model_indices.append((name, ab_idx))
-                
-                ptp_idx = abilities_list.lookup_model('USB PTP Class Camera')
-                if ptp_idx >= 0 and ptp_idx != ab_idx:
-                    model_indices.append(('USB PTP Class Camera', ptp_idx))
-
-                last_init_err = None
-                camera = None
-                for model_label, idx in model_indices:
+            last_init_err = None
+            camera = None
+            for model_label, idx in model_indices:
+                for attempt in range(3):
                     cam_try = None
                     try:
-                        if sys.platform == 'darwin':
-                            subprocess.run(["killall", "-9", "ptpcamerad"], capture_output=True)
-                            subprocess.run(["killall", "-9", "icdd"], capture_output=True)
-                            time.sleep(0.15)
-
-                        self.log(f"Attempting camera init with driver profile '{model_label}' (index {idx})...")
+                        self.log(f"Attempting camera init with driver profile '{model_label}' (index {idx}, attempt {attempt + 1}/3)...")
                         cam_try = gp.Camera()
                         cam_try.set_abilities(abilities_list[idx])
                         cam_try.set_port_info(port_info)
-                        cam_try.init()
+                        with self.lock:
+                            cam_try.init()
                         camera = cam_try
                         self.log(f"Successfully initialized camera using driver profile '{model_label}'")
                         break
                     except Exception as err:
-                        self.log(f"Init with driver profile '{model_label}' failed: {err}")
+                        self.log(f"Init with driver profile '{model_label}' (attempt {attempt + 1}) failed: {err}")
                         if cam_try:
                             try:
-                                cam_try.exit()
+                                with self.lock:
+                                    cam_try.exit()
                             except Exception:
                                 pass
                         last_init_err = err
-                        time.sleep(0.2)
+                        if sys.platform == 'darwin':
+                            subprocess.run(["killall", "-9", "ptpcamerad"], capture_output=True)
+                            time.sleep(0.15)
+                            subprocess.run(["killall", "-STOP", "ptpcamerad"], capture_output=True)
+                        time.sleep(0.3)
+                if camera:
+                    break
 
-                if not camera:
-                    raise last_init_err or Exception("Failed to initialize camera with any driver profile.")
+            if not camera:
+                raise last_init_err or Exception("Failed to initialize camera with any driver profile.")
 
-                self.camera = camera
-                self.camera_connected = True
-                self.simulated = False
-                self.log(f"Successfully connected to camera: {camera.get_summary().text.splitlines()[0]}")
-                
-                # Probe and resolve setting widget names (Canon vs Nikon)
-                probe_targets = [
-                    ("iso", ["iso", "eosiso"]),
-                    ("aperture", ["aperture", "f-number", "fnumber"]),
-                    ("shutterspeed", ["shutterspeed", "shutterspeed2"]),
-                    ("manualfocusdrive", ["manualfocusdrive"]),
-                    ("eosremoterelease", ["eosremoterelease"]),
-                    ("autofocusdrive", ["autofocusdrive"]),
-                    ("focusmode", ["focusmode", "focus_mode", "lensfocusmode", "canonfocusmode"]),
-                    ("eoszoom", ["eoszoom", "zoom", "canonzoom", "eoszoomposition"]),
-                    ("movieservoaf", ["movieservoaf"]),
-                    ("continuousaf", ["continuousaf"])
-                ]
+            self.camera = camera
+            self.camera_connected = True
+            self.simulated = False
+            self.connection_state = "connected"
+            try:
+                summary_line = camera.get_summary().text.splitlines()[0]
+            except Exception:
+                summary_line = name
+            self.log(f"Successfully connected to camera: {summary_line}")
+            
+            # Probe and resolve setting widget names (Canon vs Nikon)
+            probe_targets = [
+                ("iso", ["iso", "eosiso"]),
+                ("aperture", ["aperture", "f-number", "fnumber"]),
+                ("shutterspeed", ["shutterspeed", "shutterspeed2"]),
+                ("manualfocusdrive", ["manualfocusdrive"]),
+                ("eosremoterelease", ["eosremoterelease"]),
+                ("autofocusdrive", ["autofocusdrive"]),
+                ("focusmode", ["focusmode", "focus_mode", "lensfocusmode", "canonfocusmode"]),
+                ("eoszoom", ["eoszoom", "zoom", "canonzoom", "eoszoomposition"]),
+                ("movieservoaf", ["movieservoaf"]),
+                ("continuousaf", ["continuousaf"])
+            ]
+            with self.lock:
                 for key, candidates in probe_targets:
                     for candidate in candidates:
                         try:
@@ -393,96 +439,57 @@ class CameraManager:
                             break
                         except Exception:
                             pass
-                self._physical_viewfinder_active = False
-                
-                # Force viewfinder (live view) to OFF on startup to clear any mirror-up lock from previous crashed runs
+            self._physical_viewfinder_active = False
+            
+            # Reset viewfinder on startup ONLY for Nikon / cameras that explicitly expose a single viewfinder widget
+            if not self.is_canon:
                 try:
-                    config = camera.get_config()
-                    keep_alive = [config]
-                    viewfinder = self._find_widget_by_name(config, "viewfinder", keep_alive)
-                    if viewfinder:
+                    with self.lock:
+                        viewfinder = camera.get_single_config("viewfinder")
                         viewfinder.set_value(0)
-                        camera.set_config(config)
-                        self.log("Forced viewfinder (live view) to OFF on startup to reset camera state.")
-                    else:
-                        self.log("Viewfinder widget not found recursively in config tree (could not reset).")
-                except Exception as e:
-                    self.log(f"Failed to reset viewfinder on startup: {e}")
+                        camera.set_single_config("viewfinder", viewfinder)
+                        self.log("Reset viewfinder to 0 on startup.")
+                except Exception:
+                    pass
+
+            # Prevent camera from auto-powering off every 60 seconds while tethered
+            for ap_widget in ["autopoweroff", "auto_power_off"]:
+                try:
+                    with self.lock:
+                        ap = camera.get_single_config(ap_widget)
+                        valid_c = [str(ap.get_choice(i)) for i in range(ap.count_choices())]
+                        if '0' in valid_c:
+                            self._set_widget_value_safely(ap, '0')
+                        elif '1800' in valid_c:
+                            self._set_widget_value_safely(ap, '1800')
+                        camera.set_single_config(ap_widget, ap)
+                        self.log(f"Configured camera {ap_widget} to prevent idle sleep while tethered.")
+                        break
+                except Exception:
+                    pass
+            
+            # Query and cache settings and choices
+            queried_settings = self._query_camera_settings()
+            queried_choices = self._query_camera_choices()
+            for k, v in queried_settings.items():
+                if v and v != "Unknown":
+                    self.camera_settings[k] = v
+            for k, v in queried_choices.items():
+                if v:
+                    self.camera_choices[k] = v
+            self.log(f"Initialized physical camera settings: {self.camera_settings}")
                 
-                # Query and cache settings and choices immediately while camera is in standby!
-                queried_settings = self._query_camera_settings()
-                queried_choices = self._query_camera_choices()
-                for k, v in queried_settings.items():
-                    if v and v != "Unknown":
-                        self.camera_settings[k] = v
-                for k, v in queried_choices.items():
-                    if v:
-                        self.camera_choices[k] = v
-                self.log(f"Initialized physical camera settings (with fallbacks): {self.camera_settings}")
-            finally:
-                pass
-                    
         except Exception as e:
             if self.camera:
                 try:
-                    self.camera.exit()
+                    with self.lock:
+                        self.camera.exit()
                 except Exception:
                     pass
             self.camera = None
             self.camera_connected = False
-            # Fallback to simulated mode if no camera is available
-            self.simulated = True
-            self.log(f"No physical camera detected. Falling back to Simulated Mode. (Reason: {e})")
-
-    def _init_ptp_fallback(self):
-        cl = gp.Camera.autodetect()
-        for retry in range(3):
-            if len(cl) > 0:
-                break
-            time.sleep(0.4)
-            cl = gp.Camera.autodetect()
-
-        if len(cl) == 0:
-            raise Exception("No autodetected USB camera found for PTP fallback.")
-        
-        name, port_path = cl.get_name(0), cl.get_value(0)
-        self.log(f"Autodetected device '{name}' on port '{port_path}'. Attempting targeted driver init...")
-        
-        port_info_list = gp.PortInfoList()
-        port_info_list.load()
-        port_idx = port_info_list.lookup_path(port_path)
-        port_info = port_info_list[port_idx]
-        
-        abilities_list = gp.CameraAbilitiesList()
-        abilities_list.load()
-        
-        # 1. Prefer generic 'USB PTP Class Camera' profile for direct shutter release without driver AF sequences
-        ab_idx = abilities_list.lookup_model('USB PTP Class Camera')
-        if ab_idx >= 0:
-            self.log(f"Using generic 'USB PTP Class Camera' profile for '{name}'.")
-        else:
-            ab_idx = abilities_list.lookup_model(name)
-            if ab_idx >= 0:
-                self.log(f"Matched model abilities for '{name}' at index {ab_idx}.")
-        
-        if ab_idx < 0:
-            raise Exception(f"Could not find driver profile for '{name}' in gphoto2 abilities.")
-        
-        cam = gp.Camera()
-        cam.set_abilities(abilities_list[ab_idx])
-        cam.set_port_info(port_info)
-        
-        last_err = None
-        for attempt in range(2):
-            try:
-                cam.init()
-                self.log(f"Successfully initialized '{name}' using camera driver.")
-                return cam
-            except Exception as e:
-                last_err = e
-                time.sleep(0.5)
-                
-        raise last_err
+            self.connection_state = "searching"
+            self.log(f"Camera connection attempt failed ({e}). Will retry in background...")
 
     def _handle_worker_cmd(self, cmd, args):
         if cmd == "get_status":
@@ -508,10 +515,12 @@ class CameraManager:
             }
 
         elif cmd == "reconnect":
+            self.disconnect()
             self.simulated = False
             self.camera = None
             self.camera_connected = False
-            return True
+            self._try_connect_physical_camera()
+            return self.camera_connected
 
         elif cmd == "set_config":
             name = args["name"].lower()
@@ -614,29 +623,127 @@ class CameraManager:
                 return self._simulate_raw_capture()
             else:
                 self.pause_preview = True
+                self.connection_state = "capturing"
+                # Reset viewfinder state so EVF stream is re-engaged cleanly after capture
+                self._physical_viewfinder_active = False
                 try:
-                    if self.resolved_names.get("eosremoterelease"):
-                        self.log("Triggering manual focus capture via eosremoterelease (Press Full MF)...")
-                        self._set_camera_property("eosremoterelease", "Press Full MF")
-                        time.sleep(0.05)
-                        self._set_camera_property("eosremoterelease", "Release Full")
-                        
-                        t0 = time.time()
-                        file_path_info = None
-                        while time.time() - t0 < 6.0:
+                    # 1. Drain residual USB preview packets so bus is idle before setting configs or triggering shutter
+                    with self.lock:
+                        try:
+                            for _ in range(6):
+                                evt_type, _ = self.camera.wait_for_event(25)
+                                if evt_type == gp.GP_EVENT_TIMEOUT:
+                                    break
+                        except Exception:
+                            pass
+
+                    # 2. Disengage hardware sensor zoom (eoszoom) if active to unlock camera shutter
+                    if self.resolved_names.get("eoszoom"):
+                        try:
+                            cur_zoom = str(self.camera_settings.get("eoszoom", "0")).lower()
+                            if cur_zoom not in ('0', 'off', 'none'):
+                                self.log("Disengaging hardware zoom (eoszoom = 0) prior to capture to unlock shutter...")
+                                self._set_camera_property("eoszoom", 0)
+                                self.camera_settings["eoszoom"] = "0"
+                                time.sleep(0.2)
+                        except Exception as zoom_err:
+                            self.log(f"Notice: Pre-capture eoszoom check: {zoom_err}")
+
+                    # 3. Snapshot DCIM directory on camera storage so we can detect new captures
+                    # even if capturetarget is Memory card or no FILE_ADDED PTP event is emitted
+                    dcim_dir = self._get_dcim_folder()
+                    initial_dcim_files = set()
+                    last_dcim_file = None
+                    if dcim_dir:
+                        try:
                             with self.lock:
-                                event_type, event_data = self.camera.wait_for_event(200)
-                            if event_type == gp.GP_EVENT_FILE_ADDED:
-                                file_path_info = event_data
-                                break
-                        
-                        if file_path_info:
-                            self.log(f"Capture successful. File created on camera: {file_path_info.folder}/{file_path_info.name}")
-                            result_path = self._download_camera_file(file_path_info.folder, file_path_info.name)
-                        else:
-                            raise Exception("Timeout waiting for captured file from camera.")
+                                f_list = self.camera.folder_list_files(dcim_dir)
+                                f_count = f_list.count()
+                                initial_dcim_files = {f_list.get_name(i) for i in range(f_count)}
+                                if f_count > 0:
+                                    last_dcim_file = f_list.get_name(f_count - 1)
+                            self.log(f"Pre-capture DCIM snapshot ({dcim_dir}): {len(initial_dcim_files)} files. Last: {last_dcim_file}")
+                        except Exception as list_err:
+                            self.log(f"Notice: Pre-capture DCIM listing: {list_err}")
                     else:
-                        self.log("Triggering camera capture...")
+                        self.log("Notice: DCIM folder not located prior to shutter release.")
+
+                    predicted_candidates = []
+                    if last_dcim_file:
+                        pred = self._predict_next_filename(last_dcim_file)
+                        if pred:
+                            predicted_candidates.append(pred)
+                            base_root = os.path.splitext(pred)[0]
+                            for alt_ext in [".CR3", ".cr3", ".JPG", ".jpg"]:
+                                cand = f"{base_root}{alt_ext}"
+                                if cand not in predicted_candidates:
+                                    predicted_candidates.append(cand)
+                        self.log(f"Predicted next capture file candidate(s): {predicted_candidates}")
+
+                    file_path_info = None
+                    result_path = None
+
+                    if self.resolved_names.get("eosremoterelease"):
+                        # Ensure release state is clean
+                        for rel in ["Release", "Release Full", "Release Half"]:
+                            try:
+                                self._set_camera_property("eosremoterelease", rel)
+                                break
+                            except Exception:
+                                pass
+
+                        # For scanning film negatives, shutter release MUST NOT activate AF hunting
+                        # Canon EOS remote release: Press Half MF (metering only) -> Press Full MF (shutter trip)
+                        self.log("Triggering camera shutter via eosremoterelease (Press Half MF -> Press Full MF)...")
+                        self._set_camera_property("eosremoterelease", "Press Half MF")
+                        time.sleep(0.15) # Hold half-press for exposure metering
+
+                        self._set_camera_property("eosremoterelease", "Press Full MF")
+                        time.sleep(0.25) # Hold full-press to trip shutter mechanism
+
+                        # Release shutter switches
+                        for rel in ["Release", "Release Full", "Release Half"]:
+                            try:
+                                self._set_camera_property("eosremoterelease", rel)
+                                break
+                            except Exception:
+                                pass
+
+                        # Wait for capture event from camera or retrieve newly written file from storage
+                        t0 = time.time()
+                        while time.time() - t0 < 10.0:
+                            # 1. Check PTP events
+                            with self.lock:
+                                try:
+                                    event_type, event_data = self.camera.wait_for_event(80)
+                                except Exception:
+                                    event_type, event_data = gp.GP_EVENT_TIMEOUT, None
+
+                            if event_type == gp.GP_EVENT_FILE_ADDED and event_data:
+                                file_path_info = (event_data.folder, event_data.name)
+                                self.log(f"Capture event detected: {file_path_info[0]}/{file_path_info[1]}")
+                                result_path = self._download_camera_file(event_data.folder, event_data.name)
+                                break
+
+                            # 2. Try direct storage file retrieval using predicted filename
+                            if dcim_dir and predicted_candidates:
+                                for cand_name in predicted_candidates:
+                                    try:
+                                        result_path = self._download_camera_file(dcim_dir, cand_name, quiet=True)
+                                        self.log(f"Successfully matched and downloaded predicted capture: {cand_name}")
+                                        file_path_info = (dcim_dir, cand_name)
+                                        break
+                                    except Exception:
+                                        pass
+                                if file_path_info:
+                                    break
+
+                            time.sleep(0.15)
+
+                        if not result_path:
+                            raise Exception("Camera shutter release did not produce an image file on storage within timeout.")
+                    else:
+                        self.log("Triggering camera capture via camera.capture()...")
                         with self.lock:
                             file_path = self.camera.capture(gp.GP_CAPTURE_IMAGE)
                         self.log(f"Capture successful. File created on camera: {file_path.folder}/{file_path.name}")
@@ -645,8 +752,8 @@ class CameraManager:
                     # Post-capture event draining to clear remaining PTP notifications (like CAPTURE_COMPLETE)
                     try:
                         with self.lock:
-                            for _ in range(25):
-                                evt_type, _ = self.camera.wait_for_event(50)
+                            for _ in range(12):
+                                evt_type, _ = self.camera.wait_for_event(30)
                                 if evt_type == gp.GP_EVENT_TIMEOUT:
                                     break
                     except Exception:
@@ -655,6 +762,7 @@ class CameraManager:
                     return result_path
                 finally:
                     self.pause_preview = False
+                    self.connection_state = "streaming" if self.live_view_active else "connected"
 
         elif cmd == "autofocus":
             if self.simulated:
@@ -666,14 +774,20 @@ class CameraManager:
                 try:
                     if self.resolved_names.get("eosremoterelease"):
                         self.log("Triggering autofocus via eosremoterelease (Canon)...")
-                        try:
-                            self._set_camera_property("eosremoterelease", "Release Half")
-                            time.sleep(0.05)
-                        except Exception:
-                            pass
-                        self._set_camera_property("eosremoterelease", "Press Half")
+                        for rel in ["Release", "Release Half"]:
+                            try:
+                                self._set_camera_property("eosremoterelease", rel)
+                                break
+                            except Exception:
+                                pass
+                        self._set_camera_property("eosremoterelease", "Press Half AF")
                         time.sleep(1.2)
-                        self._set_camera_property("eosremoterelease", "Release Half")
+                        for rel in ["Release", "Release Half"]:
+                            try:
+                                self._set_camera_property("eosremoterelease", rel)
+                                break
+                            except Exception:
+                                pass
                     elif self.resolved_names.get("autofocusdrive"):
                         self.log("Triggering autofocus via autofocusdrive (Nikon/Generic)...")
                         self._set_camera_property("autofocusdrive", 1)
@@ -747,69 +861,106 @@ class CameraManager:
             val_int = int(val)
             val_str = str(val)
             
-            # 1. Fast path using get_single_config with valid viewfinder widget candidates ONLY
+            # 1. On Canon mirrorless cameras, live view stream is driven directly by capture_preview().
+            # Trying to set non-existent 'viewfinder' widgets causes slow PTP timeouts.
+            if self.is_canon:
+                if val_int == 1:
+                    try:
+                        with self.lock:
+                            camera_file = self.camera.capture_preview()
+                            file_data = camera_file.get_data_and_size()
+                            with self.frame_lock:
+                                self.latest_frame = memoryview(file_data).tobytes()
+                                self.frame_id += 1
+                            self.frame_event.set()
+                            self.frame_event.clear()
+                        self.log("Canon Live View stream initiated via capture_preview.")
+                        return True
+                    except Exception as e:
+                        self.log(f"Notice: Canon capture_preview init: {e}")
+                        return False
+                else:
+                    self.log("Canon Live View stream stopped.")
+                    return True
+            
+            # 2. Fast path for Nikon / other cameras using get_single_config
             for candidate in ["viewfinder", "evf_status"]:
                 try:
-                    viewfinder = self.camera.get_single_config(candidate)
-                    try:
-                        viewfinder.set_value(val_int)
-                    except Exception:
-                        viewfinder.set_value(val_str)
-                    self.camera.set_single_config(candidate, viewfinder)
-                    self.log(f"Set {candidate} to {val} using get_single_config")
-                    return True
-                except Exception:
-                    pass
-                    
-            # 2. Fallback using recursive config tree search
-            try:
-                config = self.camera.get_config()
-                keep_alive = [config]
-                for candidate in ["viewfinder", "evf_status"]:
-                    viewfinder = self._find_widget_by_name(config, candidate, keep_alive)
-                    if viewfinder:
+                    with self.lock:
+                        viewfinder = self.camera.get_single_config(candidate)
                         try:
                             viewfinder.set_value(val_int)
                         except Exception:
                             viewfinder.set_value(val_str)
-                        self.camera.set_config(config)
-                        self.log(f"Set {candidate} to {val} using config tree")
-                        return True
-            except Exception:
-                pass
+                        self.camera.set_single_config(candidate, viewfinder)
+                    self.log(f"Set {candidate} to {val} using get_single_config")
+                    return True
+                except Exception:
+                    pass
 
-            # 3. If turning ON (val == 1) and widget single_config failed (e.g., Canon EOS hides widget when viewfinder=0),
-            # force-wake Canon EVF stream via capture_preview()
-            if val == 1:
+            # 3. Fallback: If turning ON (val == 1) and widget single_config was not found, kickstart via capture_preview
+            if val_int == 1:
                 try:
-                    self.log("Re-activating Canon Live View stream via capture_preview kickstart...")
-                    for attempt in range(3):
-                        try:
-                            with self.lock:
-                                camera_file = self.camera.capture_preview()
-                                file_data = camera_file.get_data_and_size()
-                                with self.frame_lock:
-                                    self.latest_frame = memoryview(file_data).tobytes()
-                                self.log("Canon Live View stream kickstarted successfully.")
-                                return True
-                        except Exception as e:
-                            try:
-                                with self.lock:
-                                    for _ in range(5):
-                                        evt_type, _ = self.camera.wait_for_event(30)
-                                        if evt_type == gp.GP_EVENT_TIMEOUT:
-                                            break
-                            except Exception:
-                                pass
-                            time.sleep(0.15)
+                    with self.lock:
+                        camera_file = self.camera.capture_preview()
+                        file_data = camera_file.get_data_and_size()
+                        with self.frame_lock:
+                            self.latest_frame = memoryview(file_data).tobytes()
+                            self.frame_id += 1
+                        self.frame_event.set()
+                        self.frame_event.clear()
+                    self.log("Live View stream kickstarted via capture_preview.")
+                    return True
                 except Exception as e:
                     self.log(f"Notice: capture_preview kickstart: {e}")
 
         except Exception as e:
-            self.log(f"Failed to set viewfinder to {val}: {e}")
+            self.log(f"Notice setting viewfinder to {val}: {e}")
         return False
 
-    def _download_camera_file(self, folder, name):
+    def _get_dcim_folder(self):
+        if hasattr(self, '_cached_dcim_folder') and self._cached_dcim_folder:
+            return self._cached_dcim_folder
+        if not self.camera:
+            return None
+        try:
+            with self.lock:
+                root_folders = self.camera.folder_list_folders('/')
+                for i in range(root_folders.count()):
+                    top = f"/{root_folders.get_name(i)}"
+                    try:
+                        sub = self.camera.folder_list_folders(top)
+                        for j in range(sub.count()):
+                            name = sub.get_name(j)
+                            if name.upper() == "DCIM":
+                                dcim_path = f"{top}/{name}"
+                                sub_dcim = self.camera.folder_list_folders(dcim_path)
+                                if sub_dcim.count() > 0:
+                                    target = f"{dcim_path}/{sub_dcim.get_name(sub_dcim.count() - 1)}"
+                                    self._cached_dcim_folder = target
+                                    self.log(f"Located camera DCIM storage directory: {target}")
+                                    return target
+                                self._cached_dcim_folder = dcim_path
+                                self.log(f"Located camera DCIM storage directory: {dcim_path}")
+                                return dcim_path
+                    except Exception as sub_e:
+                        self.log(f"Notice inspecting storage top {top}: {sub_e}")
+        except Exception as e:
+            self.log(f"Notice finding DCIM folder: {e}")
+        return None
+
+    def _predict_next_filename(self, filename):
+        import re
+        m = re.match(r'^([A-Za-z0-9_]+?)(\d+)(\.[A-Za-z0-9]+)$', filename)
+        if m:
+            prefix, num_str, ext = m.groups()
+            num = int(num_str)
+            num_len = len(num_str)
+            next_num = (num + 1) % (10 ** num_len)
+            return f"{prefix}{next_num:0{num_len}d}{ext}"
+        return None
+
+    def _download_camera_file(self, folder, name, quiet=False):
         # Determine target directory
         target_dir = None
         if self.session_manager and getattr(self.session_manager, 'dirs', None):
@@ -833,7 +984,8 @@ class CameraManager:
         local_name = f"Frame_{frame_num:02d}_Capture_{int(time.time())}{ext}"
         local_path = os.path.join(target_dir, local_name)
         
-        self.log(f"Downloading {name} to {local_path}...")
+        if not quiet:
+            self.log(f"Downloading {name} to {local_path}...")
         
         try:
             with self.lock:
@@ -846,7 +998,8 @@ class CameraManager:
             self.log(f"Download complete: {local_name}")
             return local_path
         except Exception as e:
-            self.log(f"Failed to download file {name}: {e}")
+            if not quiet:
+                self.log(f"Failed to download file {name}: {e}")
             raise e
 
     def _simulate_raw_capture(self):
@@ -1099,25 +1252,37 @@ class CameraManager:
                 v_lower = str(value).lower()
                 if v_lower in ['0', '1', 'off', 'normal']:
                     targets = ['0', '1', 'off', 'normal']
+                    default_zoom = 0
                 elif '5' in v_lower:
                     targets = ['5', '5x']
+                    default_zoom = 5
                 elif '10' in v_lower:
                     targets = ['10', '10x']
+                    default_zoom = 10
                 else:
                     targets = [v_lower]
+                    default_zoom = 0
                     
                 for choice in valid_choices:
                     if str(choice).lower() in targets:
                         matched_choice = choice
                         break
+                if matched_choice is None:
+                    matched_choice = default_zoom
 
             if name.lower() == "eosremoterelease":
-                v_lower = str(value).lower()
+                v_lower = str(value).strip().lower()
                 for choice in valid_choices:
-                    c_lower = str(choice).lower()
-                    if v_lower in c_lower or c_lower in v_lower or ("press half" in v_lower and "press half" in c_lower):
+                    c_lower = str(choice).strip().lower()
+                    if v_lower == c_lower:
                         matched_choice = choice
                         break
+                if matched_choice is None:
+                    for choice in valid_choices:
+                        c_lower = str(choice).strip().lower()
+                        if v_lower.replace(" ", "") == c_lower.replace(" ", ""):
+                            matched_choice = choice
+                            break
 
             if matched_choice is None:
                 for choice in valid_choices:
@@ -1145,9 +1310,9 @@ class CameraManager:
                 last_err = first_err
                 err_str = str(first_err)
                 if name.lower() == "eoszoom":
-                    self.log(f"Initial set_single_config for eoszoom='{value}' failed: {first_err}. Probing alternative variants...")
+                    self.log(f"Initial set_single_config for eoszoom='{value}' failed: {first_err}. Probing integer variants [0, 1]...")
                     success = False
-                    for alt in [0, 1, '0', '1', 'Off', 'normal']:
+                    for alt in [0, 1]:
                         try:
                             self._set_widget_value_safely(widget, alt)
                             with self.lock:
