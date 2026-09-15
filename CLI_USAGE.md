@@ -57,6 +57,8 @@ python src/compositor.py -i /path/to/raw/files --align --neutralize --compress
 | `--compress` | `-c` | Enable optional zlib compression for output TIFFs (default: uncompressed for max DaVinci Resolve & NLE compatibility). |
 | `--neutralize` | `-n` | Automatically balance the color channels to neutralize the film base. |
 | `--align` | `-a` | Auto-correct exposure alignment between channels (R, G, B) using FFT phase correlation. |
+| `--icc-profile` | | Embedded ICC color profile (`adobe_rgb`, `prophoto_rgb`, `srgb`, `none`; default: `adobe_rgb`). |
+| `--no-metadata` | | Disable embedding original camera RAW EXIF/IPTC metadata into output files. |
 | `--hotfolder` | | Run in Hot Folder mode to monitor a folder, composite files on the fly, and archive originals. |
 | `--timeout` | `-t` | Timeout in seconds to wait for the 3rd exposure in hot folder mode (default: `60`). |
 
@@ -92,10 +94,13 @@ python src/inverter.py -i /path/to/Composites --clip 0.1 --gamma 2.2 --scurve 0.
 | `--global-levels` | | Stretch levels globally instead of per-channel (maintains compositor neutralization). |
 | `--monochrome` / `--bw` | | Convert output composite to a single-channel grayscale positive. |
 | `--monochrome-channel` | | Method to convert RGB to monochrome: `luminance`, `average`, `red`, `green` (recommended), or `blue`. |
+| `--icc-profile` | | Embedded ICC color profile (`adobe_rgb`, `prophoto_rgb`, `srgb`, `none`; default: `adobe_rgb`). |
+| `--no-metadata` | | Disable embedding original camera RAW EXIF/IPTC metadata into output files. |
 
 ---
 
 ## How It Works & Best Practices
 
-1. **16-Bit Precision:** Output files are stored in standard 16-bit TIFF (`.tiff`) format with 64-row strip chunking for instant loading in video editors like DaVinci Resolve and image editors like Lightroom and Photoshop.
-2. **Channel Auto-Detection:** Triplet files are automatically analyzed by average brightness to identify Red, Green, and Blue exposures regardless of shot order.
+1. **16-Bit Precision & ColorSync / ICC Tagging:** Output files are stored in standard 16-bit TIFF or True DNG format with 64-row strip chunking for instant loading in video editors like DaVinci Resolve and image editors like Lightroom and Photoshop. Each output file has an embedded ICC profile tag (Adobe RGB (1998) or ProPhoto RGB / ROMM) to ensure consistent tone curve reproduction without clipping across all color-managed viewers.
+2. **Archival Metadata Preservation & True DNG:** Original camera RAW EXIF/IPTC metadata (exposure, lens model, camera serial, capture timestamp) is losslessly copied from source files into the final composites and positives via `exiftool`. Output DNG files include full DNG specification tags (`DNGVersion 1.4.0.0`, `ColorMatrix1`, `CalibrationIlluminant1`, `UniqueCameraModel`).
+3. **Channel Auto-Detection:** Triplet files are automatically analyzed by average brightness to identify Red, Green, and Blue exposures regardless of shot order.

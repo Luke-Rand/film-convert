@@ -3,3 +3,4 @@ pillow==12.2.0
 numpy==2.4.4
 rawpy==0.26.1
 tifffile==2026.3.3
+piexif==1.1.3

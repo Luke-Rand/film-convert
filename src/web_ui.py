@@ -68,7 +68,9 @@ class SessionManager:
             "monochrome": False,
             "monochrome_channel": "luminance",
             "reversal": False,
-            "convert_to_tiff": True
+            "convert_to_tiff": True,
+            "color_profile": "adobe_rgb",
+            "embed_metadata": True
         }
         self.logs = deque(maxlen=1000)
         self.monitor_thread = None
@@ -285,7 +287,9 @@ class SessionManager:
                                     output_filepath=composite_filepath,
                                     neutralize_base=self.config["neutralize"],
                                     compress_tiff=self.config["compress_tiff"],
-                                    align_channels=self.config["align_channels"]
+                                    align_channels=self.config["align_channels"],
+                                    icc_profile=self.config.get("color_profile", "adobe_rgb"),
+                                    preserve_metadata=self.config.get("embed_metadata", True)
                                 )
                             
                             self.broadcast("triplet_means", {
@@ -309,7 +313,9 @@ class SessionManager:
                                     monochrome=self.config.get("monochrome", False),
                                     monochrome_channel=self.config.get("monochrome_channel", "luminance"),
                                     reversal=self.config.get("reversal", False),
-                                    convert_to_tiff=self.config.get("convert_to_tiff", True)
+                                    convert_to_tiff=self.config.get("convert_to_tiff", True),
+                                    icc_profile=self.config.get("color_profile", "adobe_rgb"),
+                                    preserve_metadata=self.config.get("embed_metadata", True)
                                 )
                             
                             # 3. Move files
@@ -362,7 +368,9 @@ class SessionManager:
                                     monochrome=self.config.get("monochrome", False),
                                     monochrome_channel=self.config.get("monochrome_channel", "luminance"),
                                     reversal=self.config.get("reversal", False),
-                                    convert_to_tiff=self.config.get("convert_to_tiff", True)
+                                    convert_to_tiff=self.config.get("convert_to_tiff", True),
+                                    icc_profile=self.config.get("color_profile", "adobe_rgb"),
+                                    preserve_metadata=self.config.get("embed_metadata", True)
                                 )
                             
                             shutil.move(filepath, os.path.join(self.dirs['processed'], filename))
@@ -437,7 +445,9 @@ class SessionManager:
                                 output_filepath=output_filepath,
                                 neutralize_base=self.config["neutralize"],
                                 compress_tiff=self.config["compress_tiff"],
-                                align_channels=self.config["align_channels"]
+                                align_channels=self.config["align_channels"],
+                                icc_profile=self.config.get("color_profile", "adobe_rgb"),
+                                preserve_metadata=self.config.get("embed_metadata", True)
                             )
                         frame_number += 1
                     
@@ -462,7 +472,9 @@ class SessionManager:
                             monochrome=self.config.get("monochrome", False),
                             monochrome_channel=self.config.get("monochrome_channel", "luminance"),
                             reversal=self.config.get("reversal", False),
-                            convert_to_tiff=self.config.get("convert_to_tiff", True)
+                            convert_to_tiff=self.config.get("convert_to_tiff", True),
+                            icc_profile=self.config.get("color_profile", "adobe_rgb"),
+                            preserve_metadata=self.config.get("embed_metadata", True)
                         )
                     self.log("Batch inversion complete!")
                     

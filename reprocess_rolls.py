@@ -127,7 +127,9 @@ def reprocess_roll(roll_dir, args):
                 output_filepath=comp_path,
                 neutralize_base=args.neutralize,
                 compress_tiff=args.compress,
-                align_channels=not args.no_align
+                align_channels=not args.no_align,
+                icc_profile=args.icc_profile,
+                preserve_metadata=not args.no_metadata
             )
             
             # 2. Sensitometric Inversion with smooth monotonic knee roll-off
@@ -144,7 +146,9 @@ def reprocess_roll(roll_dir, args):
                 monochrome=args.monochrome,
                 monochrome_channel=args.monochrome_channel,
                 reversal=args.reversal,
-                convert_to_tiff=True
+                convert_to_tiff=True,
+                icc_profile=args.icc_profile,
+                preserve_metadata=not args.no_metadata
             )
             elapsed = time.time() - start_t
             print(f"  -> Successfully converted in {elapsed:.1f}s\n")
@@ -178,6 +182,11 @@ def main():
     parser.add_argument("--monochrome", "--bw", action="store_true", help="Convert output to monochrome/B&W")
     parser.add_argument("--monochrome-channel", type=str, default="luminance", choices=["luminance", "average", "red", "green", "blue"])
     parser.add_argument("--reversal", action="store_true", help="Process positive slide / reversal film")
+    parser.add_argument("--icc-profile", "--color-profile", type=str, default="adobe_rgb",
+                        choices=["adobe_rgb", "prophoto_rgb", "srgb", "none"],
+                        help="Embedded ICC color profile (default: adobe_rgb)")
+    parser.add_argument("--no-metadata", action="store_true",
+                        help="Disable embedding original camera RAW EXIF/IPTC metadata into composites and positives")
     
     args = parser.parse_args()
     

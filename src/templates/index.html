@@ -582,6 +582,21 @@
                                     <span class="checkmark"></span>
                                     <div class="checkbox-text"><strong>TIFF Compression (zlib)</strong></div>
                                 </label>
+                                <label class="checkbox-container"
+                                    data-tooltip="Embed full EXIF/IPTC/XMP camera metadata (exposure, lens model, camera serial, capture timestamp) from original camera RAWs into output files">
+                                    <input type="checkbox" id="config-embed-metadata" checked>
+                                    <span class="checkmark"></span>
+                                    <div class="checkbox-text"><strong>Preserve RAW Metadata</strong></div>
+                                </label>
+                            </div>
+                            <div class="form-group" style="margin-top: 0.75rem;">
+                                <label for="config-color-profile" style="font-size: 0.8rem; font-weight: 600;">Color Profile (ICC / ColorSync)</label>
+                                <select id="config-color-profile" class="select-presets" style="font-size: 0.8rem; height: 2rem;">
+                                    <option value="adobe_rgb" selected>Adobe RGB (1998) - Standard Photographic Gamut</option>
+                                    <option value="prophoto_rgb">ProPhoto RGB (ROMM) - Ultra-Wide Negative Gamut</option>
+                                    <option value="srgb">sRGB - Standard Display Space</option>
+                                    <option value="none">None / Linear - Untagged Sensor Space</option>
+                                </select>
                             </div>
                         </div>
                     </div>
@@ -738,6 +753,24 @@
                                         <strong>Convert to 16-Bit TIFF</strong>
                                     </div>
                                 </label>
+                                <label class="checkbox-container"
+                                    data-tooltip="Embed full EXIF/IPTC/XMP camera metadata (exposure, lens model, camera serial, capture timestamp) from original camera RAWs into output files">
+                                    <input type="checkbox" id="batch-embed-metadata" checked>
+                                    <span class="checkmark"></span>
+                                    <div class="checkbox-text">
+                                        <strong>Preserve RAW Metadata</strong>
+                                    </div>
+                                </label>
+                            </div>
+
+                            <div class="form-group" style="margin-top: 0.75rem;">
+                                <label for="batch-color-profile" style="font-size: 0.8rem; font-weight: 600;">Color Profile (ICC / ColorSync)</label>
+                                <select id="batch-color-profile" class="select-presets" style="font-size: 0.8rem; height: 2rem;">
+                                    <option value="adobe_rgb" selected>Adobe RGB (1998) - Standard Photographic Gamut</option>
+                                    <option value="prophoto_rgb">ProPhoto RGB (ROMM) - Ultra-Wide Negative Gamut</option>
+                                    <option value="srgb">sRGB - Standard Display Space</option>
+                                    <option value="none">None / Linear - Untagged Sensor Space</option>
+                                </select>
                             </div>
 
                             <div class="form-group" id="batch-monochrome-channel-group"
