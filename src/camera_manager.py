@@ -332,6 +332,8 @@ class CameraManager:
                 try:
                     subprocess.run(["killall", "-STOP", "icdd"], capture_output=True)
                     subprocess.run(["killall", "-9", "ptpcamerad"], capture_output=True)
+                    time.sleep(0.15)
+                    subprocess.run(["killall", "-STOP", "ptpcamerad"], capture_output=True)
                     self._daemons_suspended = True
                 except Exception:
                     pass
@@ -395,6 +397,8 @@ class CameraManager:
                         last_init_err = err
                         if sys.platform == 'darwin':
                             subprocess.run(["killall", "-9", "ptpcamerad"], capture_output=True)
+                            time.sleep(0.15)
+                            subprocess.run(["killall", "-STOP", "ptpcamerad"], capture_output=True)
                         time.sleep(0.3)
                 if camera:
                     break
@@ -649,28 +653,44 @@ class CameraManager:
                     # even if capturetarget is Memory card or no FILE_ADDED PTP event is emitted
                     dcim_dir = self._get_dcim_folder()
                     initial_dcim_files = set()
+                    last_dcim_file = None
                     if dcim_dir:
                         try:
                             with self.lock:
                                 f_list = self.camera.folder_list_files(dcim_dir)
-                                initial_dcim_files = {f_list.get_name(i) for i in range(f_list.count())}
-                            self.log(f"Pre-capture DCIM snapshot ({dcim_dir}): {len(initial_dcim_files)} files.")
+                                f_count = f_list.count()
+                                initial_dcim_files = {f_list.get_name(i) for i in range(f_count)}
+                                if f_count > 0:
+                                    last_dcim_file = f_list.get_name(f_count - 1)
+                            self.log(f"Pre-capture DCIM snapshot ({dcim_dir}): {len(initial_dcim_files)} files. Last: {last_dcim_file}")
                         except Exception as list_err:
                             self.log(f"Notice: Pre-capture DCIM listing: {list_err}")
                     else:
                         self.log("Notice: DCIM folder not located prior to shutter release.")
+
+                    predicted_candidates = []
+                    if last_dcim_file:
+                        pred = self._predict_next_filename(last_dcim_file)
+                        if pred:
+                            predicted_candidates.append(pred)
+                            base_root = os.path.splitext(pred)[0]
+                            for alt_ext in [".CR3", ".cr3", ".JPG", ".jpg"]:
+                                cand = f"{base_root}{alt_ext}"
+                                if cand not in predicted_candidates:
+                                    predicted_candidates.append(cand)
+                        self.log(f"Predicted next capture file candidate(s): {predicted_candidates}")
 
                     file_path_info = None
                     result_path = None
 
                     if self.resolved_names.get("eosremoterelease"):
                         # Ensure release state is clean
-                        try:
-                            self._set_camera_property("eosremoterelease", "Release Full")
-                            time.sleep(0.04)
-                            self._set_camera_property("eosremoterelease", "Release Half")
-                        except Exception:
-                            pass
+                        for rel in ["Release", "Release Full", "Release Half"]:
+                            try:
+                                self._set_camera_property("eosremoterelease", rel)
+                                break
+                            except Exception:
+                                pass
 
                         # For scanning film negatives, shutter release MUST NOT activate AF hunting
                         # Canon EOS remote release: Press Half MF (metering only) -> Press Full MF (shutter trip)
@@ -681,69 +701,47 @@ class CameraManager:
                         self._set_camera_property("eosremoterelease", "Press Full MF")
                         time.sleep(0.25) # Hold full-press to trip shutter mechanism
 
-                        # Release both switches
-                        try:
-                            self._set_camera_property("eosremoterelease", "Release Full")
-                            time.sleep(0.04)
-                            self._set_camera_property("eosremoterelease", "Release Half")
-                        except Exception:
-                            pass
+                        # Release shutter switches
+                        for rel in ["Release", "Release Full", "Release Half"]:
+                            try:
+                                self._set_camera_property("eosremoterelease", rel)
+                                break
+                            except Exception:
+                                pass
 
-                        # Wait for capture event from camera or detect newly written file in storage
+                        # Wait for capture event from camera or retrieve newly written file from storage
                         t0 = time.time()
-                        while time.time() - t0 < 8.0:
-                            # Check PTP events
+                        while time.time() - t0 < 10.0:
+                            # 1. Check PTP events
                             with self.lock:
                                 try:
-                                    event_type, event_data = self.camera.wait_for_event(120)
+                                    event_type, event_data = self.camera.wait_for_event(80)
                                 except Exception:
                                     event_type, event_data = gp.GP_EVENT_TIMEOUT, None
 
                             if event_type == gp.GP_EVENT_FILE_ADDED and event_data:
                                 file_path_info = (event_data.folder, event_data.name)
                                 self.log(f"Capture event detected: {file_path_info[0]}/{file_path_info[1]}")
+                                result_path = self._download_camera_file(event_data.folder, event_data.name)
                                 break
 
-                            # Check DCIM folder on storage for newly written file
-                            if dcim_dir:
-                                try:
-                                    with self.lock:
-                                        cur_list = self.camera.folder_list_files(dcim_dir)
-                                        cur_count = cur_list.count()
-                                    if cur_count > len(initial_dcim_files):
-                                        for idx in range(cur_count - 1, max(-1, cur_count - 10), -1):
-                                            fname = cur_list.get_name(idx)
-                                            if fname not in initial_dcim_files:
-                                                file_path_info = (dcim_dir, fname)
-                                                self.log(f"Capture detected new file in DCIM: {dcim_dir}/{fname}")
-                                                break
-                                    if file_path_info:
+                            # 2. Try direct storage file retrieval using predicted filename
+                            if dcim_dir and predicted_candidates:
+                                for cand_name in predicted_candidates:
+                                    try:
+                                        result_path = self._download_camera_file(dcim_dir, cand_name)
+                                        self.log(f"Successfully matched and downloaded predicted capture: {cand_name}")
+                                        file_path_info = (dcim_dir, cand_name)
                                         break
-                                except Exception:
-                                    pass
+                                    except Exception:
+                                        pass
+                                if file_path_info:
+                                    break
 
-                            time.sleep(0.1)
+                            time.sleep(0.15)
 
-                        if file_path_info:
-                            folder, name = file_path_info
-                            self.log(f"Capture successful. File created on camera: {folder}/{name}")
-                            result_path = self._download_camera_file(folder, name)
-                        else:
-                            # Final attempt: check newest file in DCIM folder if file count changed or newest file is recent
-                            if dcim_dir:
-                                try:
-                                    with self.lock:
-                                        cur_list = self.camera.folder_list_files(dcim_dir)
-                                        cur_count = cur_list.count()
-                                        if cur_count > 0:
-                                            newest_name = cur_list.get_name(cur_count - 1)
-                                            if newest_name not in initial_dcim_files:
-                                                self.log(f"Capture detected new file on fallback scan: {dcim_dir}/{newest_name}")
-                                                result_path = self._download_camera_file(dcim_dir, newest_name)
-                                except Exception as fb_err:
-                                    self.log(f"Notice fallback DCIM check: {fb_err}")
-                            if not result_path:
-                                raise Exception("Camera shutter release did not produce an image file on storage within timeout.")
+                        if not result_path:
+                            raise Exception("Camera shutter release did not produce an image file on storage within timeout.")
                     else:
                         self.log("Triggering camera capture via camera.capture()...")
                         with self.lock:
@@ -776,14 +774,20 @@ class CameraManager:
                 try:
                     if self.resolved_names.get("eosremoterelease"):
                         self.log("Triggering autofocus via eosremoterelease (Canon)...")
-                        try:
-                            self._set_camera_property("eosremoterelease", "Release Half")
-                            time.sleep(0.05)
-                        except Exception:
-                            pass
-                        self._set_camera_property("eosremoterelease", "Press Half")
+                        for rel in ["Release", "Release Half"]:
+                            try:
+                                self._set_camera_property("eosremoterelease", rel)
+                                break
+                            except Exception:
+                                pass
+                        self._set_camera_property("eosremoterelease", "Press Half AF")
                         time.sleep(1.2)
-                        self._set_camera_property("eosremoterelease", "Release Half")
+                        for rel in ["Release", "Release Half"]:
+                            try:
+                                self._set_camera_property("eosremoterelease", rel)
+                                break
+                            except Exception:
+                                pass
                     elif self.resolved_names.get("autofocusdrive"):
                         self.log("Triggering autofocus via autofocusdrive (Nikon/Generic)...")
                         self._set_camera_property("autofocusdrive", 1)
@@ -943,6 +947,17 @@ class CameraManager:
                         self.log(f"Notice inspecting storage top {top}: {sub_e}")
         except Exception as e:
             self.log(f"Notice finding DCIM folder: {e}")
+        return None
+
+    def _predict_next_filename(self, filename):
+        import re
+        m = re.match(r'^([A-Za-z0-9_]+?)(\d+)(\.[A-Za-z0-9]+)$', filename)
+        if m:
+            prefix, num_str, ext = m.groups()
+            num = int(num_str)
+            num_len = len(num_str)
+            next_num = (num + 1) % (10 ** num_len)
+            return f"{prefix}{next_num:0{num_len}d}{ext}"
         return None
 
     def _download_camera_file(self, folder, name):
