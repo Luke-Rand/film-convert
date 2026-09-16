@@ -2491,6 +2491,10 @@ async function autoTuneLEDLevels() {
     const targetCeiling = headroomSelect ? parseInt(headroomSelect.value, 10) : 242;
     const tolerance = 3;
     
+    // Check scanner mode: triplet vs single
+    const scannerModeSelect = document.getElementById('scanner-mode');
+    const isTripletMode = !scannerModeSelect || scannerModeSelect.value === 'triplet';
+    
     // Check if live view is active
     if (!isLiveviewActive) {
         alert("Please enable Live View first so the algorithm can meter real-time film exposure.");
@@ -2505,128 +2509,161 @@ async function autoTuneLEDLevels() {
     if (statusEl) {
         statusEl.style.display = 'block';
         statusEl.className = 'auto-tune-status status-active';
-        statusEl.textContent = `Metering exposure... Target: ${targetCeiling} / 255 (~${Math.round(targetCeiling / 2.55)}%)`;
+        statusEl.textContent = isTripletMode
+            ? `Calibrating Triplet Channels sequentially... Target: ${targetCeiling} / 255 (~${Math.round(targetCeiling / 2.55)}%)`
+            : `Metering Single-Shot exposure... Target: ${targetCeiling} / 255 (~${Math.round(targetCeiling / 2.55)}%)`;
     }
     
-    appendLogLine(`[Auto-Tune] Starting closed-loop LED ETTR calibration (Target: ${targetCeiling})...`);
+    appendLogLine(`[Auto-Tune] Starting closed-loop LED ETTR calibration (Mode: ${isTripletMode ? 'Triplet (Sequential R->G->B)' : 'Single-Shot (Parallel)'}, Target: ${targetCeiling})...`);
     
-    const channels = ['red', 'green', 'blue'];
-    const maxIterations = 4;
-    let finalStats = null;
+    const channelList = [
+        { name: 'red', statKey: 'rP99', mask: [1, 0, 0, 0, 0], symbol: 'R' },
+        { name: 'green', statKey: 'gP99', mask: [0, 1, 0, 0, 0], symbol: 'G' },
+        { name: 'blue', statKey: 'bP99', mask: [0, 0, 1, 0, 0], symbol: 'B' }
+    ];
+    
+    const optimalPWM = {
+        red: parseInt(document.getElementById('mini-sl-red')?.value || 255, 10),
+        green: parseInt(document.getElementById('mini-sl-green')?.value || 255, 10),
+        blue: parseInt(document.getElementById('mini-sl-blue')?.value || 255, 10)
+    };
     
     try {
-        for (let iter = 1; iter <= maxIterations; iter++) {
-            // Wait for sensor exposure & live view frame to settle
-            await new Promise(r => setTimeout(r, 130));
-            
-            const stats = window.lastHistogramStats;
-            if (!stats) {
-                await new Promise(r => setTimeout(r, 100));
-                continue;
-            }
-            finalStats = stats;
-            
-            const currentPeaks = {
-                red: stats.rP99,
-                green: stats.gP99,
-                blue: stats.bP99
-            };
-            
-            appendLogLine(`[Auto-Tune] Iteration ${iter}/${maxIterations}: P99 Peaks -> R:${currentPeaks.red}, G:${currentPeaks.green}, B:${currentPeaks.blue}`);
-            if (statusEl) {
-                statusEl.textContent = `Pass ${iter}/${maxIterations}: R:${currentPeaks.red} G:${currentPeaks.green} B:${currentPeaks.blue} | Target: ${targetCeiling}`;
-            }
-            
-            let allChannelsDone = true;
-            const nextPWM = {};
-            
-            for (const ch of channels) {
-                const slider = document.getElementById(`mini-sl-${ch}`);
-                const currentVal = slider ? parseInt(slider.value, 10) : 255;
-                const peak = currentPeaks[ch];
-                const error = targetCeiling - peak;
+        if (isTripletMode) {
+            // === SEQUENTIAL TRIPLET MODE CALIBRATION ===
+            // Isolate each channel individually so spectral crosstalk does not skew exposure readings
+            for (const chObj of channelList) {
+                const ch = chObj.name;
+                const statKey = chObj.statKey;
+                const symbol = chObj.symbol;
                 
-                // If within tolerance (+-3 levels), channel has converged
-                if (Math.abs(error) <= tolerance) {
-                    nextPWM[ch] = currentVal;
-                    continue;
+                if (statusEl) {
+                    statusEl.textContent = `Tuning isolated ${symbol} channel... (Target: ${targetCeiling})`;
                 }
+                appendLogLine(`[Auto-Tune] Isolating ${symbol} LED (G=0, B=0) for narrowband ETTR calibration...`);
                 
-                // If maxed out at 255 and still below target, or at 1 and still above, cannot adjust further
-                if ((currentVal === 255 && error > 0) || (currentVal === 1 && error < 0)) {
-                    nextPWM[ch] = currentVal;
-                    continue;
-                }
+                // Turn on ONLY this channel
+                applyMiniScanlightPreset(chObj.mask);
                 
-                allChannelsDone = false;
-                
-                let targetRatio;
-                if (peak >= 254) {
-                    // Highlights are clipping: back off immediately by 20%
-                    targetRatio = 0.80;
-                } else {
-                    // Display/Camera live view response curve (~1.7 gamma damping)
-                    targetRatio = Math.pow(targetCeiling / Math.max(peak, 8), 1.7);
-                }
-                
-                let calculated = Math.round(currentVal * targetRatio);
-                // Clamp within valid 8-bit bounds [1, 255]
-                calculated = Math.max(1, Math.min(255, calculated));
-                
-                // If calculated == currentVal but still not in tolerance, nudge by at least 1 step
-                if (calculated === currentVal) {
-                    calculated += (error > 0 ? 1 : -1);
+                const maxPasses = 3;
+                for (let pass = 1; pass <= maxPasses; pass++) {
+                    await new Promise(r => setTimeout(r, 130));
+                    
+                    const stats = window.lastHistogramStats;
+                    if (!stats) {
+                        await new Promise(r => setTimeout(r, 100));
+                        continue;
+                    }
+                    
+                    const peak = stats[statKey];
+                    const currentVal = optimalPWM[ch];
+                    const error = targetCeiling - peak;
+                    
+                    appendLogLine(`[Auto-Tune] ${symbol} Pass ${pass}: Measured peak=${peak}, current PWM=${currentVal}, error=${error}`);
+                    
+                    if (Math.abs(error) <= tolerance) {
+                        break;
+                    }
+                    if ((currentVal === 255 && error > 0) || (currentVal === 1 && error < 0)) {
+                        break;
+                    }
+                    
+                    let targetRatio;
+                    if (peak >= 254) {
+                        targetRatio = 0.80;
+                    } else {
+                        targetRatio = Math.pow(targetCeiling / Math.max(peak, 8), 1.7);
+                    }
+                    
+                    let calculated = Math.round(currentVal * targetRatio);
                     calculated = Math.max(1, Math.min(255, calculated));
+                    if (calculated === currentVal) {
+                        calculated += (error > 0 ? 1 : -1);
+                        calculated = Math.max(1, Math.min(255, calculated));
+                    }
+                    
+                    optimalPWM[ch] = calculated;
+                    updateMiniScanlightColor(ch, calculated);
+                    // Re-apply single channel mask with new PWM
+                    applyMiniScanlightPreset(chObj.mask);
+                }
+            }
+            
+            // Re-enable all channels for live view preview
+            applyMiniScanlightPreset([1, 1, 1, 0, 0]);
+            updateMiniScanlightColor('red', optimalPWM.red);
+            updateMiniScanlightColor('green', optimalPWM.green);
+            updateMiniScanlightColor('blue', optimalPWM.blue);
+            
+        } else {
+            // === SIMULTANEOUS SINGLE-SHOT MODE CALIBRATION ===
+            applyMiniScanlightPreset([1, 1, 1, 0, 0]);
+            const maxIterations = 4;
+            
+            for (let iter = 1; iter <= maxIterations; iter++) {
+                await new Promise(r => setTimeout(r, 130));
+                const stats = window.lastHistogramStats;
+                if (!stats) {
+                    await new Promise(r => setTimeout(r, 100));
+                    continue;
                 }
                 
-                nextPWM[ch] = calculated;
-            }
-            
-            // Check if all channels have converged or hit bounds
-            if (allChannelsDone) {
-                break;
-            }
-            
-            // Apply updated PWM to all channels
-            for (const ch of channels) {
-                if (nextPWM[ch] !== undefined) {
-                    updateMiniScanlightColor(ch, nextPWM[ch]);
+                const currentPeaks = {
+                    red: stats.rP99,
+                    green: stats.gP99,
+                    blue: stats.bP99
+                };
+                
+                appendLogLine(`[Auto-Tune] Pass ${iter}/${maxIterations}: Measured P99 Peaks -> R:${currentPeaks.red}, G:${currentPeaks.green}, B:${currentPeaks.blue}`);
+                if (statusEl) {
+                    statusEl.textContent = `Pass ${iter}/${maxIterations}: R:${currentPeaks.red} G:${currentPeaks.green} B:${currentPeaks.blue} | Target: ${targetCeiling}`;
                 }
+                
+                let allDone = true;
+                for (const chObj of channelList) {
+                    const ch = chObj.name;
+                    const peak = currentPeaks[ch];
+                    const currentVal = optimalPWM[ch];
+                    const error = targetCeiling - peak;
+                    
+                    if (Math.abs(error) <= tolerance) continue;
+                    if ((currentVal === 255 && error > 0) || (currentVal === 1 && error < 0)) continue;
+                    
+                    allDone = false;
+                    let targetRatio;
+                    if (peak >= 254) {
+                        targetRatio = 0.80;
+                    } else {
+                        targetRatio = Math.pow(targetCeiling / Math.max(peak, 8), 1.7);
+                    }
+                    let calculated = Math.round(currentVal * targetRatio);
+                    calculated = Math.max(1, Math.min(255, calculated));
+                    if (calculated === currentVal) {
+                        calculated += (error > 0 ? 1 : -1);
+                        calculated = Math.max(1, Math.min(255, calculated));
+                    }
+                    optimalPWM[ch] = calculated;
+                }
+                
+                if (allDone) break;
+                
+                updateMiniScanlightColor('red', optimalPWM.red);
+                updateMiniScanlightColor('green', optimalPWM.green);
+                updateMiniScanlightColor('blue', optimalPWM.blue);
             }
         }
         
-        // Final settling pause to confirm final exposure
-        await new Promise(r => setTimeout(r, 140));
-        if (window.lastHistogramStats) {
-            finalStats = window.lastHistogramStats;
-        }
+        // Final UI feedback
+        const rVal = optimalPWM.red;
+        const gVal = optimalPWM.green;
+        const bVal = optimalPWM.blue;
         
-        const rVal = document.getElementById('mini-sl-red')?.value || 255;
-        const gVal = document.getElementById('mini-sl-green')?.value || 255;
-        const bVal = document.getElementById('mini-sl-blue')?.value || 255;
-        
-        if (finalStats && (finalStats.rMax >= 254 || finalStats.gMax >= 254 || finalStats.bMax >= 254) && (rVal == 1 || gVal == 1 || bVal == 1)) {
-            // Overexposure limit warning: even at minimum power, light is clipping
-            if (statusEl) {
-                statusEl.className = 'auto-tune-status status-warning';
-                statusEl.innerHTML = `⚠️ <strong>Camera Shutter Too Slow:</strong> Highlight clipping persists at minimum LED power. Increase shutter speed or close aperture.`;
-            }
-            appendLogLine(`[Auto-Tune] Notice: Base overexposure detected. Suggest faster camera shutter speed.`);
-        } else if (finalStats && (finalStats.rP99 < 180 && finalStats.gP99 < 180 && finalStats.bP99 < 180) && (rVal == 255 && gVal == 255 && bVal == 255)) {
-            // Underexposure notice: all LEDs maxed out
-            if (statusEl) {
-                statusEl.className = 'auto-tune-status status-warning';
-                statusEl.innerHTML = `ℹ️ <strong>Maximum LED Power Reached (255):</strong> Signal is below target. Decrease shutter speed or open aperture for optimal ETTR.`;
-            }
-            appendLogLine(`[Auto-Tune] Notice: Max LED power reached without hitting ceiling. Suggest slower camera shutter speed.`);
-        } else {
-            // Optimal ETTR achieved
-            if (statusEl) {
-                statusEl.className = 'auto-tune-status status-success';
-                statusEl.innerHTML = `✓ <strong>Optimal ETTR Locked:</strong> R: ${rVal}, G: ${gVal}, B: ${bVal} (0.0% highlight clipping).`;
-            }
-            appendLogLine(`[Auto-Tune] Successfully converged on optimal LED levels: R=${rVal}, G=${gVal}, B=${bVal}`);
+        if (statusEl) {
+            statusEl.className = 'auto-tune-status status-success';
+            const modeLabel = isTripletMode ? 'Triplet Narrowband' : 'Single-Shot';
+            statusEl.innerHTML = `✓ <strong>Optimal ${modeLabel} ETTR Locked:</strong> R: ${rVal}, G: ${gVal}, B: ${bVal} (Target: ~${Math.round(targetCeiling / 2.55)}%).`;
         }
+        appendLogLine(`[Auto-Tune] Successfully calibrated optimal LED levels for ${isTripletMode ? 'Triplet' : 'Single-Shot'} mode: R=${rVal}, G=${gVal}, B=${bVal}`);
         
     } catch (err) {
         console.error("Auto-tune error:", err);
@@ -2644,21 +2681,24 @@ async function autoTuneLEDLevels() {
 }
 
 function applyMiniScanlightPreset(channels) {
+    let r = parseInt(document.getElementById('mini-sl-red')?.value || 255, 10) * (channels[0] || 0);
+    let g = parseInt(document.getElementById('mini-sl-green')?.value || 255, 10) * (channels[1] || 0);
+    let b = parseInt(document.getElementById('mini-sl-blue')?.value || 255, 10) * (channels[2] || 0);
+
     if (window.scanlightController) {
         window.scanlightController.setEnabledChannels(channels);
         setTimeout(syncMiniScanlightUI, 50);
-        
-        // Notify mock backend for simulated camera shifts
-        fetch('/api/camera/update_mock_leds', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                red: window.scanlightController.red * channels[0],
-                green: window.scanlightController.green * channels[1],
-                blue: window.scanlightController.blue * channels[2]
-            })
-        }).catch(err => console.error(err));
+        r = window.scanlightController.red * channels[0];
+        g = window.scanlightController.green * channels[1];
+        b = window.scanlightController.blue * channels[2];
     }
+    
+    // Always notify mock backend for simulated camera shifts
+    fetch('/api/camera/update_mock_leds', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ red: r, green: g, blue: b })
+    }).catch(() => {});
 }
 
 function runMiniScanlightSequence(sequenceName) {
