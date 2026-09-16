@@ -11,11 +11,27 @@ import sys
 from PIL import Image
 from tiff_writer import write_16bit_tiff
 
+# Multi-threaded SIMD Fourier transform backend (scipy.fft / opencv / numpy fallback)
+try:
+    import scipy.fft as sfft
+    _HAS_SCIPY_FFT = True
+except ImportError:
+    sfft = None
+    _HAS_SCIPY_FFT = False
+
+try:
+    import cv2
+    _HAS_CV2 = True
+except ImportError:
+    cv2 = None
+    _HAS_CV2 = False
+
 def fourier_shift_2d(img, dy, dx):
     """
     Shifts a 2D image by sub-pixel (dy, dx) using Fourier phase shift.
     Positive dy shifts content downwards; positive dx shifts content rightwards.
     Uses edge-reflection padding to completely eliminate wrap-around and zero-padding artifacts.
+    Accelerated with multi-threaded SIMD FFT when scipy.fft is available.
     """
     h, w = img.shape
     pad_y = max(int(np.ceil(abs(dy))) + 8, 16)
@@ -24,11 +40,16 @@ def fourier_shift_2d(img, dy, dx):
     padded = np.pad(img, ((pad_y, pad_y), (pad_x, pad_x)), mode='edge').astype(np.float32)
     ph, pw = padded.shape
     
-    ky = np.fft.fftfreq(ph)[:, None]
-    kx = np.fft.fftfreq(pw)[None, :]
-    
-    shift_factor = np.exp(-2j * np.pi * (ky * dy + kx * dx))
-    shifted_padded = np.real(np.fft.ifft2(np.fft.fft2(padded) * shift_factor))
+    if _HAS_SCIPY_FFT:
+        ky = sfft.fftfreq(ph)[:, None]
+        kx = sfft.fftfreq(pw)[None, :]
+        shift_factor = np.exp(-2j * np.pi * (ky * dy + kx * dx))
+        shifted_padded = np.real(sfft.ifft2(sfft.fft2(padded, workers=-1) * shift_factor, workers=-1))
+    else:
+        ky = np.fft.fftfreq(ph)[:, None]
+        kx = np.fft.fftfreq(pw)[None, :]
+        shift_factor = np.exp(-2j * np.pi * (ky * dy + kx * dx))
+        shifted_padded = np.real(np.fft.ifft2(np.fft.fft2(padded) * shift_factor))
     
     shifted = shifted_padded[pad_y:pad_y + h, pad_x:pad_x + w]
     return np.clip(shifted, 0, 65535).astype(img.dtype)
@@ -55,12 +76,19 @@ def align_channel(ref, mov, channel_name=""):
     ref_win = (ref_crop - np.mean(ref_crop)) * window
     mov_win = (mov_crop - np.mean(mov_crop)) * window
     
-    # Compute cross-power spectrum
-    F = np.fft.fft2(ref_win)
-    G = np.fft.fft2(mov_win)
-    cross_power = F * np.conjugate(G)
-    R = cross_power / (np.abs(cross_power) + 1e-8)
-    r = np.fft.ifft2(R)
+    # Compute cross-power spectrum (accelerated with scipy.fft if available)
+    if _HAS_SCIPY_FFT:
+        F = sfft.fft2(ref_win, workers=-1)
+        G = sfft.fft2(mov_win, workers=-1)
+        cross_power = F * np.conjugate(G)
+        R = cross_power / (np.abs(cross_power) + 1e-8)
+        r = sfft.ifft2(R, workers=-1)
+    else:
+        F = np.fft.fft2(ref_win)
+        G = np.fft.fft2(mov_win)
+        cross_power = F * np.conjugate(G)
+        R = cross_power / (np.abs(cross_power) + 1e-8)
+        r = np.fft.ifft2(R)
     r_abs = np.abs(r)
     
     peak = np.unravel_index(np.argmax(r_abs), r_abs.shape)
