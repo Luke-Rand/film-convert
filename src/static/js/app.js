@@ -1623,11 +1623,17 @@ function toggleLiveviewFullscreen() {
     if (card) {
         if (isLiveviewFullscreen) {
             card.classList.add('fullscreen-focus-mode');
-            if (btn) btn.innerHTML = '✖ Exit Focus (ESC)';
+            if (btn) {
+                btn.innerHTML = '<span class="tool-icon">✖</span> <span class="tool-text">Exit (ESC)</span>';
+                btn.classList.add('btn-fullscreen-active');
+            }
             if (hud) hud.style.display = 'flex';
         } else {
             card.classList.remove('fullscreen-focus-mode');
-            if (btn) btn.innerHTML = '🔍 Maximize Focus';
+            if (btn) {
+                btn.innerHTML = '<span class="tool-icon">🔍</span> <span class="tool-text">Maximize</span>';
+                btn.classList.remove('btn-fullscreen-active');
+            }
             if (hud) hud.style.display = 'none';
         }
     }
@@ -1799,18 +1805,23 @@ function fetchCameraStatus() {
                 if (data.simulated) {
                     badge.classList.add('badge-simulated');
                     badge.textContent = 'Simulated';
+                    badge.title = 'Camera: Simulated Mock Device';
                 } else if (data.state === 'searching') {
                     badge.classList.add('badge-disconnected');
                     badge.textContent = 'Searching...';
+                    badge.title = 'Searching for USB camera...';
                 } else if (data.state === 'capturing') {
                     badge.classList.add('badge-connected');
                     badge.textContent = 'Capturing...';
+                    badge.title = 'Camera is actively capturing frames';
                 } else if (data.connected) {
                     badge.classList.add('badge-connected');
-                    badge.textContent = data.model ? `Connected (${data.model})` : 'Connected';
+                    badge.textContent = data.model ? data.model : 'Connected';
+                    badge.title = `Camera Connected: ${data.model || 'Ready'}`;
                 } else {
                     badge.classList.add('badge-disconnected');
                     badge.textContent = 'Disconnected';
+                    badge.title = 'Camera Disconnected';
                 }
             }
 

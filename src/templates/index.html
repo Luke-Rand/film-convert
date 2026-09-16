@@ -79,25 +79,11 @@
                         <!-- Live View Card -->
                         <div class="card liveview-card">
                             <div class="liveview-header">
-                                <h3 class="card-title">Live View</h3>
-                                <div class="liveview-controls-header">
-                                    <button class="btn btn-secondary btn-small" id="btn-maximize-liveview"
-                                        onclick="toggleLiveviewFullscreen()"
-                                        data-tooltip="Maximize live view to fill the entire screen for critical focus inspection"
-                                        style="font-size: 0.7rem; padding: 0.2rem 0.5rem; background: var(--accent-color, #4f46e5); color: #fff; border-color: transparent;">🔍 Maximize Focus</button>
-                                    <button class="btn btn-secondary btn-small" id="btn-rotate-liveview"
-                                        onclick="toggleLiveviewRotation()"
-                                        data-tooltip="Rotate the live view 180° — useful when the camera is mounted upside-down"
-                                        style="font-size: 0.7rem; padding: 0.2rem 0.5rem;">🔄 Rotate 180°</button>
-                                    <button class="btn btn-secondary btn-small" id="btn-margin-overlay"
-                                        onclick="toggleMarginOverlay()"
-                                        data-tooltip="Show/hide a margin overlay that visualises the ignored outer border region"
-                                        style="font-size: 0.7rem; padding: 0.2rem 0.5rem;">📐 Margins</button>
-                                    <button class="btn btn-secondary btn-small" id="btn-liveview-eyedropper"
-                                        onclick="toggleFilmBaseEyedropper('liveview')"
-                                        data-tooltip="1-click eyedropper: click the film rebate (orange mask) on the live view to sample exact neutralizer ratios"
-                                        style="font-size: 0.7rem; padding: 0.2rem 0.5rem;">💧 Rebate Picker</button>
-                                    <span class="camera-badge badge-simulated" id="camera-status-badge">Simulated</span>
+                                <div class="liveview-header-title-group">
+                                    <h3 class="card-title">Live View</h3>
+                                    <span class="camera-badge badge-simulated" id="camera-status-badge" title="Camera Connection Status">Simulated</span>
+                                </div>
+                                <div class="liveview-header-feed-group">
                                     <label class="switch-container"
                                         data-tooltip="Enable or disable the real-time camera live view feed">
                                         <input type="checkbox" id="camera-liveview-toggle"
@@ -105,6 +91,35 @@
                                         <span class="switch-slider"></span>
                                     </label>
                                     <span class="switch-label">Live Feed</span>
+                                </div>
+                            </div>
+
+                            <div class="liveview-toolbar">
+                                <div class="liveview-toolbar-group">
+                                    <button class="liveview-tool-btn" id="btn-maximize-liveview"
+                                        onclick="toggleLiveviewFullscreen()"
+                                        data-tooltip="Maximize live view to fill the entire screen for critical focus inspection (ESC to exit)">
+                                        <span class="tool-icon">🔍</span>
+                                        <span class="tool-text">Maximize</span>
+                                    </button>
+                                    <button class="liveview-tool-btn" id="btn-rotate-liveview"
+                                        onclick="toggleLiveviewRotation()"
+                                        data-tooltip="Rotate live view 180° — useful when the camera is mounted upside-down">
+                                        <span class="tool-icon">🔄</span>
+                                        <span class="tool-text">Rotate 180°</span>
+                                    </button>
+                                    <button class="liveview-tool-btn" id="btn-margin-overlay"
+                                        onclick="toggleMarginOverlay()"
+                                        data-tooltip="Show/hide a margin overlay that visualises the ignored outer border region">
+                                        <span class="tool-icon">📐</span>
+                                        <span class="tool-text">Margins</span>
+                                    </button>
+                                    <button class="liveview-tool-btn" id="btn-liveview-eyedropper"
+                                        onclick="toggleFilmBaseEyedropper('liveview')"
+                                        data-tooltip="1-click eyedropper: click the film rebate (orange mask) on the live view to sample exact neutralizer ratios">
+                                        <span class="tool-icon">💧</span>
+                                        <span class="tool-text">Rebate Picker</span>
+                                    </button>
                                 </div>
                             </div>
 
