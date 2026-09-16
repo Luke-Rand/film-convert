@@ -2261,3 +2261,94 @@ body.tooltips-disabled #fc-tooltip {
     100% { transform: translate(-50%, -50%) scale(2.2); opacity: 0; }
 }
 
+/* Keyboard Shortcuts Modal & Badges */
+.shortcuts-modal-wrapper {
+    max-width: 780px;
+    width: 90%;
+    background: #121826;
+    border: 1px solid var(--border-color);
+    box-shadow: 0 20px 45px rgba(0, 0, 0, 0.75), 0 0 25px rgba(14, 165, 233, 0.15);
+    border-radius: var(--radius-lg);
+}
+
+.shortcuts-modal-body {
+    padding: 1.25rem 1.5rem;
+    max-height: 70vh;
+    overflow-y: auto;
+}
+
+.shortcuts-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    gap: 1.25rem;
+}
+
+.shortcuts-section {
+    background: rgba(30, 41, 59, 0.4);
+    border: 1px solid rgba(255, 255, 255, 0.07);
+    border-radius: var(--radius-md);
+    padding: 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+}
+
+.shortcuts-section h4 {
+    font-size: 0.82rem;
+    font-weight: 700;
+    color: var(--accent-blue);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 0.5rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    padding-bottom: 0.4rem;
+}
+
+.shortcut-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.4rem 0;
+    font-size: 0.8rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.shortcut-row:last-child {
+    border-bottom: none;
+}
+
+.shortcut-desc {
+    color: var(--text-primary);
+    font-weight: 500;
+}
+
+.shortcut-keys {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+    color: var(--text-muted);
+    font-size: 0.75rem;
+    font-family: var(--font-mono);
+}
+
+kbd {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 22px;
+    padding: 0.2rem 0.45rem;
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    font-weight: 600;
+    line-height: 1;
+    color: #f8fafc;
+    background: linear-gradient(180deg, #243247 0%, #172033 100%);
+    border: 1px solid #3b4d66;
+    border-bottom: 2px solid #0f172a;
+    border-radius: 4px;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+    white-space: nowrap;
+    user-select: none;
+}
+
+

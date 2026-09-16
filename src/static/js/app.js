@@ -1639,12 +1639,254 @@ function toggleLiveviewFullscreen() {
     }
 }
 
+// Keyboard Shortcuts Modal Management
+function toggleShortcutsModal() {
+    const modal = document.getElementById('shortcuts-modal');
+    if (modal) {
+        if (modal.classList.contains('active')) {
+            closeShortcutsModal();
+        } else {
+            openShortcutsModal();
+        }
+    }
+}
+
+function openShortcutsModal() {
+    const modal = document.getElementById('shortcuts-modal');
+    if (modal) {
+        modal.classList.add('active');
+    }
+}
+
+function closeShortcutsModal() {
+    const modal = document.getElementById('shortcuts-modal');
+    if (modal) {
+        modal.classList.remove('active');
+    }
+}
+
+function isTypingInInput(e) {
+    const target = e.target;
+    if (!target) return false;
+    const tagName = target.tagName ? target.tagName.toUpperCase() : '';
+    if (tagName === 'INPUT' || tagName === 'TEXTAREA' || tagName === 'SELECT' || target.isContentEditable) {
+        return true;
+    }
+    return false;
+}
+
+function cycleHistogramMode() {
+    const modes = ['all', 'r', 'g', 'b', 'split'];
+    const currentMode = (typeof activeHistogramMode !== 'undefined' && activeHistogramMode) ? activeHistogramMode : 'all';
+    const currentIdx = modes.indexOf(currentMode);
+    const nextMode = modes[(currentIdx + 1) % modes.length];
+    if (typeof setHistogramMode === 'function') {
+        setHistogramMode(nextMode);
+    }
+}
+
 document.addEventListener('keydown', (e) => {
+    const isInput = isTypingInInput(e);
+
+    // Escape always cancels overlays / modals / eyedropper / fullscreen
     if (e.key === 'Escape') {
+        const shortcutsModal = document.getElementById('shortcuts-modal');
+        if (shortcutsModal && shortcutsModal.classList.contains('active')) {
+            closeShortcutsModal();
+            e.preventDefault();
+            return;
+        }
         if (isEyedropperActive) {
             cancelFilmBaseEyedropper();
-        } else if (isLiveviewFullscreen) {
+            e.preventDefault();
+            return;
+        }
+        if (isLiveviewFullscreen) {
             toggleLiveviewFullscreen();
+            e.preventDefault();
+            return;
+        }
+        const folderModal = document.getElementById('folder-browser-modal');
+        if (folderModal && folderModal.classList.contains('active')) {
+            closeFolderBrowser();
+            e.preventDefault();
+            return;
+        }
+        const lightbox = document.getElementById('image-lightbox');
+        if (lightbox && lightbox.classList.contains('active')) {
+            closeLightbox();
+            e.preventDefault();
+            return;
+        }
+        const trimModal = document.getElementById('scanlight-trim-modal');
+        if (trimModal && trimModal.classList.contains('active')) {
+            if (typeof scanlightController !== 'undefined' && scanlightController.closeTrimModal) {
+                scanlightController.closeTrimModal();
+            }
+            e.preventDefault();
+            return;
+        }
+        return;
+    }
+
+    // Shift + / or ? toggles keyboard shortcuts modal (from anywhere unless in input)
+    if (e.key === '?' || (e.shiftKey && (e.key === '/' || e.code === 'Slash'))) {
+        if (!isInput) {
+            e.preventDefault();
+            toggleShortcutsModal();
+            return;
+        }
+    }
+
+    // Ignore single key shortcuts if user is typing into an input field or textarea
+    if (isInput) return;
+
+    // Alt + 1..4 Tab Navigation
+    if (e.altKey && !e.ctrlKey && !e.metaKey) {
+        if (e.key === '1') { e.preventDefault(); switchTab('scanner'); return; }
+        if (e.key === '2') { e.preventDefault(); switchTab('batch'); return; }
+        if (e.key === '3') { e.preventDefault(); switchTab('gallery'); return; }
+        if (e.key === '4') { e.preventDefault(); switchTab('scanlight'); return; }
+    }
+
+    // If shortcuts modal is currently open, don't execute background action shortcuts
+    const shortcutsModal = document.getElementById('shortcuts-modal');
+    if (shortcutsModal && shortcutsModal.classList.contains('active')) {
+        return;
+    }
+
+    // Trigger Camera RAW Capture: Space or C
+    if ((e.code === 'Space' && !e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey) || 
+        (e.key.toLowerCase() === 'c' && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey)) {
+        e.preventDefault();
+        triggerCameraCapture();
+        return;
+    }
+
+    // Auto R-G-B Sequence: A (or Shift + A for Autofocus)
+    if (e.key.toLowerCase() === 'a' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        e.preventDefault();
+        if (e.shiftKey) {
+            triggerAutofocus();
+        } else {
+            runMiniScanlightSequence('SequenceRGB');
+        }
+        return;
+    }
+
+    // Autofocus Trigger: U
+    if (e.key.toLowerCase() === 'u' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        e.preventDefault();
+        triggerAutofocus();
+        return;
+    }
+
+    // Toggle Hot Folder Monitor: M
+    if (e.key.toLowerCase() === 'm' && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
+        e.preventDefault();
+        toggleMonitor();
+        return;
+    }
+
+    // Toggle Live View Feed: V or L
+    if ((e.key.toLowerCase() === 'v' || e.key.toLowerCase() === 'l') && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
+        e.preventDefault();
+        const toggle = document.getElementById('camera-liveview-toggle');
+        if (toggle) {
+            toggle.checked = !toggle.checked;
+            toggleCameraLiveview(toggle.checked);
+        }
+        return;
+    }
+
+    // Toggle Fullscreen Live View: F
+    if (e.key.toLowerCase() === 'f' && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
+        e.preventDefault();
+        toggleLiveviewFullscreen();
+        return;
+    }
+
+    // Rotate Live View 180°: R
+    if (e.key.toLowerCase() === 'r' && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
+        e.preventDefault();
+        toggleLiveviewRotation();
+        return;
+    }
+
+    // Toggle Margins Overlay: O
+    if (e.key.toLowerCase() === 'o' && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
+        e.preventDefault();
+        toggleMarginOverlay();
+        return;
+    }
+
+    // Sample Film Rebate Eyedropper: E
+    if (e.key.toLowerCase() === 'e' && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
+        e.preventDefault();
+        toggleFilmBaseEyedropper('liveview');
+        return;
+    }
+
+    // Toggle Focus Peaking: P
+    if (e.key.toLowerCase() === 'p' && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
+        e.preventDefault();
+        const peakToggle = document.getElementById('focus-peaking-toggle');
+        if (peakToggle) {
+            peakToggle.checked = !peakToggle.checked;
+            toggleFocusPeaking(peakToggle.checked);
+        }
+        return;
+    }
+
+    // Auto-Tune Optimal LEDs (ETTR): T
+    if (e.key.toLowerCase() === 't' && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
+        e.preventDefault();
+        autoTuneLEDLevels();
+        return;
+    }
+
+    // Cycle Histogram Modes: H
+    if (e.key.toLowerCase() === 'h' && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
+        e.preventDefault();
+        cycleHistogramMode();
+        return;
+    }
+
+    // Focus Stepping: [ or Left (Near), ] or Right (Far)
+    if (e.key === '[' || e.key === 'ArrowLeft') {
+        e.preventDefault();
+        const step = e.shiftKey ? 3 : 1;
+        driveFocus('near', step);
+        return;
+    }
+    if (e.key === ']' || e.key === 'ArrowRight') {
+        e.preventDefault();
+        const step = e.shiftKey ? 3 : 1;
+        driveFocus('far', step);
+        return;
+    }
+
+    // Magnification Zoom Levels: 1 (1x), 2 (3x), 3 (5x) / 5 (5x)
+    if (!e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
+        if (e.key === '1') {
+            e.preventDefault();
+            setZoomMagnification(1);
+            return;
+        }
+        if (e.key === '2') {
+            e.preventDefault();
+            setZoomMagnification(3);
+            return;
+        }
+        if (e.key === '3') {
+            e.preventDefault();
+            setZoomMagnification(5);
+            return;
+        }
+        if (e.key === '5') {
+            e.preventDefault();
+            setZoomMagnification(5);
+            return;
         }
     }
 });
