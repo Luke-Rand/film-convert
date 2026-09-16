@@ -95,21 +95,21 @@
   "encoders": [
     [
       ["KC_MINS", "KC_EQL"],
+      ["RGB_VAD", "RGB_VAI"],
+      ["KC_MINS", "KC_EQL"],
+      ["KC_MINS", "KC_EQL"]
+    ],
+    [
       ["KC_LBRC", "KC_RBRC"],
-      ["S(KC_LBRC)", "S(KC_RBRC)"],
+      ["RGB_HUD", "RGB_HUI"],
+      ["KC_LBRC", "KC_RBRC"],
       ["KC_LBRC", "KC_RBRC"]
     ],
     [
-      ["RGB_VAD", "RGB_VAI"],
-      ["RGB_HUD", "RGB_HUI"],
+      ["S(KC_LBRC)", "S(KC_RBRC)"],
       ["RGB_SAD", "RGB_SAI"],
-      ["KC_MS_WH_DOWN", "KC_MS_WH_UP"]
-    ],
-    [
-      ["S(KC_E)", "KC_E"],
-      ["C(KC_Z)", "C(S(KC_Z))"],
-      ["C(KC_Z)", "C(S(KC_Z))"],
-      ["C(KC_Z)", "C(S(KC_Z))"]
+      ["S(KC_LBRC)", "S(KC_RBRC)"],
+      ["S(KC_LBRC)", "S(KC_RBRC)"]
     ]
   ]
 }

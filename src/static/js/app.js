@@ -1881,15 +1881,15 @@ document.addEventListener('keydown', (e) => {
     }
 
     // Focus Stepping: [ or Left (Near), ] or Right (Far)
-    if (e.key === '[' || e.key === 'ArrowLeft') {
+    if (e.key === '[' || e.key === '{' || e.key === 'ArrowLeft' || e.code === 'BracketLeft') {
         e.preventDefault();
-        const step = e.shiftKey ? 3 : 1;
+        const step = (e.shiftKey || e.key === '{') ? 3 : 1;
         driveFocus('near', step);
         return;
     }
-    if (e.key === ']' || e.key === 'ArrowRight') {
+    if (e.key === ']' || e.key === '}' || e.key === 'ArrowRight' || e.code === 'BracketRight') {
         e.preventDefault();
-        const step = e.shiftKey ? 3 : 1;
+        const step = (e.shiftKey || e.key === '}') ? 3 : 1;
         driveFocus('far', step);
         return;
     }
