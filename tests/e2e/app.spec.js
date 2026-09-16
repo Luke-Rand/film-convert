@@ -166,4 +166,112 @@ test.describe('FilmConvert Web & Electron UI Test Suite', () => {
     expect(goodConfigData.config.clip).toBe(0.15);
   });
 
+  test('Keyboard shortcuts modal opens on Shift+/ or ? and closes on Escape', async ({ page }) => {
+    const shortcutsModal = page.locator('#shortcuts-modal');
+    await expect(shortcutsModal).not.toHaveClass(/active/);
+
+    // Press Shift+/ (or ?) to open modal
+    await page.keyboard.press('Shift+Slash');
+    await expect(shortcutsModal).toHaveClass(/active/);
+    await expect(shortcutsModal.locator('h3')).toHaveText('Keyboard Shortcuts');
+
+    // Press Escape to close modal
+    await page.keyboard.press('Escape');
+    await expect(shortcutsModal).not.toHaveClass(/active/);
+
+    // Press '?' directly
+    await page.keyboard.press('?');
+    await expect(shortcutsModal).toHaveClass(/active/);
+
+    // Close via close button
+    await shortcutsModal.locator('.modal-close').click();
+    await expect(shortcutsModal).not.toHaveClass(/active/);
+
+    // Open via sidebar shortcuts button
+    await page.click('#btn-shortcuts-toggle');
+    await expect(shortcutsModal).toHaveClass(/active/);
+    await page.click('#shortcuts-modal .modal-footer button');
+    await expect(shortcutsModal).not.toHaveClass(/active/);
+  });
+
+  test('Alt / Option tab switching keyboard shortcuts switch panels smoothly', async ({ page }) => {
+    // Start on Tab 1 (Scanner)
+    await expect(page.locator('#panel-scanner')).toHaveClass(/active/);
+
+    // Switch to Tab 2 (Batch) via Alt+2
+    await page.keyboard.press('Alt+Digit2');
+    await expect(page.locator('#panel-batch')).toHaveClass(/active/);
+
+    // Switch to Tab 3 (Gallery) via Alt+3
+    await page.keyboard.press('Alt+Digit3');
+    await expect(page.locator('#panel-gallery')).toHaveClass(/active/);
+
+    // Switch to Tab 4 (Scanlight) via Alt+4
+    await page.keyboard.press('Alt+Digit4');
+    await expect(page.locator('#panel-scanlight')).toHaveClass(/active/);
+
+    // Switch back to Tab 1 (Scanner) via Alt+1
+    await page.keyboard.press('Alt+Digit1');
+    await expect(page.locator('#panel-scanner')).toHaveClass(/active/);
+  });
+
+  test('Live Capture panel keyboard shortcuts function properly', async ({ page }) => {
+    // 1. Zoom levels via 1, 2, 3
+    const zoom1x = page.locator('#btn-zoom-1x');
+    const zoom3x = page.locator('#btn-zoom-3x');
+    const zoom5x = page.locator('#btn-zoom-5x');
+
+    await expect(zoom1x).toHaveClass(/active/);
+    await page.keyboard.press('2');
+    await expect(zoom3x).toHaveClass(/active/);
+    await page.keyboard.press('3');
+    await expect(zoom5x).toHaveClass(/active/);
+    await page.keyboard.press('1');
+    await expect(zoom1x).toHaveClass(/active/);
+
+    // 2. Peaking toggle via 'p'
+    const peakingToggle = page.locator('#focus-peaking-toggle');
+    await expect(peakingToggle).not.toBeChecked();
+    await page.keyboard.press('p');
+    await expect(peakingToggle).toBeChecked();
+    await page.keyboard.press('p');
+    await expect(peakingToggle).not.toBeChecked();
+
+    // 3. Margin overlay via 'o'
+    const marginOverlay = page.locator('#margin-overlay');
+    await expect(marginOverlay).toBeHidden();
+    await page.keyboard.press('o');
+    await expect(marginOverlay).toBeVisible();
+    await page.keyboard.press('o');
+    await expect(marginOverlay).toBeHidden();
+
+    // 4. Fullscreen Live View via 'f' and exit via Escape
+    const liveviewCard = page.locator('.liveview-card');
+    await expect(liveviewCard).not.toHaveClass(/fullscreen-focus-mode/);
+    await page.keyboard.press('f');
+    await expect(liveviewCard).toHaveClass(/fullscreen-focus-mode/);
+    await page.keyboard.press('Escape');
+    await expect(liveviewCard).not.toHaveClass(/fullscreen-focus-mode/);
+
+    // 5. Eyedropper mode via 'e' and cancel via Escape
+    const eyedropperBanner = page.locator('#liveview-eyedropper-banner');
+    await expect(eyedropperBanner).toBeHidden();
+    await page.keyboard.press('e');
+    await expect(eyedropperBanner).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(eyedropperBanner).toBeHidden();
+
+    // 6. Typing in input fields does NOT trigger action shortcuts
+    const stockInput = page.locator('#scanner-stock');
+    await stockInput.fill('');
+    await stockInput.focus();
+    await page.keyboard.type('test-stock?fpo123');
+    await expect(stockInput).toHaveValue('test-stock?fpo123');
+    // Modal should not have opened
+    await expect(page.locator('#shortcuts-modal')).not.toHaveClass(/active/);
+    // Peaking should still be unchecked
+    await expect(peakingToggle).not.toBeChecked();
+  });
+
 });
+

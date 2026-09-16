@@ -1639,12 +1639,282 @@ function toggleLiveviewFullscreen() {
     }
 }
 
+// Keyboard Shortcuts Modal Management
+function toggleShortcutsModal() {
+    const modal = document.getElementById('shortcuts-modal');
+    if (modal) {
+        if (modal.classList.contains('active')) {
+            closeShortcutsModal();
+        } else {
+            openShortcutsModal();
+        }
+    }
+}
+
+function openShortcutsModal() {
+    const modal = document.getElementById('shortcuts-modal');
+    if (modal) {
+        modal.classList.add('active');
+    }
+}
+
+function closeShortcutsModal() {
+    const modal = document.getElementById('shortcuts-modal');
+    if (modal) {
+        modal.classList.remove('active');
+    }
+}
+
+function isTypingInInput(e) {
+    const target = e.target;
+    if (!target) return false;
+    const tagName = target.tagName ? target.tagName.toUpperCase() : '';
+    if (tagName === 'INPUT' || tagName === 'TEXTAREA' || tagName === 'SELECT' || target.isContentEditable) {
+        return true;
+    }
+    return false;
+}
+
+function cycleHistogramMode() {
+    const modes = ['all', 'r', 'g', 'b', 'split'];
+    const currentMode = (typeof activeHistogramMode !== 'undefined' && activeHistogramMode) ? activeHistogramMode : 'all';
+    const currentIdx = modes.indexOf(currentMode);
+    const nextMode = modes[(currentIdx + 1) % modes.length];
+    if (typeof setHistogramMode === 'function') {
+        setHistogramMode(nextMode);
+    }
+}
+
 document.addEventListener('keydown', (e) => {
+    const isInput = isTypingInInput(e);
+
+    // Escape always cancels overlays / modals / eyedropper / fullscreen
     if (e.key === 'Escape') {
+        const shortcutsModal = document.getElementById('shortcuts-modal');
+        if (shortcutsModal && shortcutsModal.classList.contains('active')) {
+            closeShortcutsModal();
+            e.preventDefault();
+            return;
+        }
         if (isEyedropperActive) {
             cancelFilmBaseEyedropper();
-        } else if (isLiveviewFullscreen) {
+            e.preventDefault();
+            return;
+        }
+        if (isLiveviewFullscreen) {
             toggleLiveviewFullscreen();
+            e.preventDefault();
+            return;
+        }
+        const folderModal = document.getElementById('folder-browser-modal');
+        if (folderModal && folderModal.classList.contains('active')) {
+            closeFolderBrowser();
+            e.preventDefault();
+            return;
+        }
+        const lightbox = document.getElementById('image-lightbox');
+        if (lightbox && lightbox.classList.contains('active')) {
+            closeLightbox();
+            e.preventDefault();
+            return;
+        }
+        const trimModal = document.getElementById('scanlight-trim-modal');
+        if (trimModal && trimModal.classList.contains('active')) {
+            if (typeof scanlightController !== 'undefined' && scanlightController.closeTrimModal) {
+                scanlightController.closeTrimModal();
+            }
+            e.preventDefault();
+            return;
+        }
+        return;
+    }
+
+    // Shift + / or ? toggles keyboard shortcuts modal (from anywhere unless in input)
+    if (e.key === '?' || (e.shiftKey && (e.key === '/' || e.code === 'Slash'))) {
+        if (!isInput) {
+            e.preventDefault();
+            toggleShortcutsModal();
+            return;
+        }
+    }
+
+    // Ignore single key shortcuts if user is typing into an input field or textarea
+    if (isInput) return;
+
+    // Alt + 1..4 (or Option + 1..4 / Cmd + 1..4) Tab Navigation
+    if ((e.altKey || e.metaKey) && !e.ctrlKey) {
+        if (e.code === 'Digit1' || e.code === 'Numpad1' || e.key === '1' || e.key === '¡') {
+            e.preventDefault();
+            switchTab('scanner');
+            return;
+        }
+        if (e.code === 'Digit2' || e.code === 'Numpad2' || e.key === '2' || e.key === '™') {
+            e.preventDefault();
+            switchTab('batch');
+            return;
+        }
+        if (e.code === 'Digit3' || e.code === 'Numpad3' || e.key === '3' || e.key === '£') {
+            e.preventDefault();
+            switchTab('gallery');
+            return;
+        }
+        if (e.code === 'Digit4' || e.code === 'Numpad4' || e.key === '4' || e.key === '¢') {
+            e.preventDefault();
+            switchTab('scanlight');
+            return;
+        }
+    }
+
+    // If shortcuts modal is currently open, don't execute background action shortcuts
+    const shortcutsModal = document.getElementById('shortcuts-modal');
+    if (shortcutsModal && shortcutsModal.classList.contains('active')) {
+        return;
+    }
+
+    // Trigger Camera RAW Capture: Space or C
+    if ((e.code === 'Space' && !e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey) || 
+        (e.key.toLowerCase() === 'c' && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey)) {
+        e.preventDefault();
+        triggerCameraCapture();
+        return;
+    }
+
+    // Auto R-G-B Sequence: A (or Shift + A for Autofocus)
+    if (e.key.toLowerCase() === 'a' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        e.preventDefault();
+        if (e.shiftKey) {
+            triggerAutofocus();
+        } else {
+            runMiniScanlightSequence('SequenceRGB');
+        }
+        return;
+    }
+
+    // Autofocus Trigger: U
+    if (e.key.toLowerCase() === 'u' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        e.preventDefault();
+        triggerAutofocus();
+        return;
+    }
+
+    // Toggle Hot Folder Monitor: M
+    if (e.key.toLowerCase() === 'm' && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
+        e.preventDefault();
+        toggleMonitor();
+        return;
+    }
+
+    // Toggle Live View Feed: V or L
+    if ((e.key.toLowerCase() === 'v' || e.key.toLowerCase() === 'l') && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
+        e.preventDefault();
+        const toggle = document.getElementById('camera-liveview-toggle');
+        if (toggle) {
+            toggle.checked = !toggle.checked;
+            toggleCameraLiveview(toggle.checked);
+        }
+        return;
+    }
+
+    // Toggle Fullscreen Live View: F
+    if (e.key.toLowerCase() === 'f' && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
+        e.preventDefault();
+        toggleLiveviewFullscreen();
+        return;
+    }
+
+    // Rotate Live View 180°: R
+    if (e.key.toLowerCase() === 'r' && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
+        e.preventDefault();
+        toggleLiveviewRotation();
+        return;
+    }
+
+    // Toggle Margins Overlay: O
+    if (e.key.toLowerCase() === 'o' && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
+        e.preventDefault();
+        toggleMarginOverlay();
+        return;
+    }
+
+    // Sample Film Rebate Eyedropper: E
+    if (e.key.toLowerCase() === 'e' && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
+        e.preventDefault();
+        toggleFilmBaseEyedropper('liveview');
+        return;
+    }
+
+    // Toggle Focus Peaking: P
+    if (e.key.toLowerCase() === 'p' && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
+        e.preventDefault();
+        const peakToggle = document.getElementById('focus-peaking-toggle');
+        if (peakToggle) {
+            peakToggle.checked = !peakToggle.checked;
+            toggleFocusPeaking(peakToggle.checked);
+        }
+        return;
+    }
+
+    // Auto-Tune Optimal LEDs (ETTR): T
+    if (e.key.toLowerCase() === 't' && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
+        e.preventDefault();
+        autoTuneLEDLevels();
+        return;
+    }
+
+    // Cycle Histogram Modes: H
+    if (e.key.toLowerCase() === 'h' && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
+        e.preventDefault();
+        cycleHistogramMode();
+        return;
+    }
+
+    // Step Camera Shutter Speed: - / _ / , (slower), = / + / . (faster)
+    if ((e.key === '-' || e.key === '_' || e.code === 'Minus' || e.code === 'NumpadSubtract' || e.key === ',') && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        e.preventDefault();
+        stepCameraShutter('slower');
+        return;
+    }
+    if ((e.key === '=' || e.key === '+' || e.code === 'Equal' || e.code === 'NumpadAdd' || e.key === '.') && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        e.preventDefault();
+        stepCameraShutter('faster');
+        return;
+    }
+
+    // Focus Stepping: [ or Left (Near), ] or Right (Far)
+    if (e.key === '[' || e.key === '{' || e.key === 'ArrowLeft' || e.code === 'BracketLeft') {
+        e.preventDefault();
+        const step = (e.shiftKey || e.key === '{') ? 3 : 1;
+        driveFocus('near', step);
+        return;
+    }
+    if (e.key === ']' || e.key === '}' || e.key === 'ArrowRight' || e.code === 'BracketRight') {
+        e.preventDefault();
+        const step = (e.shiftKey || e.key === '}') ? 3 : 1;
+        driveFocus('far', step);
+        return;
+    }
+
+    // Magnification Zoom Levels: 1 (1x), 2 (3x), 3 (5x) / 5 (5x)
+    if (!e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
+        if (e.key === '1') {
+            e.preventDefault();
+            setZoomMagnification(1);
+            return;
+        }
+        if (e.key === '2') {
+            e.preventDefault();
+            setZoomMagnification(3);
+            return;
+        }
+        if (e.key === '3') {
+            e.preventDefault();
+            setZoomMagnification(5);
+            return;
+        }
+        if (e.key === '5') {
+            e.preventDefault();
+            setZoomMagnification(5);
+            return;
         }
     }
 });
@@ -1902,6 +2172,76 @@ function setCameraConfig(name, value) {
         }
     })
     .catch(err => console.error("Error updating config:", err));
+}
+
+function parseShutterDuration(str) {
+    if (!str) return 0;
+    const clean = str.toString().trim().toLowerCase().replace('s', '');
+    if (clean === 'auto' || clean === 'bulb') return 999999;
+    if (clean.includes('/')) {
+        const parts = clean.split('/');
+        const num = parseFloat(parts[0]);
+        const den = parseFloat(parts[1]);
+        if (!isNaN(num) && !isNaN(den) && den !== 0) {
+            return num / den;
+        }
+    }
+    const val = parseFloat(clean);
+    return isNaN(val) ? 0 : val;
+}
+
+// Step camera shutter speed: 'faster' (increase speed/shorter duration) or 'slower' (decrease speed/longer duration)
+function stepCameraShutter(direction) {
+    const select = document.getElementById('camera-shutter-select');
+    if (!select || select.disabled || select.options.length <= 1) {
+        appendLogLine('[Camera] Shutter speed control not available or no choices loaded.');
+        return;
+    }
+    
+    const currentIdx = select.selectedIndex;
+    if (currentIdx < 0) return;
+
+    const currentVal = select.options[currentIdx].value;
+    const currentDur = parseShutterDuration(currentVal);
+
+    // Build array of options with index and parsed duration
+    const opts = Array.from(select.options).map((opt, i) => ({
+        index: i,
+        value: opt.value,
+        duration: parseShutterDuration(opt.value)
+    }));
+
+    let targetIdx = -1;
+
+    if (direction === 'faster' || direction === 'up' || direction === 1) {
+        // Increase shutter speed -> shorter exposure time (duration < currentDur)
+        // Find option with largest duration that is still strictly less than current duration
+        const candidates = opts.filter(o => o.duration < currentDur && o.duration > 0);
+        if (candidates.length > 0) {
+            candidates.sort((a, b) => b.duration - a.duration);
+            targetIdx = candidates[0].index;
+        } else {
+            // Already at fastest shutter speed
+            return;
+        }
+    } else {
+        // Decrease shutter speed -> longer exposure time (duration > currentDur)
+        // Find option with smallest duration that is strictly greater than current duration
+        const candidates = opts.filter(o => o.duration > currentDur);
+        if (candidates.length > 0) {
+            candidates.sort((a, b) => a.duration - b.duration);
+            targetIdx = candidates[0].index;
+        } else {
+            // Already at slowest shutter speed
+            return;
+        }
+    }
+    
+    if (targetIdx >= 0 && targetIdx !== currentIdx) {
+        select.selectedIndex = targetIdx;
+        const newVal = select.options[targetIdx].value;
+        setCameraConfig('shutterspeed', newVal);
+    }
 }
 
 // Toggle Live View streaming state

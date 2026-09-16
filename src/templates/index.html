@@ -60,6 +60,11 @@
                     <span class="tt-icon">💬</span>
                     <span class="tt-label">Tooltips On</span>
                 </button>
+                <button class="tooltip-toggle-btn" id="btn-shortcuts-toggle" onclick="toggleShortcutsModal()" style="margin-top: 0.4rem;"
+                    data-tooltip="Keyboard Shortcuts Overview (Shift + / or ?)">
+                    <span class="tt-icon">⌨️</span>
+                    <span class="tt-label">Shortcuts (?)</span>
+                </button>
             </div>
         </aside>
 
@@ -98,25 +103,25 @@
                                 <div class="liveview-toolbar-group">
                                     <button class="liveview-tool-btn" id="btn-maximize-liveview"
                                         onclick="toggleLiveviewFullscreen()"
-                                        data-tooltip="Maximize live view to fill the entire screen for critical focus inspection (ESC to exit)">
+                                        data-tooltip="Maximize live view to fill the entire screen for critical focus inspection (F, ESC to exit)">
                                         <span class="tool-icon">🔍</span>
                                         <span class="tool-text">Maximize</span>
                                     </button>
                                     <button class="liveview-tool-btn" id="btn-rotate-liveview"
                                         onclick="toggleLiveviewRotation()"
-                                        data-tooltip="Rotate live view 180° — useful when the camera is mounted upside-down">
+                                        data-tooltip="Rotate live view 180° — useful when the camera is mounted upside-down (R)">
                                         <span class="tool-icon">🔄</span>
                                         <span class="tool-text">Rotate 180°</span>
                                     </button>
                                     <button class="liveview-tool-btn" id="btn-margin-overlay"
                                         onclick="toggleMarginOverlay()"
-                                        data-tooltip="Show/hide a margin overlay that visualises the ignored outer border region">
+                                        data-tooltip="Show/hide a margin overlay that visualises the ignored outer border region (O)">
                                         <span class="tool-icon">📐</span>
                                         <span class="tool-text">Margins</span>
                                     </button>
                                     <button class="liveview-tool-btn" id="btn-liveview-eyedropper"
                                         onclick="toggleFilmBaseEyedropper('liveview')"
-                                        data-tooltip="1-click eyedropper: click the film rebate (orange mask) on the live view to sample exact neutralizer ratios">
+                                        data-tooltip="1-click eyedropper: click the film rebate (orange mask) on the live view to sample exact neutralizer ratios (E)">
                                         <span class="tool-icon">💧</span>
                                         <span class="tool-text">Rebate Picker</span>
                                     </button>
@@ -223,19 +228,19 @@
                             <div class="form-group" style="margin-bottom: 0.75rem;">
                                 <label style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; display: block; margin-bottom: 0.35rem;">Magnification & Zoom</label>
                                 <div style="display: grid; grid-template-columns: 1fr 1fr 1.2fr; gap: 0.35rem;">
-                                    <button class="btn btn-secondary btn-small btn-zoom-level active" id="btn-zoom-1x" onclick="setZoomMagnification(1)" data-tooltip="1x Full View">1x</button>
-                                    <button class="btn btn-secondary btn-small btn-zoom-level" id="btn-zoom-3x" onclick="setZoomMagnification(3)" data-tooltip="3x Interactive Loupe (Click anywhere)">3x Digital</button>
-                                    <button class="btn btn-secondary btn-small btn-zoom-level" id="btn-zoom-5x" onclick="setZoomMagnification(5)" data-tooltip="5x Canon Native Hardware Sensor Crop (1:1 Full Resolution)">5x Hardware</button>
+                                    <button class="btn btn-secondary btn-small btn-zoom-level active" id="btn-zoom-1x" onclick="setZoomMagnification(1)" data-tooltip="1x Full View (1)">1x</button>
+                                    <button class="btn btn-secondary btn-small btn-zoom-level" id="btn-zoom-3x" onclick="setZoomMagnification(3)" data-tooltip="3x Interactive Loupe (2 or 3)">3x Digital</button>
+                                    <button class="btn btn-secondary btn-small btn-zoom-level" id="btn-zoom-5x" onclick="setZoomMagnification(5)" data-tooltip="5x Canon Native Hardware Sensor Crop (3 or 5)">5x Hardware</button>
                                 </div>
                             </div>
 
                             <!-- Focus Peaking & Autofocus -->
                             <div class="form-row" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
-                                <label class="checkbox-container-mini" style="display: flex; align-items: center; gap: 0.35rem; margin: 0; font-size: 0.8rem;" data-tooltip="Highlight in-focus edges in real time on the live view">
+                                <label class="checkbox-container-mini" style="display: flex; align-items: center; gap: 0.35rem; margin: 0; font-size: 0.8rem;" data-tooltip="Highlight in-focus edges in real time on the live view (P)">
                                     <input type="checkbox" id="focus-peaking-toggle" onchange="toggleFocusPeaking(this.checked)">
                                     <span>Peaking</span>
                                 </label>
-                                <button class="btn btn-secondary btn-small" id="btn-trigger-af" onclick="triggerAutofocus()" data-tooltip="Command the camera to perform a one-shot autofocus cycle" style="font-size: 0.75rem; padding: 0.25rem 0.5rem;">Autofocus</button>
+                                <button class="btn btn-secondary btn-small" id="btn-trigger-af" onclick="triggerAutofocus()" data-tooltip="Command the camera to perform a one-shot autofocus cycle (Shift + A or U)" style="font-size: 0.75rem; padding: 0.25rem 0.5rem;">Autofocus</button>
                             </div>
 
                             <div class="form-group slider-group" id="peaking-sensitivity-group" style="display: none; margin-bottom: 0.75rem;">
@@ -249,10 +254,10 @@
                             <div class="form-group" style="margin-bottom: 0;">
                                 <label style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; display: block; margin-bottom: 0.35rem;">Manual Focus Stepping</label>
                                 <div style="display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 0.35rem;">
-                                    <button class="btn btn-secondary btn-small" onclick="driveFocus('near', 3)" data-tooltip="Large step toward Near focus">◀◀ Near</button>
-                                    <button class="btn btn-secondary btn-small" onclick="driveFocus('near', 1)" data-tooltip="Fine step toward Near focus">◀ Near</button>
-                                    <button class="btn btn-secondary btn-small" onclick="driveFocus('far', 1)" data-tooltip="Fine step toward Far focus">Far ▶</button>
-                                    <button class="btn btn-secondary btn-small" onclick="driveFocus('far', 3)" data-tooltip="Large step toward Far focus">Far ▶▶</button>
+                                    <button class="btn btn-secondary btn-small" onclick="driveFocus('near', 3)" data-tooltip="Large step toward Near focus (Shift + [ or Shift + Left)">◀◀ Near</button>
+                                    <button class="btn btn-secondary btn-small" onclick="driveFocus('near', 1)" data-tooltip="Fine step toward Near focus ([ or Left)">◀ Near</button>
+                                    <button class="btn btn-secondary btn-small" onclick="driveFocus('far', 1)" data-tooltip="Fine step toward Far focus (] or Right)">Far ▶</button>
+                                    <button class="btn btn-secondary btn-small" onclick="driveFocus('far', 3)" data-tooltip="Large step toward Far focus (Shift + ] or Shift + Right)">Far ▶▶</button>
                                 </div>
                             </div>
                         </div>
@@ -323,7 +328,7 @@
                                         <option value="235">92% Safe (-0.5 EV)</option>
                                     </select>
                                 </div>
-                                <button class="btn btn-primary btn-small" id="btn-auto-tune-leds" onclick="autoTuneLEDLevels()" style="width: 100%; font-size: 0.75rem; padding: 0.4rem 0.75rem; display: flex; align-items: center; justify-content: center; gap: 0.35rem;" data-tooltip="Automatically balance and maximize R, G, B LED power to ETTR target without clipping highlights">
+                                <button class="btn btn-primary btn-small" id="btn-auto-tune-leds" onclick="autoTuneLEDLevels()" style="width: 100%; font-size: 0.75rem; padding: 0.4rem 0.75rem; display: flex; align-items: center; justify-content: center; gap: 0.35rem;" data-tooltip="Automatically balance and maximize R, G, B LED power to ETTR target without clipping highlights (T)">
                                     <span>⚡</span> Auto-Tune Optimal LEDs
                                 </button>
                                 <div id="auto-tune-status" class="auto-tune-status" style="display: none; font-size: 0.72rem; margin-top: 0.45rem; padding: 0.35rem 0.5rem; border-radius: 4px; line-height: 1.35;"></div>
@@ -364,7 +369,7 @@
                                     Auto Sequence</div>
                                 <button class="btn btn-primary btn-small" style="width: 100%;" id="btn-mini-seq-rgb"
                                     onclick="runMiniScanlightSequence('SequenceRGB')"
-                                    data-tooltip="Automatically cycle R → G → B illumination and trigger a camera capture for each — produces one triplet for compositing">▶
+                                    data-tooltip="Automatically cycle R → G → B illumination and trigger a camera capture for each — produces one triplet for compositing (A)">▶
                                     Auto R → G → B</button>
                             </div>
                         </div>
@@ -412,7 +417,7 @@
 
                             <button class="btn btn-primary btn-large btn-capture" id="btn-camera-capture"
                                 onclick="triggerCameraCapture()"
-                                data-tooltip="Trigger the camera shutter and save a RAW frame to the session folder"
+                                data-tooltip="Trigger the camera shutter and save a RAW frame to the session folder (Space or C)"
                                 style="width: 100%; margin-top: 0.5rem;">
                                 📸 Capture RAW Frame
                             </button>
@@ -560,7 +565,7 @@
                             </div>
 
                             <button class="btn btn-primary" id="btn-toggle-monitor" onclick="toggleMonitor()"
-                                data-tooltip="Watch the session folder for new RAW files and process them automatically as they arrive"
+                                data-tooltip="Watch the session folder for new RAW files and process them automatically as they arrive (M)"
                                 style="width: 100%;">
                                 ⚡ Start Hot Folder Monitor
                             </button>
@@ -1270,6 +1275,129 @@
             <div class="modal-footer">
                 <button class="btn btn-secondary" id="btn-sl-trim-cancel">Cancel</button>
                 <button class="btn btn-primary" id="btn-sl-trim-ok">Save Trimming</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Keyboard Shortcuts Modal -->
+    <div class="modal" id="shortcuts-modal" onclick="closeShortcutsModal()">
+        <div class="modal-content-wrapper shortcuts-modal-wrapper" onclick="event.stopPropagation()">
+            <div class="modal-header">
+                <div style="display: flex; align-items: center; gap: 0.5rem;">
+                    <span style="font-size: 1.25rem;">⌨️</span>
+                    <h3>Keyboard Shortcuts</h3>
+                </div>
+                <span class="modal-close" onclick="closeShortcutsModal()">&times;</span>
+            </div>
+            <div class="modal-body shortcuts-modal-body">
+                <div class="shortcuts-grid">
+                    <!-- Live Capture & Triggering -->
+                    <div class="shortcuts-section">
+                        <h4>📸 Capture & Trigger</h4>
+                        <div class="shortcut-row">
+                            <span class="shortcut-desc">Capture RAW Frame</span>
+                            <span class="shortcut-keys"><kbd>Space</kbd> or <kbd>C</kbd></span>
+                        </div>
+                        <div class="shortcut-row">
+                            <span class="shortcut-desc">Auto R → G → B Sequence</span>
+                            <span class="shortcut-keys"><kbd>A</kbd></span>
+                        </div>
+                        <div class="shortcut-row">
+                            <span class="shortcut-desc">Toggle Hot Folder Monitor</span>
+                            <span class="shortcut-keys"><kbd>M</kbd></span>
+                        </div>
+                        <div class="shortcut-row">
+                            <span class="shortcut-desc">Auto-Tune ETTR LEDs</span>
+                            <span class="shortcut-keys"><kbd>T</kbd></span>
+                        </div>
+                        <div class="shortcut-row">
+                            <span class="shortcut-desc">Shutter Speed Slower / Faster</span>
+                            <span class="shortcut-keys"><kbd>-</kbd> / <kbd>+</kbd></span>
+                        </div>
+                    </div>
+
+                    <!-- Live View & Display -->
+                    <div class="shortcuts-section">
+                        <h4>🔍 Live View & Tools</h4>
+                        <div class="shortcut-row">
+                            <span class="shortcut-desc">Toggle Live Feed</span>
+                            <span class="shortcut-keys"><kbd>V</kbd> or <kbd>L</kbd></span>
+                        </div>
+                        <div class="shortcut-row">
+                            <span class="shortcut-desc">Maximize / Fullscreen</span>
+                            <span class="shortcut-keys"><kbd>F</kbd></span>
+                        </div>
+                        <div class="shortcut-row">
+                            <span class="shortcut-desc">Rotate Feed 180°</span>
+                            <span class="shortcut-keys"><kbd>R</kbd></span>
+                        </div>
+                        <div class="shortcut-row">
+                            <span class="shortcut-desc">Toggle Margin Overlay</span>
+                            <span class="shortcut-keys"><kbd>O</kbd></span>
+                        </div>
+                        <div class="shortcut-row">
+                            <span class="shortcut-desc">Sample Film Rebate (Eyedropper)</span>
+                            <span class="shortcut-keys"><kbd>E</kbd></span>
+                        </div>
+                        <div class="shortcut-row">
+                            <span class="shortcut-desc">Cycle Histogram Modes</span>
+                            <span class="shortcut-keys"><kbd>H</kbd></span>
+                        </div>
+                    </div>
+
+                    <!-- Focus Assist & Stepping -->
+                    <div class="shortcuts-section">
+                        <h4>🎯 Focus Assist</h4>
+                        <div class="shortcut-row">
+                            <span class="shortcut-desc">Trigger Autofocus</span>
+                            <span class="shortcut-keys"><kbd>Shift</kbd> + <kbd>A</kbd> or <kbd>U</kbd></span>
+                        </div>
+                        <div class="shortcut-row">
+                            <span class="shortcut-desc">Toggle Focus Peaking</span>
+                            <span class="shortcut-keys"><kbd>P</kbd></span>
+                        </div>
+                        <div class="shortcut-row">
+                            <span class="shortcut-desc">Focus Near (Fine)</span>
+                            <span class="shortcut-keys"><kbd>[</kbd> or <kbd>←</kbd></span>
+                        </div>
+                        <div class="shortcut-row">
+                            <span class="shortcut-desc">Focus Near (Coarse)</span>
+                            <span class="shortcut-keys"><kbd>Shift</kbd> + <kbd>[</kbd> or <kbd>Shift</kbd> + <kbd>←</kbd></span>
+                        </div>
+                        <div class="shortcut-row">
+                            <span class="shortcut-desc">Focus Far (Fine)</span>
+                            <span class="shortcut-keys"><kbd>]</kbd> or <kbd>→</kbd></span>
+                        </div>
+                        <div class="shortcut-row">
+                            <span class="shortcut-desc">Focus Far (Coarse)</span>
+                            <span class="shortcut-keys"><kbd>Shift</kbd> + <kbd>]</kbd> or <kbd>Shift</kbd> + <kbd>→</kbd></span>
+                        </div>
+                        <div class="shortcut-row">
+                            <span class="shortcut-desc">Zoom (1x / 3x / 5x)</span>
+                            <span class="shortcut-keys"><kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd></span>
+                        </div>
+                    </div>
+
+                    <!-- General & Navigation -->
+                    <div class="shortcuts-section">
+                        <h4>🧭 General & Navigation</h4>
+                        <div class="shortcut-row">
+                            <span class="shortcut-desc">Show / Hide Shortcuts</span>
+                            <span class="shortcut-keys"><kbd>?</kbd> or <kbd>Shift</kbd> + <kbd>/</kbd></span>
+                        </div>
+                        <div class="shortcut-row">
+                            <span class="shortcut-desc">Close / Cancel / Exit</span>
+                            <span class="shortcut-keys"><kbd>Esc</kbd></span>
+                        </div>
+                        <div class="shortcut-row">
+                            <span class="shortcut-desc">Switch Tabs (1–4)</span>
+                            <span class="shortcut-keys"><kbd>Alt</kbd> + <kbd>1</kbd>–<kbd>4</kbd></span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer" style="justify-content: flex-end;">
+                <button class="btn btn-primary" onclick="closeShortcutsModal()">Got it (Esc)</button>
             </div>
         </div>
     </div>
