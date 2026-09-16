@@ -2158,7 +2158,23 @@ function setCameraConfig(name, value) {
     .catch(err => console.error("Error updating config:", err));
 }
 
-// Step camera shutter speed up (faster) or down (slower)
+function parseShutterDuration(str) {
+    if (!str) return 0;
+    const clean = str.toString().trim().toLowerCase().replace('s', '');
+    if (clean === 'auto' || clean === 'bulb') return 999999;
+    if (clean.includes('/')) {
+        const parts = clean.split('/');
+        const num = parseFloat(parts[0]);
+        const den = parseFloat(parts[1]);
+        if (!isNaN(num) && !isNaN(den) && den !== 0) {
+            return num / den;
+        }
+    }
+    const val = parseFloat(clean);
+    return isNaN(val) ? 0 : val;
+}
+
+// Step camera shutter speed: 'faster' (increase speed/shorter duration) or 'slower' (decrease speed/longer duration)
 function stepCameraShutter(direction) {
     const select = document.getElementById('camera-shutter-select');
     if (!select || select.disabled || select.options.length <= 1) {
@@ -2168,17 +2184,46 @@ function stepCameraShutter(direction) {
     
     const currentIdx = select.selectedIndex;
     if (currentIdx < 0) return;
-    
-    let newIdx = currentIdx;
-    if (direction === 'slower' || direction === 'down' || direction === -1) {
-        newIdx = Math.min(select.options.length - 1, currentIdx + 1);
-    } else if (direction === 'faster' || direction === 'up' || direction === 1) {
-        newIdx = Math.max(0, currentIdx - 1);
+
+    const currentVal = select.options[currentIdx].value;
+    const currentDur = parseShutterDuration(currentVal);
+
+    // Build array of options with index and parsed duration
+    const opts = Array.from(select.options).map((opt, i) => ({
+        index: i,
+        value: opt.value,
+        duration: parseShutterDuration(opt.value)
+    }));
+
+    let targetIdx = -1;
+
+    if (direction === 'faster' || direction === 'up' || direction === 1) {
+        // Increase shutter speed -> shorter exposure time (duration < currentDur)
+        // Find option with largest duration that is still strictly less than current duration
+        const candidates = opts.filter(o => o.duration < currentDur && o.duration > 0);
+        if (candidates.length > 0) {
+            candidates.sort((a, b) => b.duration - a.duration);
+            targetIdx = candidates[0].index;
+        } else {
+            // Already at fastest shutter speed
+            return;
+        }
+    } else {
+        // Decrease shutter speed -> longer exposure time (duration > currentDur)
+        // Find option with smallest duration that is strictly greater than current duration
+        const candidates = opts.filter(o => o.duration > currentDur);
+        if (candidates.length > 0) {
+            candidates.sort((a, b) => a.duration - b.duration);
+            targetIdx = candidates[0].index;
+        } else {
+            // Already at slowest shutter speed
+            return;
+        }
     }
     
-    if (newIdx !== currentIdx) {
-        select.selectedIndex = newIdx;
-        const newVal = select.options[newIdx].value;
+    if (targetIdx >= 0 && targetIdx !== currentIdx) {
+        select.selectedIndex = targetIdx;
+        const newVal = select.options[targetIdx].value;
         setCameraConfig('shutterspeed', newVal);
     }
 }
