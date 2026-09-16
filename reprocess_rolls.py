@@ -125,11 +125,12 @@ def reprocess_roll(roll_dir, args):
             process_triplet(
                 group=group_full_paths,
                 output_filepath=comp_path,
-                neutralize_base=args.neutralize,
+                neutralize_base=args.neutralize or (args.base_ratios is not None),
                 compress_tiff=args.compress,
                 align_channels=not args.no_align,
                 icc_profile=args.icc_profile,
-                preserve_metadata=not args.no_metadata
+                preserve_metadata=not args.no_metadata,
+                base_ratios=args.base_ratios
             )
             
             # 2. Sensitometric Inversion with smooth monotonic knee roll-off
@@ -148,7 +149,8 @@ def reprocess_roll(roll_dir, args):
                 reversal=args.reversal,
                 convert_to_tiff=True,
                 icc_profile=args.icc_profile,
-                preserve_metadata=not args.no_metadata
+                preserve_metadata=not args.no_metadata,
+                base_ratios=args.base_ratios
             )
             elapsed = time.time() - start_t
             print(f"  -> Successfully converted in {elapsed:.1f}s\n")
@@ -177,6 +179,8 @@ def main():
     parser.add_argument("-a", "--autocrop", action="store_true", help="Auto-crop outer margins from final output")
     parser.add_argument("--global-levels", action="store_true", help="Preserve scene chromaticity with global exposure scaling")
     parser.add_argument("-n", "--neutralize", action="store_true", help="Neutralize film base during compositing")
+    parser.add_argument("--base-ratios", nargs=3, type=float, metavar=('R', 'G', 'B'), default=None,
+                        help="Custom film base neutralizer RGB ratios (e.g. 1.0 0.58 0.23) sampled from film rebate")
     parser.add_argument("-c", "--compress", action="store_true", help="Enable zlib compression for output TIFFs")
     parser.add_argument("--no-align", action="store_true", help="Disable sub-pixel channel alignment")
     parser.add_argument("--monochrome", "--bw", action="store_true", help="Convert output to monochrome/B&W")

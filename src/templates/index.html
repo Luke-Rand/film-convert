@@ -93,6 +93,10 @@
                                         onclick="toggleMarginOverlay()"
                                         data-tooltip="Show/hide a margin overlay that visualises the ignored outer border region"
                                         style="font-size: 0.7rem; padding: 0.2rem 0.5rem;">📐 Margins</button>
+                                    <button class="btn btn-secondary btn-small" id="btn-liveview-eyedropper"
+                                        onclick="toggleFilmBaseEyedropper('liveview')"
+                                        data-tooltip="1-click eyedropper: click the film rebate (orange mask) on the live view to sample exact neutralizer ratios"
+                                        style="font-size: 0.7rem; padding: 0.2rem 0.5rem;">💧 Rebate Picker</button>
                                     <span class="camera-badge badge-simulated" id="camera-status-badge">Simulated</span>
                                     <label class="switch-container"
                                         data-tooltip="Enable or disable the real-time camera live view feed">
@@ -109,6 +113,13 @@
                                     style="display: none; width: 100%; height: 100%; object-fit: contain; cursor: zoom-in;"></canvas>
                                 <!-- Margin overlay: inset box-shadow covers the ignored outer margin area -->
                                 <div id="margin-overlay" class="margin-overlay" style="display: none;"></div>
+                                
+                                <!-- Eyedropper Active Banner Overlay -->
+                                <div id="liveview-eyedropper-banner" class="eyedropper-banner" style="display: none;">
+                                    <span class="eyedropper-pulse">💧</span>
+                                    <span><strong>Eyedropper Active:</strong> Click unexposed film rebate (orange mask) to sample base</span>
+                                    <button class="btn btn-danger btn-small" onclick="cancelFilmBaseEyedropper()" style="padding: 0.15rem 0.5rem; font-size: 0.7rem; border-radius: 4px;">Cancel (ESC)</button>
+                                </div>
                                 
                                 <!-- Floating Fullscreen Focus HUD Overlay -->
                                 <div id="fullscreen-focus-hud" class="fullscreen-focus-hud" style="display: none; position: absolute; bottom: 1.5rem; left: 50%; transform: translateX(-50%); z-index: 100001; background: rgba(18, 18, 22, 0.92); backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.15); border-radius: 30px; padding: 0.5rem 1.25rem; gap: 1.25rem; align-items: center; box-shadow: 0 10px 30px rgba(0,0,0,0.5);">
@@ -413,12 +424,28 @@
 
                             <div class="checkbox-grid-mini"
                                 style="display: grid; grid-template-columns: 1fr; gap: 0.5rem; margin-bottom: 1rem; font-size: 0.8rem;">
-                                <label class="checkbox-container-mini"
-                                    style="display: flex; align-items: center; gap: 0.5rem;"
-                                    data-tooltip="Sample the film base color from the rebate/border and subtract it for a neutral white balance">
-                                    <input type="checkbox" id="config-neutralize">
-                                    <span>Neutralize Film Base</span>
-                                </label>
+                                <div class="neutralize-control-row" style="display: flex; flex-direction: column; gap: 0.35rem; padding-bottom: 0.25rem;">
+                                    <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem;">
+                                        <label class="checkbox-container-mini"
+                                            style="display: flex; align-items: center; gap: 0.5rem;"
+                                            data-tooltip="Sample the film base color from the rebate/border and subtract it for a neutral white balance">
+                                            <input type="checkbox" id="config-neutralize" onchange="onNeutralizeCheckboxChanged(this.checked)">
+                                            <span>Neutralize Film Base</span>
+                                        </label>
+                                        <button type="button" class="btn btn-secondary btn-small" id="btn-pick-film-base"
+                                            onclick="toggleFilmBaseEyedropper('auto')"
+                                            data-tooltip="1-Click Eyedropper: click on the film rebate (orange mask) on the preview to sample exact neutralizer ratios"
+                                            style="font-size: 0.7rem; padding: 0.15rem 0.45rem; line-height: 1.2;">
+                                            💧 Pick from Preview
+                                        </button>
+                                    </div>
+                                    <!-- Active Film Base Ratios Badge -->
+                                    <div id="film-base-badge" class="film-base-badge" style="display: none;">
+                                        <span class="film-base-swatch" id="film-base-swatch" title="Sampled film base mask color"></span>
+                                        <span class="film-base-text" id="film-base-ratios-text">R: 1.000 | G: 0.582 | B: 0.231</span>
+                                        <button type="button" class="btn-clear-base" onclick="resetFilmBaseToAuto()" title="Reset to automatic 99.9th percentile neutralization" data-tooltip="Reset to automatic 99.9th percentile">✕ Reset</button>
+                                    </div>
+                                </div>
                                 <label class="checkbox-container-mini"
                                     style="display: flex; align-items: center; gap: 0.5rem;"
                                     data-tooltip="Sub-pixel cross-correlate the R, G, B frames to correct for micro-movement between shots">
@@ -708,13 +735,20 @@
                                         <strong>Global Levels Stretch</strong>
                                     </div>
                                 </label>
-                                <label class="checkbox-container">
-                                    <input type="checkbox" id="batch-neutralize">
-                                    <span class="checkmark"></span>
-                                    <div class="checkbox-text">
-                                        <strong>Neutralize Film Base</strong>
+                                <div class="batch-neutralize-group" style="display: flex; flex-direction: column; gap: 0.25rem;">
+                                    <label class="checkbox-container">
+                                        <input type="checkbox" id="batch-neutralize" onchange="onNeutralizeCheckboxChanged(this.checked)">
+                                        <span class="checkmark"></span>
+                                        <div class="checkbox-text">
+                                            <strong>Neutralize Film Base</strong>
+                                        </div>
+                                    </label>
+                                    <div id="batch-film-base-badge" class="film-base-badge" style="display: none; margin-left: 1.6rem; margin-top: -0.25rem;">
+                                        <span class="film-base-swatch" id="batch-film-base-swatch"></span>
+                                        <span class="film-base-text" id="batch-film-base-ratios-text">R: 1.000 | G: 0.582 | B: 0.231</span>
+                                        <button type="button" class="btn-clear-base" onclick="resetFilmBaseToAuto()" title="Reset to automatic 99.9th percentile neutralization" data-tooltip="Reset to automatic 99.9th percentile">✕ Reset</button>
                                     </div>
-                                </label>
+                                </div>
                                 <label class="checkbox-container">
                                     <input type="checkbox" id="batch-compress">
                                     <span class="checkmark"></span>
@@ -1109,11 +1143,19 @@
     <div class="lightbox" id="image-lightbox" onclick="closeLightbox()">
         <span class="lightbox-close">&times;</span>
         <div class="lightbox-content-wrapper" onclick="event.stopPropagation()">
+            <!-- Lightbox Eyedropper Active Banner Overlay -->
+            <div id="lightbox-eyedropper-banner" class="eyedropper-banner" style="display: none;">
+                <span class="eyedropper-pulse">💧</span>
+                <span><strong>Eyedropper Active:</strong> Click unexposed film rebate (orange mask) on image to sample base</span>
+                <button class="btn btn-danger btn-small" onclick="cancelFilmBaseEyedropper()" style="padding: 0.15rem 0.5rem; font-size: 0.7rem; border-radius: 4px;">Cancel (ESC)</button>
+            </div>
             <img class="lightbox-img" id="lightbox-img" src="" alt="Scan High Res Preview">
             <div class="lightbox-meta">
                 <h4 id="lightbox-title">Frame_01_Positive.dng</h4>
                 <p id="lightbox-desc">Size: 45MB | Path: C:/Users/...</p>
                 <div class="lightbox-actions">
+                    <button class="btn btn-secondary btn-small" id="btn-lightbox-eyedropper" onclick="toggleFilmBaseEyedropper('lightbox')"
+                        data-tooltip="1-click eyedropper: click the film rebate (orange mask) on this image to sample exact neutralizer ratios">💧 Sample Film Base</button>
                     <a class="btn btn-secondary btn-small" id="lightbox-download-link" href="" target="_blank"
                         download>Open Full Image</a>
                 </div>
@@ -1190,6 +1232,15 @@
 
     <!-- Floating tooltip bubble (single shared instance) -->
     <div id="fc-tooltip"></div>
+
+    <!-- Eyedropper Floating Loupe Swatch -->
+    <div id="eyedropper-loupe" class="eyedropper-loupe" style="display: none;">
+        <div class="loupe-swatch" id="loupe-swatch"></div>
+        <div class="loupe-info">
+            <span class="loupe-rgb" id="loupe-rgb">R: 255 G: 255 B: 255</span>
+            <span class="loupe-hint">Click to sample base</span>
+        </div>
+    </div>
 
     <script src="{{ url_for('static', filename='js/scanlight.js') }}"></script>
     <script src="{{ url_for('static', filename='js/app.js') }}"></script>

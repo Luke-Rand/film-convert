@@ -6,7 +6,7 @@ import argparse
 import rawpy
 from tiff_writer import write_16bit_tiff
 
-def process_positives(input_path, output_dir=None, clip=0.1, gamma=2.2, compress_tiff=False, global_levels=False, ignore_margin=0.15, scurve=0.0, autocrop=False, monochrome=False, monochrome_channel="luminance", reversal=False, convert_to_tiff=True, icc_profile="adobe_rgb", preserve_metadata=True):
+def process_positives(input_path, output_dir=None, clip=0.1, gamma=2.2, compress_tiff=False, global_levels=False, ignore_margin=0.15, scurve=0.0, autocrop=False, monochrome=False, monochrome_channel="luminance", reversal=False, convert_to_tiff=True, icc_profile="adobe_rgb", preserve_metadata=True, base_ratios=None):
     """
     Processes 16-bit TIFF/DNG files: inverts (or normalizes positive reversal film scans), applies gamma/scurve, crops, and saves as 16-bit TIFF or True DNG with ICC profile and preserved metadata.
     If convert_to_tiff is False, the input RAW/image files are added directly to the positives folder without converting to TIFF.
@@ -214,10 +214,31 @@ def process_positives(input_path, output_dir=None, clip=0.1, gamma=2.2, compress
                     # Compute relative optical density per channel after neutralizing film base
                     D_raw_img = np.zeros_like(img_float)
                     D_raw_ana = np.zeros_like(analysis_region)
-                    for c in range(3):
-                        c_base = np.percentile(analysis_region[:, :, c], 99.9)
-                        D_raw_img[:, :, c] = np.log10(np.maximum(c_base, 1.0) / np.maximum(img_float[:, :, c], 1.0))
-                        D_raw_ana[:, :, c] = np.log10(np.maximum(c_base, 1.0) / np.maximum(analysis_region[:, :, c], 1.0))
+                    
+                    if base_ratios is not None and len(base_ratios) == 3 and any(float(v) > 0 for v in base_ratios):
+                        r_ratio, g_ratio, b_ratio = float(base_ratios[0]), float(base_ratios[1]), float(base_ratios[2])
+                        max_ratio = max(r_ratio, g_ratio, b_ratio, 1e-6)
+                        max_p = max(
+                            float(np.percentile(analysis_region[:, :, 0], 99.9)),
+                            float(np.percentile(analysis_region[:, :, 1], 99.9)),
+                            float(np.percentile(analysis_region[:, :, 2], 99.9)),
+                            1.0
+                        )
+                        c_bases = [
+                            max((r_ratio / max_ratio) * max_p, 1.0),
+                            max((g_ratio / max_ratio) * max_p, 1.0),
+                            max((b_ratio / max_ratio) * max_p, 1.0)
+                        ]
+                        print(f"  -> Using custom film base ratios (R={r_ratio:.3f}, G={g_ratio:.3f}, B={b_ratio:.3f})")
+                        for c in range(3):
+                            c_base = c_bases[c]
+                            D_raw_img[:, :, c] = np.log10(np.maximum(c_base, 1.0) / np.maximum(img_float[:, :, c], 1.0))
+                            D_raw_ana[:, :, c] = np.log10(np.maximum(c_base, 1.0) / np.maximum(analysis_region[:, :, c], 1.0))
+                    else:
+                        for c in range(3):
+                            c_base = np.percentile(analysis_region[:, :, c], 99.9)
+                            D_raw_img[:, :, c] = np.log10(np.maximum(c_base, 1.0) / np.maximum(img_float[:, :, c], 1.0))
+                            D_raw_ana[:, :, c] = np.log10(np.maximum(c_base, 1.0) / np.maximum(analysis_region[:, :, c], 1.0))
                         
                     if global_levels:
                         # Global exposure scaling: preserves scene color ratios without independent channel distortion
@@ -331,6 +352,8 @@ if __name__ == "__main__":
                         help="Enable reversal / slide film support (positive film). Processes images without density inversion directly into the positives folder.")
     parser.add_argument("--no-tiff", "--raw-positives", dest="convert_to_tiff", action="store_false",
                         help="Bypass conversion to TIFF and add original RAW files directly to the positives folder.")
+    parser.add_argument("--base-ratios", nargs=3, type=float, metavar=('R', 'G', 'B'), default=None,
+                        help="Custom film base neutralizer RGB ratios (e.g. 1.0 0.58 0.23) sampled from film rebate")
     parser.add_argument("--icc-profile", "--color-profile", type=str, default="adobe_rgb",
                         choices=["adobe_rgb", "prophoto_rgb", "srgb", "none"],
                         help="Embedded ICC color profile (default: adobe_rgb)")
@@ -354,5 +377,6 @@ if __name__ == "__main__":
         reversal=args.reversal,
         convert_to_tiff=args.convert_to_tiff,
         icc_profile=args.icc_profile,
-        preserve_metadata=not args.no_metadata
+        preserve_metadata=not args.no_metadata,
+        base_ratios=args.base_ratios
     )

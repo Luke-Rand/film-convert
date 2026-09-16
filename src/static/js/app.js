@@ -661,6 +661,15 @@ function syncConfigToUI(config) {
     const bchProf = document.getElementById('batch-color-profile');
     if (bchProf) bchProf.value = colorProf;
     
+    // Film base neutralizer ratios & badge
+    if (config.base_ratios && Array.isArray(config.base_ratios) && config.base_ratios.length === 3) {
+        activeFilmBaseRatios = config.base_ratios;
+        updateFilmBaseBadgeUI(activeFilmBaseRatios, activeFilmBaseRGB);
+    } else if (config.base_ratios === null) {
+        activeFilmBaseRatios = null;
+        updateFilmBaseBadgeUI(null, null);
+    }
+    
     // Update labels
     document.getElementById('val-gamma').textContent = config.gamma;
     document.getElementById('val-clip').textContent = config.clip;
@@ -701,6 +710,7 @@ function toggleMonitor() {
             autocrop: document.getElementById('config-autocrop').checked,
             global_levels: document.getElementById('config-global-levels').checked,
             neutralize: document.getElementById('config-neutralize').checked,
+            base_ratios: activeFilmBaseRatios,
             compress_tiff: document.getElementById('config-compress').checked,
             align_channels: document.getElementById('config-align-channels').checked,
             monochrome: document.getElementById('config-monochrome').checked,
@@ -826,6 +836,7 @@ function runBatchJob() {
         autocrop: document.getElementById('batch-autocrop').checked,
         global_levels: document.getElementById('batch-global-levels').checked,
         neutralize: document.getElementById('batch-neutralize').checked,
+        base_ratios: activeFilmBaseRatios,
         compress_tiff: document.getElementById('batch-compress').checked,
         align_channels: document.getElementById('batch-align-channels').checked,
         monochrome: document.getElementById('batch-monochrome').checked,
@@ -966,6 +977,8 @@ function openLightbox(name, path, size) {
     const desc = document.getElementById('lightbox-desc');
     const dlLink = document.getElementById('lightbox-download-link');
     
+    currentLightboxPath = path;
+
     // Clear preview image while loading new one to avoid layout jumps
     img.src = '';
     title.textContent = name;
@@ -978,11 +991,295 @@ function openLightbox(name, path, size) {
     
     // Load high-resolution preview (800px width limit for responsive viewport loading)
     img.src = `/api/preview?path=${encodeURIComponent(path)}&w=900`;
+
+    initLightboxEyedropperListeners();
 }
 
 function closeLightbox() {
+    if (isEyedropperActive && eyedropperSource === 'lightbox') {
+        cancelFilmBaseEyedropper();
+    }
     const box = document.getElementById('image-lightbox');
     if (box) box.classList.remove('active');
+}
+
+// ============================================================
+// INTERACTIVE FILM BASE NEUTRALIZATION PICKER
+// ============================================================
+
+let activeFilmBaseRatios = null; // [r_ratio, g_ratio, b_ratio]
+let activeFilmBaseRGB = null;    // [r, g, b] (0-255)
+let isEyedropperActive = false;
+let eyedropperSource = null;    // 'liveview', 'lightbox'
+let currentLightboxPath = '';
+
+function toggleFilmBaseEyedropper(source) {
+    if (isEyedropperActive) {
+        cancelFilmBaseEyedropper();
+        return;
+    }
+
+    if (source === 'auto') {
+        const lightboxEl = document.getElementById('image-lightbox');
+        if (lightboxEl && lightboxEl.classList.contains('active')) {
+            source = 'lightbox';
+        } else {
+            source = 'liveview';
+        }
+    }
+
+    if (source === 'liveview') {
+        if (!isLiveviewActive) {
+            const toggle = document.getElementById('camera-liveview-toggle');
+            if (toggle) {
+                toggle.checked = true;
+                toggleCameraLiveview(true);
+            }
+        }
+    }
+
+    isEyedropperActive = true;
+    eyedropperSource = source;
+
+    // Update active button state
+    ['btn-pick-film-base', 'btn-liveview-eyedropper', 'btn-lightbox-eyedropper'].forEach(id => {
+        const btn = document.getElementById(id);
+        if (btn) btn.classList.add('btn-eyedropper-active');
+    });
+
+    // Show banner overlay
+    if (source === 'liveview') {
+        const banner = document.getElementById('liveview-eyedropper-banner');
+        if (banner) banner.style.display = 'flex';
+    } else if (source === 'lightbox') {
+        const banner = document.getElementById('lightbox-eyedropper-banner');
+        if (banner) banner.style.display = 'flex';
+    }
+
+    // Update cursor
+    const lvCanvas = document.getElementById('camera-liveview-canvas');
+    if (lvCanvas) lvCanvas.classList.add('canvas-eyedropper-mode');
+    const lbImg = document.getElementById('lightbox-img');
+    if (lbImg) lbImg.classList.add('img-eyedropper-mode');
+
+    // Show loupe
+    const loupe = document.getElementById('eyedropper-loupe');
+    if (loupe) loupe.style.display = 'flex';
+
+    appendLogLine("[Client] Film base eyedropper active. Click unexposed film rebate (orange mask) on preview to sample.");
+}
+
+function cancelFilmBaseEyedropper() {
+    isEyedropperActive = false;
+    eyedropperSource = null;
+
+    ['btn-pick-film-base', 'btn-liveview-eyedropper', 'btn-lightbox-eyedropper'].forEach(id => {
+        const btn = document.getElementById(id);
+        if (btn) btn.classList.remove('btn-eyedropper-active');
+    });
+
+    const lvBanner = document.getElementById('liveview-eyedropper-banner');
+    if (lvBanner) lvBanner.style.display = 'none';
+    const lbBanner = document.getElementById('lightbox-eyedropper-banner');
+    if (lbBanner) lbBanner.style.display = 'none';
+
+    const lvCanvas = document.getElementById('camera-liveview-canvas');
+    if (lvCanvas) lvCanvas.classList.remove('canvas-eyedropper-mode');
+    const lbImg = document.getElementById('lightbox-img');
+    if (lbImg) lbImg.classList.remove('img-eyedropper-mode');
+
+    const loupe = document.getElementById('eyedropper-loupe');
+    if (loupe) loupe.style.display = 'none';
+}
+
+function updateFilmBaseBadgeUI(ratios, rgb) {
+    const badges = [
+        { badgeId: 'film-base-badge', swatchId: 'film-base-swatch', textId: 'film-base-ratios-text' },
+        { badgeId: 'batch-film-base-badge', swatchId: 'batch-film-base-swatch', textId: 'batch-film-base-ratios-text' }
+    ];
+
+    badges.forEach(({ badgeId, swatchId, textId }) => {
+        const badge = document.getElementById(badgeId);
+        const swatch = document.getElementById(swatchId);
+        const text = document.getElementById(textId);
+
+        if (!badge || !swatch || !text) return;
+
+        if (ratios && Array.isArray(ratios) && ratios.length === 3) {
+            badge.style.display = 'inline-flex';
+            text.textContent = `R: ${ratios[0].toFixed(3)} | G: ${ratios[1].toFixed(3)} | B: ${ratios[2].toFixed(3)}`;
+            if (rgb && Array.isArray(rgb) && rgb.length === 3) {
+                swatch.style.backgroundColor = `rgb(${rgb[0]}, ${rgb[1]}, ${rgb[2]})`;
+            } else {
+                // Approximate display sRGB color from linear ratios (assuming orange base)
+                const rS = Math.round(245 * Math.pow(ratios[0], 1 / 2.2));
+                const gS = Math.round(245 * Math.pow(ratios[1], 1 / 2.2));
+                const bS = Math.round(245 * Math.pow(ratios[2], 1 / 2.2));
+                swatch.style.backgroundColor = `rgb(${rS}, ${gS}, ${bS})`;
+            }
+        } else {
+            badge.style.display = 'none';
+        }
+    });
+}
+
+function onNeutralizeCheckboxChanged(checked) {
+    const cfgNeutralize = document.getElementById('config-neutralize');
+    if (cfgNeutralize) cfgNeutralize.checked = checked;
+    const bchNeutralize = document.getElementById('batch-neutralize');
+    if (bchNeutralize) bchNeutralize.checked = checked;
+
+    fetch('/api/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            neutralize: checked,
+            base_ratios: checked ? activeFilmBaseRatios : null
+        })
+    }).catch(err => console.error("Failed to sync neutralize state:", err));
+}
+
+function resetFilmBaseToAuto() {
+    activeFilmBaseRatios = null;
+    activeFilmBaseRGB = null;
+    updateFilmBaseBadgeUI(null, null);
+
+    fetch('/api/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            base_ratios: null
+        })
+    })
+    .then(res => res.json())
+    .then(() => {
+        appendLogLine("[Client] Film base neutralization reset to automatic 99.9th percentile mode.");
+    })
+    .catch(err => console.error("Failed to reset film base:", err));
+}
+
+// Sample a 5x5 patch from a canvas around (x, y) to eliminate single-pixel grain noise
+function sampleCanvasPatch(canvas, x, y, radius = 2) {
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    const w = canvas.width;
+    const h = canvas.height;
+    const x0 = Math.max(0, Math.min(w - 1, x - radius));
+    const y0 = Math.max(0, Math.min(h - 1, y - radius));
+    const sw = Math.min(radius * 2 + 1, w - x0);
+    const sh = Math.min(radius * 2 + 1, h - y0);
+
+    if (sw <= 0 || sh <= 0) return [255, 255, 255];
+
+    try {
+        const imgData = ctx.getImageData(x0, y0, sw, sh);
+        const d = imgData.data;
+        let rSum = 0, gSum = 0, bSum = 0, count = 0;
+        for (let i = 0; i < d.length; i += 4) {
+            rSum += d[i];
+            gSum += d[i + 1];
+            bSum += d[i + 2];
+            count++;
+        }
+        if (count === 0) return [255, 255, 255];
+        return [Math.round(rSum / count), Math.round(gSum / count), Math.round(bSum / count)];
+    } catch (e) {
+        return [255, 255, 255];
+    }
+}
+
+// Visual click ripple
+function spawnClickRipple(parent, clientX, clientY) {
+    if (!parent) return;
+    const rect = parent.getBoundingClientRect();
+    const ripple = document.createElement('div');
+    ripple.className = 'eyedropper-ripple';
+    ripple.style.left = `${clientX - rect.left}px`;
+    ripple.style.top = `${clientY - rect.top}px`;
+    parent.appendChild(ripple);
+    setTimeout(() => { if (ripple.parentNode) ripple.parentNode.removeChild(ripple); }, 700);
+}
+
+// Initialize Lightbox Eyedropper Event Listeners
+function initLightboxEyedropperListeners() {
+    const lbImg = document.getElementById('lightbox-img');
+    if (!lbImg || lbImg.hasEyedropperListeners) return;
+    lbImg.hasEyedropperListeners = true;
+
+    const lbSampleCanvas = document.createElement('canvas');
+    const lbSampleCtx = lbSampleCanvas.getContext('2d', { willReadFrequently: true });
+
+    lbImg.addEventListener('mousemove', (e) => {
+        if (!isEyedropperActive) return;
+        const rect = lbImg.getBoundingClientRect();
+        if (rect.width <= 0 || rect.height <= 0) return;
+
+        if (lbSampleCanvas.width !== lbImg.naturalWidth || lbSampleCanvas.height !== lbImg.naturalHeight) {
+            lbSampleCanvas.width = lbImg.naturalWidth || 800;
+            lbSampleCanvas.height = lbImg.naturalHeight || 600;
+            try {
+                lbSampleCtx.drawImage(lbImg, 0, 0, lbSampleCanvas.width, lbSampleCanvas.height);
+            } catch (err) {}
+        }
+
+        const normX = (e.clientX - rect.left) / rect.width;
+        const normY = (e.clientY - rect.top) / rect.height;
+        const px = Math.round(normX * (lbSampleCanvas.width - 1));
+        const py = Math.round(normY * (lbSampleCanvas.height - 1));
+        const rgb = sampleCanvasPatch(lbSampleCanvas, px, py, 2);
+
+        const loupe = document.getElementById('eyedropper-loupe');
+        const swatch = document.getElementById('loupe-swatch');
+        const rgbTxt = document.getElementById('loupe-rgb');
+        if (loupe) {
+            loupe.style.left = `${e.clientX + 14}px`;
+            loupe.style.top = `${e.clientY + 14}px`;
+        }
+        if (swatch) swatch.style.backgroundColor = `rgb(${rgb[0]}, ${rgb[1]}, ${rgb[2]})`;
+        if (rgbTxt) rgbTxt.textContent = `R: ${rgb[0]} G: ${rgb[1]} B: ${rgb[2]}`;
+    });
+
+    lbImg.addEventListener('click', (e) => {
+        if (!isEyedropperActive) return;
+        e.stopPropagation();
+        e.preventDefault();
+
+        const rect = lbImg.getBoundingClientRect();
+        const normX = Math.max(0, Math.min(1.0, (e.clientX - rect.left) / rect.width));
+        const normY = Math.max(0, Math.min(1.0, (e.clientY - rect.top) / rect.height));
+
+        spawnClickRipple(lbImg.parentElement, e.clientX, e.clientY);
+
+        const payload = currentLightboxPath ? {
+            path: currentLightboxPath,
+            x_ratio: normX,
+            y_ratio: normY
+        } : {
+            rgb: [255, 255, 255]
+        };
+
+        fetch('/api/sample_rebate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.success) {
+                activeFilmBaseRatios = data.base_ratios;
+                activeFilmBaseRGB = data.sampled_rgb;
+                const cfgN = document.getElementById('config-neutralize');
+                if (cfgN) cfgN.checked = true;
+                const bchN = document.getElementById('batch-neutralize');
+                if (bchN) bchN.checked = true;
+                updateFilmBaseBadgeUI(activeFilmBaseRatios, activeFilmBaseRGB);
+                appendLogLine(`[Client] Film base rebate sampled from image (${currentLightboxPath}): R=${activeFilmBaseRatios[0].toFixed(3)}, G=${activeFilmBaseRatios[1].toFixed(3)}, B=${activeFilmBaseRatios[2].toFixed(3)}`);
+            }
+        })
+        .catch(err => console.error("Failed to sample rebate from image:", err))
+        .finally(() => {
+            cancelFilmBaseEyedropper();
+        });
+    });
 }
 
 // Folder Browser State
@@ -1337,12 +1634,14 @@ function toggleLiveviewFullscreen() {
 }
 
 document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && isLiveviewFullscreen) {
-        toggleLiveviewFullscreen();
+    if (e.key === 'Escape') {
+        if (isEyedropperActive) {
+            cancelFilmBaseEyedropper();
+        } else if (isLiveviewFullscreen) {
+            toggleLiveviewFullscreen();
+        }
     }
 });
-
-
 
 // Initialize camera controls and fetch status
 function initCameraUI() {
@@ -1354,8 +1653,69 @@ function initCameraUI() {
     liveviewCanvas = document.getElementById('camera-liveview-canvas');
     if (liveviewCanvas && !liveviewCanvas.hasZoomListener) {
         liveviewCanvas.hasZoomListener = true;
+
+        liveviewCanvas.addEventListener('mousemove', (e) => {
+            if (!isEyedropperActive) return;
+            const rect = liveviewCanvas.getBoundingClientRect();
+            if (rect.width <= 0 || rect.height <= 0) return;
+
+            const scaleX = liveviewCanvas.width / rect.width;
+            const scaleY = liveviewCanvas.height / rect.height;
+            const cx = (e.clientX - rect.left) * scaleX;
+            const cy = (e.clientY - rect.top) * scaleY;
+            const rgb = sampleCanvasPatch(liveviewCanvas, Math.round(cx), Math.round(cy), 2);
+
+            const loupe = document.getElementById('eyedropper-loupe');
+            const swatch = document.getElementById('loupe-swatch');
+            const rgbTxt = document.getElementById('loupe-rgb');
+            if (loupe) {
+                loupe.style.left = `${e.clientX + 14}px`;
+                loupe.style.top = `${e.clientY + 14}px`;
+            }
+            if (swatch) swatch.style.backgroundColor = `rgb(${rgb[0]}, ${rgb[1]}, ${rgb[2]})`;
+            if (rgbTxt) rgbTxt.textContent = `R: ${rgb[0]} G: ${rgb[1]} B: ${rgb[2]}`;
+        });
+
         liveviewCanvas.addEventListener('click', (e) => {
             if (!isLiveviewActive) return;
+
+            if (isEyedropperActive) {
+                e.stopPropagation();
+                e.preventDefault();
+
+                const rect = liveviewCanvas.getBoundingClientRect();
+                const scaleX = liveviewCanvas.width / rect.width;
+                const scaleY = liveviewCanvas.height / rect.height;
+                const cx = (e.clientX - rect.left) * scaleX;
+                const cy = (e.clientY - rect.top) * scaleY;
+                const rgb = sampleCanvasPatch(liveviewCanvas, Math.round(cx), Math.round(cy), 2);
+
+                spawnClickRipple(liveviewCanvas.parentElement, e.clientX, e.clientY);
+
+                fetch('/api/sample_rebate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ rgb: rgb })
+                })
+                .then(res => res.json())
+                .then(data => {
+                    if (data.success) {
+                        activeFilmBaseRatios = data.base_ratios;
+                        activeFilmBaseRGB = data.sampled_rgb;
+                        const cfgN = document.getElementById('config-neutralize');
+                        if (cfgN) cfgN.checked = true;
+                        const bchN = document.getElementById('batch-neutralize');
+                        if (bchN) bchN.checked = true;
+                        updateFilmBaseBadgeUI(activeFilmBaseRatios, activeFilmBaseRGB);
+                        appendLogLine(`[Client] Film base rebate sampled from Live View: R=${activeFilmBaseRatios[0].toFixed(3)}, G=${activeFilmBaseRatios[1].toFixed(3)}, B=${activeFilmBaseRatios[2].toFixed(3)} (RGB: ${rgb.join(',')})`);
+                    }
+                })
+                .catch(err => console.error("Failed to sample film base from live view:", err))
+                .finally(() => {
+                    cancelFilmBaseEyedropper();
+                });
+                return;
+            }
             
             const rect = liveviewCanvas.getBoundingClientRect();
             const x = e.clientX - rect.left;
