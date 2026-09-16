@@ -7,17 +7,17 @@
       "A(KC_1)",
       "A(KC_2)",
       "A(KC_3)",
-      "A(KC_4)",
+      "KC_M",
       "KC_V",
-      "KC_F",
       "KC_R",
       "KC_O",
       "KC_E",
+      "KC_U",
       "KC_T",
-      "KC_P",
-      "KC_H",
       "KC_A",
-      "KC_M",
+      "KC_SPC",
+      "KC_MINS",
+      "KC_EQL",
       "S(KC_SLSH)",
       "KC_ESC",
       "KC_F",
@@ -94,13 +94,13 @@
   ],
   "encoders": [
     [
-      ["KC_1", "KC_2"],
+      ["KC_MINS", "KC_EQL"],
       ["KC_LBRC", "KC_RBRC"],
       ["S(KC_LBRC)", "S(KC_RBRC)"],
       ["KC_LBRC", "KC_RBRC"]
     ],
     [
-      ["KC_1", "KC_3"],
+      ["KC_1", "KC_2"],
       ["KC_LEFT", "KC_RGHT"],
       ["S(KC_LEFT)", "S(KC_RGHT)"],
       ["KC_MS_WH_DOWN", "KC_MS_WH_UP"]

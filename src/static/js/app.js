@@ -1852,6 +1852,18 @@ document.addEventListener('keydown', (e) => {
         return;
     }
 
+    // Step Camera Shutter Speed: - / _ / , (slower), = / + / . (faster)
+    if ((e.key === '-' || e.key === '_' || e.code === 'Minus' || e.code === 'NumpadSubtract' || e.key === ',') && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        e.preventDefault();
+        stepCameraShutter('slower');
+        return;
+    }
+    if ((e.key === '=' || e.key === '+' || e.code === 'Equal' || e.code === 'NumpadAdd' || e.key === '.') && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        e.preventDefault();
+        stepCameraShutter('faster');
+        return;
+    }
+
     // Focus Stepping: [ or Left (Near), ] or Right (Far)
     if (e.key === '[' || e.key === 'ArrowLeft') {
         e.preventDefault();
@@ -2144,6 +2156,31 @@ function setCameraConfig(name, value) {
         }
     })
     .catch(err => console.error("Error updating config:", err));
+}
+
+// Step camera shutter speed up (faster) or down (slower)
+function stepCameraShutter(direction) {
+    const select = document.getElementById('camera-shutter-select');
+    if (!select || select.disabled || select.options.length <= 1) {
+        appendLogLine('[Camera] Shutter speed control not available or no choices loaded.');
+        return;
+    }
+    
+    const currentIdx = select.selectedIndex;
+    if (currentIdx < 0) return;
+    
+    let newIdx = currentIdx;
+    if (direction === 'slower' || direction === 'down' || direction === -1) {
+        newIdx = Math.min(select.options.length - 1, currentIdx + 1);
+    } else if (direction === 'faster' || direction === 'up' || direction === 1) {
+        newIdx = Math.max(0, currentIdx - 1);
+    }
+    
+    if (newIdx !== currentIdx) {
+        select.selectedIndex = newIdx;
+        const newVal = select.options[newIdx].value;
+        setCameraConfig('shutterspeed', newVal);
+    }
 }
 
 // Toggle Live View streaming state
