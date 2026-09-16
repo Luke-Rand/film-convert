@@ -1741,12 +1741,28 @@ document.addEventListener('keydown', (e) => {
     // Ignore single key shortcuts if user is typing into an input field or textarea
     if (isInput) return;
 
-    // Alt + 1..4 Tab Navigation
-    if (e.altKey && !e.ctrlKey && !e.metaKey) {
-        if (e.key === '1') { e.preventDefault(); switchTab('scanner'); return; }
-        if (e.key === '2') { e.preventDefault(); switchTab('batch'); return; }
-        if (e.key === '3') { e.preventDefault(); switchTab('gallery'); return; }
-        if (e.key === '4') { e.preventDefault(); switchTab('scanlight'); return; }
+    // Alt + 1..4 (or Option + 1..4 / Cmd + 1..4) Tab Navigation
+    if ((e.altKey || e.metaKey) && !e.ctrlKey) {
+        if (e.code === 'Digit1' || e.code === 'Numpad1' || e.key === '1' || e.key === '¡') {
+            e.preventDefault();
+            switchTab('scanner');
+            return;
+        }
+        if (e.code === 'Digit2' || e.code === 'Numpad2' || e.key === '2' || e.key === '™') {
+            e.preventDefault();
+            switchTab('batch');
+            return;
+        }
+        if (e.code === 'Digit3' || e.code === 'Numpad3' || e.key === '3' || e.key === '£') {
+            e.preventDefault();
+            switchTab('gallery');
+            return;
+        }
+        if (e.code === 'Digit4' || e.code === 'Numpad4' || e.key === '4' || e.key === '¢') {
+            e.preventDefault();
+            switchTab('scanlight');
+            return;
+        }
     }
 
     // If shortcuts modal is currently open, don't execute background action shortcuts

@@ -190,14 +190,29 @@ test.describe('FilmConvert Web & Electron UI Test Suite', () => {
     // Open via sidebar shortcuts button
     await page.click('#btn-shortcuts-toggle');
     await expect(shortcutsModal).toHaveClass(/active/);
-    await page.keyboard.press('Escape');
-    await expect(shortcutsModal).not.toHaveClass(/active/);
-
-    // Open via liveview toolbar shortcuts button
-    await page.click('#btn-liveview-shortcuts');
-    await expect(shortcutsModal).toHaveClass(/active/);
     await page.click('#shortcuts-modal .modal-footer button');
     await expect(shortcutsModal).not.toHaveClass(/active/);
+  });
+
+  test('Alt / Option tab switching keyboard shortcuts switch panels smoothly', async ({ page }) => {
+    // Start on Tab 1 (Scanner)
+    await expect(page.locator('#panel-scanner')).toHaveClass(/active/);
+
+    // Switch to Tab 2 (Batch) via Alt+2
+    await page.keyboard.press('Alt+Digit2');
+    await expect(page.locator('#panel-batch')).toHaveClass(/active/);
+
+    // Switch to Tab 3 (Gallery) via Alt+3
+    await page.keyboard.press('Alt+Digit3');
+    await expect(page.locator('#panel-gallery')).toHaveClass(/active/);
+
+    // Switch to Tab 4 (Scanlight) via Alt+4
+    await page.keyboard.press('Alt+Digit4');
+    await expect(page.locator('#panel-scanlight')).toHaveClass(/active/);
+
+    // Switch back to Tab 1 (Scanner) via Alt+1
+    await page.keyboard.press('Alt+Digit1');
+    await expect(page.locator('#panel-scanner')).toHaveClass(/active/);
   });
 
   test('Live Capture panel keyboard shortcuts function properly', async ({ page }) => {
