@@ -101,7 +101,7 @@ def align_channel(ref, mov, channel_name=""):
     # Apply corrective sub-pixel Fourier phase shift (sub_dy, sub_dx)
     return fourier_shift_2d(mov, sub_dy, sub_dx)
 
-def process_triplet(group, output_filepath, neutralize_base=False, compress_tiff=False, align_channels=False, icc_profile="adobe_rgb", preserve_metadata=True):
+def process_triplet(group, output_filepath, neutralize_base=False, compress_tiff=False, align_channels=False, icc_profile="adobe_rgb", preserve_metadata=True, base_ratios=None):
     """Processes exactly 3 RAW files into a single 16-bit TIFF or True DNG composite with ICC profile and preserved metadata."""
     channels_data = {'red': None, 'green': None, 'blue': None}
     
@@ -164,35 +164,37 @@ def process_triplet(group, output_filepath, neutralize_base=False, compress_tiff
                         fbdd_noise_reduction=rawpy.FBDDNoiseReductionMode.Off
                     )
         
-            if linear_rgb is not None:
-                # Check filename hints first
-                fname_lower = Path(filepath).name.lower()
-                dominant_idx = None
-                if "_r." in fname_lower or "_red" in fname_lower or "_r_" in fname_lower:
-                    dominant_idx = 0
-                elif "_g." in fname_lower or "_green" in fname_lower or "_g_" in fname_lower:
-                    dominant_idx = 1
-                elif "_b." in fname_lower or "_blue" in fname_lower or "_b_" in fname_lower:
-                    dominant_idx = 2
+        if linear_rgb is not None:
+            if linear_rgb.ndim == 2:
+                linear_rgb = np.repeat(linear_rgb[:, :, np.newaxis], 3, axis=2)
+            # Check filename hints first
+            fname_lower = Path(filepath).name.lower()
+            dominant_idx = None
+            if "_r." in fname_lower or "_red" in fname_lower or "_r_" in fname_lower or fname_lower.endswith("_r"):
+                dominant_idx = 0
+            elif "_g." in fname_lower or "_green" in fname_lower or "_g_" in fname_lower or fname_lower.endswith("_g"):
+                dominant_idx = 1
+            elif "_b." in fname_lower or "_blue" in fname_lower or "_b_" in fname_lower or fname_lower.endswith("_b"):
+                dominant_idx = 2
+            
+            if dominant_idx is None:
+                # Account for Bayer quantum efficiency (Green sensels are 2x as numerous & sensitive)
+                weighted_means = [
+                    np.mean(linear_rgb[:, :, 0]) / 1.0,
+                    np.mean(linear_rgb[:, :, 1]) / 1.5,
+                    np.mean(linear_rgb[:, :, 2]) / 0.85
+                ]
+                dominant_idx = int(np.argmax(weighted_means))
                 
-                if dominant_idx is None:
-                    # Account for Bayer quantum efficiency (Green sensels are 2x as numerous & sensitive)
-                    weighted_means = [
-                        np.mean(linear_rgb[:, :, 0]) / 1.0,
-                        np.mean(linear_rgb[:, :, 1]) / 1.5,
-                        np.mean(linear_rgb[:, :, 2]) / 0.85
-                    ]
-                    dominant_idx = int(np.argmax(weighted_means))
-                    
-                if dominant_idx == 0:
-                    channels_data['red'] = linear_rgb[:, :, 0]
-                    print("      -> Detected as RED light shot")
-                elif dominant_idx == 1:
-                    channels_data['green'] = linear_rgb[:, :, 1]
-                    print("      -> Detected as GREEN light shot")
-                elif dominant_idx == 2:
-                    channels_data['blue'] = linear_rgb[:, :, 2]
-                    print("      -> Detected as BLUE light shot")
+            if dominant_idx == 0:
+                channels_data['red'] = linear_rgb[:, :, 0]
+                print("      -> Detected as RED light shot")
+            elif dominant_idx == 1:
+                channels_data['green'] = linear_rgb[:, :, 1]
+                print("      -> Detected as GREEN light shot")
+            elif dominant_idx == 2:
+                channels_data['blue'] = linear_rgb[:, :, 2]
+                print("      -> Detected as BLUE light shot")
     
     # Check if we have one of each color (Red, Green, Blue)
     if any(v is None for v in channels_data.values()):
@@ -219,13 +221,27 @@ def process_triplet(group, output_filepath, neutralize_base=False, compress_tiff
     if neutralize_base:
         print("  -> Neutralizing film base color cast...")
         composite_float = composite_rgb.astype(np.float32)
-        r_base = np.percentile(composite_float[:,:,0], 99.9)
-        g_base = np.percentile(composite_float[:,:,1], 99.9)
-        b_base = np.percentile(composite_float[:,:,2], 99.9)
+        if base_ratios is not None and len(base_ratios) == 3 and any(float(v) > 0 for v in base_ratios):
+            r_ratio, g_ratio, b_ratio = float(base_ratios[0]), float(base_ratios[1]), float(base_ratios[2])
+            max_ratio = max(r_ratio, g_ratio, b_ratio, 1e-6)
+            max_level = max(
+                float(np.percentile(composite_float[:, :, 0], 99.9)),
+                float(np.percentile(composite_float[:, :, 1], 99.9)),
+                float(np.percentile(composite_float[:, :, 2], 99.9)),
+                1.0
+            )
+            r_base = max((r_ratio / max_ratio) * max_level, 1.0)
+            g_base = max((g_ratio / max_ratio) * max_level, 1.0)
+            b_base = max((b_ratio / max_ratio) * max_level, 1.0)
+            print(f"     Using custom film base ratios (R={r_ratio:.3f}, G={g_ratio:.3f}, B={b_ratio:.3f}) -> targets: R={r_base:.0f}, G={g_base:.0f}, B={b_base:.0f}")
+        else:
+            r_base = max(float(np.percentile(composite_float[:, :, 0], 99.9)), 1.0)
+            g_base = max(float(np.percentile(composite_float[:, :, 1], 99.9)), 1.0)
+            b_base = max(float(np.percentile(composite_float[:, :, 2], 99.9)), 1.0)
         
-        composite_float[:,:,0] = np.clip((composite_float[:,:,0] / r_base) * 65535.0, 0, 65535)
-        composite_float[:,:,1] = np.clip((composite_float[:,:,1] / g_base) * 65535.0, 0, 65535)
-        composite_float[:,:,2] = np.clip((composite_float[:,:,2] / b_base) * 65535.0, 0, 65535)
+        composite_float[:, :, 0] = np.clip((composite_float[:, :, 0] / r_base) * 65535.0, 0, 65535)
+        composite_float[:, :, 1] = np.clip((composite_float[:, :, 1] / g_base) * 65535.0, 0, 65535)
+        composite_float[:, :, 2] = np.clip((composite_float[:, :, 2] / b_base) * 65535.0, 0, 65535)
         
         composite_rgb = composite_float.astype(np.uint16)
     
@@ -267,7 +283,7 @@ def get_next_frame_number(directory):
                     pass
     return max_num + 1
 
-def hot_folder_mode(directory_path, neutralize_base=False, compress_tiff=False, timeout=60, align_channels=False, icc_profile="adobe_rgb", preserve_metadata=True):
+def hot_folder_mode(directory_path, neutralize_base=False, compress_tiff=False, timeout=60, align_channels=False, icc_profile="adobe_rgb", preserve_metadata=True, base_ratios=None):
     """Monitors a directory for RAW triplets and processes them."""
     print(f"\n{'='*60}")
     print(f"🔥 HOT FOLDER MODE ACTIVE 🔥")
@@ -305,7 +321,7 @@ def hot_folder_mode(directory_path, neutralize_base=False, compress_tiff=False, 
                 output_filepath = os.path.join(directory_path, output_filename)
                 
                 try:
-                    process_triplet(group, output_filepath, neutralize_base, compress_tiff, align_channels, icc_profile=icc_profile, preserve_metadata=preserve_metadata)
+                    process_triplet(group, output_filepath, neutralize_base, compress_tiff, align_channels, icc_profile=icc_profile, preserve_metadata=preserve_metadata, base_ratios=base_ratios)
                     
                     for f in group:
                         shutil.move(f, os.path.join(processed_dir, os.path.basename(f)))
@@ -335,13 +351,13 @@ def hot_folder_mode(directory_path, neutralize_base=False, compress_tiff=False, 
                     print(f"{'?'*60}\n")
                     time.sleep(10)
                     
-            time.sleep(1)
+                time.sleep(1)
             
         except KeyboardInterrupt:
             print("\nExiting Hot Folder Mode.")
             sys.exit(0)
 
-def process_roll(directory_path, output_dir=None, neutralize_base=False, compress_tiff=False, align_channels=False, icc_profile="adobe_rgb", preserve_metadata=True):
+def process_roll(directory_path, output_dir=None, neutralize_base=False, compress_tiff=False, align_channels=False, icc_profile="adobe_rgb", preserve_metadata=True, base_ratios=None):
     """
     Scans for RAW files, groups by 3, auto-detects colors, and creates linear 16-bit TIFFs.
     """
@@ -378,7 +394,7 @@ def process_roll(directory_path, output_dir=None, neutralize_base=False, compres
         output_filepath = os.path.join(output_dir, output_filename)
         
         try:
-            process_triplet(group, output_filepath, neutralize_base, compress_tiff, align_channels, icc_profile=icc_profile, preserve_metadata=preserve_metadata)
+            process_triplet(group, output_filepath, neutralize_base, compress_tiff, align_channels, icc_profile=icc_profile, preserve_metadata=preserve_metadata, base_ratios=base_ratios)
         except Exception as e:
             print(f"  -> ERROR processing Frame {frame_number:02d}: {e}\n")
             
@@ -395,6 +411,8 @@ if __name__ == "__main__":
                         help="Enable optional zlib compression for output TIFFs (default: uncompressed for max DaVinci Resolve & NLE compatibility)")
     parser.add_argument("-n", "--neutralize", action="store_true", 
                         help="Automatically balance the color channels to neutralize the film base")
+    parser.add_argument("--base-ratios", nargs=3, type=float, metavar=('R', 'G', 'B'), default=None,
+                        help="Custom film base neutralizer RGB ratios (e.g. 1.0 0.58 0.23) sampled from film rebate")
     parser.add_argument("--hotfolder", action="store_true", 
                         help="Run in Hot Folder mode: monitor the directory, composite automatically, and move originals.")
     parser.add_argument("-t", "--timeout", type=int, default=60, 
@@ -409,7 +427,10 @@ if __name__ == "__main__":
     
     args = parser.parse_args()
     
+    # If base ratios specified, neutralize should default to True
+    do_neutralize = args.neutralize or (args.base_ratios is not None)
+    
     if args.hotfolder:
-        hot_folder_mode(args.input, neutralize_base=args.neutralize, compress_tiff=args.compress, timeout=args.timeout, align_channels=args.align, icc_profile=args.icc_profile, preserve_metadata=not args.no_metadata)
+        hot_folder_mode(args.input, neutralize_base=do_neutralize, compress_tiff=args.compress, timeout=args.timeout, align_channels=args.align, icc_profile=args.icc_profile, preserve_metadata=not args.no_metadata, base_ratios=args.base_ratios)
     else:
-        process_roll(args.input, neutralize_base=args.neutralize, compress_tiff=args.compress, align_channels=args.align, icc_profile=args.icc_profile, preserve_metadata=not args.no_metadata)
+        process_roll(args.input, neutralize_base=do_neutralize, compress_tiff=args.compress, align_channels=args.align, icc_profile=args.icc_profile, preserve_metadata=not args.no_metadata, base_ratios=args.base_ratios)

@@ -661,6 +661,15 @@ function syncConfigToUI(config) {
     const bchProf = document.getElementById('batch-color-profile');
     if (bchProf) bchProf.value = colorProf;
     
+    // Film base neutralizer ratios & badge
+    if (config.base_ratios && Array.isArray(config.base_ratios) && config.base_ratios.length === 3) {
+        activeFilmBaseRatios = config.base_ratios;
+        updateFilmBaseBadgeUI(activeFilmBaseRatios, activeFilmBaseRGB);
+    } else if (config.base_ratios === null) {
+        activeFilmBaseRatios = null;
+        updateFilmBaseBadgeUI(null, null);
+    }
+    
     // Update labels
     document.getElementById('val-gamma').textContent = config.gamma;
     document.getElementById('val-clip').textContent = config.clip;
@@ -701,6 +710,7 @@ function toggleMonitor() {
             autocrop: document.getElementById('config-autocrop').checked,
             global_levels: document.getElementById('config-global-levels').checked,
             neutralize: document.getElementById('config-neutralize').checked,
+            base_ratios: activeFilmBaseRatios,
             compress_tiff: document.getElementById('config-compress').checked,
             align_channels: document.getElementById('config-align-channels').checked,
             monochrome: document.getElementById('config-monochrome').checked,
@@ -826,6 +836,7 @@ function runBatchJob() {
         autocrop: document.getElementById('batch-autocrop').checked,
         global_levels: document.getElementById('batch-global-levels').checked,
         neutralize: document.getElementById('batch-neutralize').checked,
+        base_ratios: activeFilmBaseRatios,
         compress_tiff: document.getElementById('batch-compress').checked,
         align_channels: document.getElementById('batch-align-channels').checked,
         monochrome: document.getElementById('batch-monochrome').checked,
@@ -966,6 +977,8 @@ function openLightbox(name, path, size) {
     const desc = document.getElementById('lightbox-desc');
     const dlLink = document.getElementById('lightbox-download-link');
     
+    currentLightboxPath = path;
+
     // Clear preview image while loading new one to avoid layout jumps
     img.src = '';
     title.textContent = name;
@@ -978,11 +991,295 @@ function openLightbox(name, path, size) {
     
     // Load high-resolution preview (800px width limit for responsive viewport loading)
     img.src = `/api/preview?path=${encodeURIComponent(path)}&w=900`;
+
+    initLightboxEyedropperListeners();
 }
 
 function closeLightbox() {
+    if (isEyedropperActive && eyedropperSource === 'lightbox') {
+        cancelFilmBaseEyedropper();
+    }
     const box = document.getElementById('image-lightbox');
     if (box) box.classList.remove('active');
+}
+
+// ============================================================
+// INTERACTIVE FILM BASE NEUTRALIZATION PICKER
+// ============================================================
+
+let activeFilmBaseRatios = null; // [r_ratio, g_ratio, b_ratio]
+let activeFilmBaseRGB = null;    // [r, g, b] (0-255)
+let isEyedropperActive = false;
+let eyedropperSource = null;    // 'liveview', 'lightbox'
+let currentLightboxPath = '';
+
+function toggleFilmBaseEyedropper(source) {
+    if (isEyedropperActive) {
+        cancelFilmBaseEyedropper();
+        return;
+    }
+
+    if (source === 'auto') {
+        const lightboxEl = document.getElementById('image-lightbox');
+        if (lightboxEl && lightboxEl.classList.contains('active')) {
+            source = 'lightbox';
+        } else {
+            source = 'liveview';
+        }
+    }
+
+    if (source === 'liveview') {
+        if (!isLiveviewActive) {
+            const toggle = document.getElementById('camera-liveview-toggle');
+            if (toggle) {
+                toggle.checked = true;
+                toggleCameraLiveview(true);
+            }
+        }
+    }
+
+    isEyedropperActive = true;
+    eyedropperSource = source;
+
+    // Update active button state
+    ['btn-pick-film-base', 'btn-liveview-eyedropper', 'btn-lightbox-eyedropper'].forEach(id => {
+        const btn = document.getElementById(id);
+        if (btn) btn.classList.add('btn-eyedropper-active');
+    });
+
+    // Show banner overlay
+    if (source === 'liveview') {
+        const banner = document.getElementById('liveview-eyedropper-banner');
+        if (banner) banner.style.display = 'flex';
+    } else if (source === 'lightbox') {
+        const banner = document.getElementById('lightbox-eyedropper-banner');
+        if (banner) banner.style.display = 'flex';
+    }
+
+    // Update cursor
+    const lvCanvas = document.getElementById('camera-liveview-canvas');
+    if (lvCanvas) lvCanvas.classList.add('canvas-eyedropper-mode');
+    const lbImg = document.getElementById('lightbox-img');
+    if (lbImg) lbImg.classList.add('img-eyedropper-mode');
+
+    // Show loupe
+    const loupe = document.getElementById('eyedropper-loupe');
+    if (loupe) loupe.style.display = 'flex';
+
+    appendLogLine("[Client] Film base eyedropper active. Click unexposed film rebate (orange mask) on preview to sample.");
+}
+
+function cancelFilmBaseEyedropper() {
+    isEyedropperActive = false;
+    eyedropperSource = null;
+
+    ['btn-pick-film-base', 'btn-liveview-eyedropper', 'btn-lightbox-eyedropper'].forEach(id => {
+        const btn = document.getElementById(id);
+        if (btn) btn.classList.remove('btn-eyedropper-active');
+    });
+
+    const lvBanner = document.getElementById('liveview-eyedropper-banner');
+    if (lvBanner) lvBanner.style.display = 'none';
+    const lbBanner = document.getElementById('lightbox-eyedropper-banner');
+    if (lbBanner) lbBanner.style.display = 'none';
+
+    const lvCanvas = document.getElementById('camera-liveview-canvas');
+    if (lvCanvas) lvCanvas.classList.remove('canvas-eyedropper-mode');
+    const lbImg = document.getElementById('lightbox-img');
+    if (lbImg) lbImg.classList.remove('img-eyedropper-mode');
+
+    const loupe = document.getElementById('eyedropper-loupe');
+    if (loupe) loupe.style.display = 'none';
+}
+
+function updateFilmBaseBadgeUI(ratios, rgb) {
+    const badges = [
+        { badgeId: 'film-base-badge', swatchId: 'film-base-swatch', textId: 'film-base-ratios-text' },
+        { badgeId: 'batch-film-base-badge', swatchId: 'batch-film-base-swatch', textId: 'batch-film-base-ratios-text' }
+    ];
+
+    badges.forEach(({ badgeId, swatchId, textId }) => {
+        const badge = document.getElementById(badgeId);
+        const swatch = document.getElementById(swatchId);
+        const text = document.getElementById(textId);
+
+        if (!badge || !swatch || !text) return;
+
+        if (ratios && Array.isArray(ratios) && ratios.length === 3) {
+            badge.style.display = 'inline-flex';
+            text.textContent = `R: ${ratios[0].toFixed(3)} | G: ${ratios[1].toFixed(3)} | B: ${ratios[2].toFixed(3)}`;
+            if (rgb && Array.isArray(rgb) && rgb.length === 3) {
+                swatch.style.backgroundColor = `rgb(${rgb[0]}, ${rgb[1]}, ${rgb[2]})`;
+            } else {
+                // Approximate display sRGB color from linear ratios (assuming orange base)
+                const rS = Math.round(245 * Math.pow(ratios[0], 1 / 2.2));
+                const gS = Math.round(245 * Math.pow(ratios[1], 1 / 2.2));
+                const bS = Math.round(245 * Math.pow(ratios[2], 1 / 2.2));
+                swatch.style.backgroundColor = `rgb(${rS}, ${gS}, ${bS})`;
+            }
+        } else {
+            badge.style.display = 'none';
+        }
+    });
+}
+
+function onNeutralizeCheckboxChanged(checked) {
+    const cfgNeutralize = document.getElementById('config-neutralize');
+    if (cfgNeutralize) cfgNeutralize.checked = checked;
+    const bchNeutralize = document.getElementById('batch-neutralize');
+    if (bchNeutralize) bchNeutralize.checked = checked;
+
+    fetch('/api/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            neutralize: checked,
+            base_ratios: checked ? activeFilmBaseRatios : null
+        })
+    }).catch(err => console.error("Failed to sync neutralize state:", err));
+}
+
+function resetFilmBaseToAuto() {
+    activeFilmBaseRatios = null;
+    activeFilmBaseRGB = null;
+    updateFilmBaseBadgeUI(null, null);
+
+    fetch('/api/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            base_ratios: null
+        })
+    })
+    .then(res => res.json())
+    .then(() => {
+        appendLogLine("[Client] Film base neutralization reset to automatic 99.9th percentile mode.");
+    })
+    .catch(err => console.error("Failed to reset film base:", err));
+}
+
+// Sample a 5x5 patch from a canvas around (x, y) to eliminate single-pixel grain noise
+function sampleCanvasPatch(canvas, x, y, radius = 2) {
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    const w = canvas.width;
+    const h = canvas.height;
+    const x0 = Math.max(0, Math.min(w - 1, x - radius));
+    const y0 = Math.max(0, Math.min(h - 1, y - radius));
+    const sw = Math.min(radius * 2 + 1, w - x0);
+    const sh = Math.min(radius * 2 + 1, h - y0);
+
+    if (sw <= 0 || sh <= 0) return [255, 255, 255];
+
+    try {
+        const imgData = ctx.getImageData(x0, y0, sw, sh);
+        const d = imgData.data;
+        let rSum = 0, gSum = 0, bSum = 0, count = 0;
+        for (let i = 0; i < d.length; i += 4) {
+            rSum += d[i];
+            gSum += d[i + 1];
+            bSum += d[i + 2];
+            count++;
+        }
+        if (count === 0) return [255, 255, 255];
+        return [Math.round(rSum / count), Math.round(gSum / count), Math.round(bSum / count)];
+    } catch (e) {
+        return [255, 255, 255];
+    }
+}
+
+// Visual click ripple
+function spawnClickRipple(parent, clientX, clientY) {
+    if (!parent) return;
+    const rect = parent.getBoundingClientRect();
+    const ripple = document.createElement('div');
+    ripple.className = 'eyedropper-ripple';
+    ripple.style.left = `${clientX - rect.left}px`;
+    ripple.style.top = `${clientY - rect.top}px`;
+    parent.appendChild(ripple);
+    setTimeout(() => { if (ripple.parentNode) ripple.parentNode.removeChild(ripple); }, 700);
+}
+
+// Initialize Lightbox Eyedropper Event Listeners
+function initLightboxEyedropperListeners() {
+    const lbImg = document.getElementById('lightbox-img');
+    if (!lbImg || lbImg.hasEyedropperListeners) return;
+    lbImg.hasEyedropperListeners = true;
+
+    const lbSampleCanvas = document.createElement('canvas');
+    const lbSampleCtx = lbSampleCanvas.getContext('2d', { willReadFrequently: true });
+
+    lbImg.addEventListener('mousemove', (e) => {
+        if (!isEyedropperActive) return;
+        const rect = lbImg.getBoundingClientRect();
+        if (rect.width <= 0 || rect.height <= 0) return;
+
+        if (lbSampleCanvas.width !== lbImg.naturalWidth || lbSampleCanvas.height !== lbImg.naturalHeight) {
+            lbSampleCanvas.width = lbImg.naturalWidth || 800;
+            lbSampleCanvas.height = lbImg.naturalHeight || 600;
+            try {
+                lbSampleCtx.drawImage(lbImg, 0, 0, lbSampleCanvas.width, lbSampleCanvas.height);
+            } catch (err) {}
+        }
+
+        const normX = (e.clientX - rect.left) / rect.width;
+        const normY = (e.clientY - rect.top) / rect.height;
+        const px = Math.round(normX * (lbSampleCanvas.width - 1));
+        const py = Math.round(normY * (lbSampleCanvas.height - 1));
+        const rgb = sampleCanvasPatch(lbSampleCanvas, px, py, 2);
+
+        const loupe = document.getElementById('eyedropper-loupe');
+        const swatch = document.getElementById('loupe-swatch');
+        const rgbTxt = document.getElementById('loupe-rgb');
+        if (loupe) {
+            loupe.style.left = `${e.clientX + 14}px`;
+            loupe.style.top = `${e.clientY + 14}px`;
+        }
+        if (swatch) swatch.style.backgroundColor = `rgb(${rgb[0]}, ${rgb[1]}, ${rgb[2]})`;
+        if (rgbTxt) rgbTxt.textContent = `R: ${rgb[0]} G: ${rgb[1]} B: ${rgb[2]}`;
+    });
+
+    lbImg.addEventListener('click', (e) => {
+        if (!isEyedropperActive) return;
+        e.stopPropagation();
+        e.preventDefault();
+
+        const rect = lbImg.getBoundingClientRect();
+        const normX = Math.max(0, Math.min(1.0, (e.clientX - rect.left) / rect.width));
+        const normY = Math.max(0, Math.min(1.0, (e.clientY - rect.top) / rect.height));
+
+        spawnClickRipple(lbImg.parentElement, e.clientX, e.clientY);
+
+        const payload = currentLightboxPath ? {
+            path: currentLightboxPath,
+            x_ratio: normX,
+            y_ratio: normY
+        } : {
+            rgb: [255, 255, 255]
+        };
+
+        fetch('/api/sample_rebate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.success) {
+                activeFilmBaseRatios = data.base_ratios;
+                activeFilmBaseRGB = data.sampled_rgb;
+                const cfgN = document.getElementById('config-neutralize');
+                if (cfgN) cfgN.checked = true;
+                const bchN = document.getElementById('batch-neutralize');
+                if (bchN) bchN.checked = true;
+                updateFilmBaseBadgeUI(activeFilmBaseRatios, activeFilmBaseRGB);
+                appendLogLine(`[Client] Film base rebate sampled from image (${currentLightboxPath}): R=${activeFilmBaseRatios[0].toFixed(3)}, G=${activeFilmBaseRatios[1].toFixed(3)}, B=${activeFilmBaseRatios[2].toFixed(3)}`);
+            }
+        })
+        .catch(err => console.error("Failed to sample rebate from image:", err))
+        .finally(() => {
+            cancelFilmBaseEyedropper();
+        });
+    });
 }
 
 // Folder Browser State
@@ -1326,23 +1623,31 @@ function toggleLiveviewFullscreen() {
     if (card) {
         if (isLiveviewFullscreen) {
             card.classList.add('fullscreen-focus-mode');
-            if (btn) btn.innerHTML = '✖ Exit Focus (ESC)';
+            if (btn) {
+                btn.innerHTML = '<span class="tool-icon">✖</span> <span class="tool-text">Exit (ESC)</span>';
+                btn.classList.add('btn-fullscreen-active');
+            }
             if (hud) hud.style.display = 'flex';
         } else {
             card.classList.remove('fullscreen-focus-mode');
-            if (btn) btn.innerHTML = '🔍 Maximize Focus';
+            if (btn) {
+                btn.innerHTML = '<span class="tool-icon">🔍</span> <span class="tool-text">Maximize</span>';
+                btn.classList.remove('btn-fullscreen-active');
+            }
             if (hud) hud.style.display = 'none';
         }
     }
 }
 
 document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && isLiveviewFullscreen) {
-        toggleLiveviewFullscreen();
+    if (e.key === 'Escape') {
+        if (isEyedropperActive) {
+            cancelFilmBaseEyedropper();
+        } else if (isLiveviewFullscreen) {
+            toggleLiveviewFullscreen();
+        }
     }
 });
-
-
 
 // Initialize camera controls and fetch status
 function initCameraUI() {
@@ -1354,8 +1659,69 @@ function initCameraUI() {
     liveviewCanvas = document.getElementById('camera-liveview-canvas');
     if (liveviewCanvas && !liveviewCanvas.hasZoomListener) {
         liveviewCanvas.hasZoomListener = true;
+
+        liveviewCanvas.addEventListener('mousemove', (e) => {
+            if (!isEyedropperActive) return;
+            const rect = liveviewCanvas.getBoundingClientRect();
+            if (rect.width <= 0 || rect.height <= 0) return;
+
+            const scaleX = liveviewCanvas.width / rect.width;
+            const scaleY = liveviewCanvas.height / rect.height;
+            const cx = (e.clientX - rect.left) * scaleX;
+            const cy = (e.clientY - rect.top) * scaleY;
+            const rgb = sampleCanvasPatch(liveviewCanvas, Math.round(cx), Math.round(cy), 2);
+
+            const loupe = document.getElementById('eyedropper-loupe');
+            const swatch = document.getElementById('loupe-swatch');
+            const rgbTxt = document.getElementById('loupe-rgb');
+            if (loupe) {
+                loupe.style.left = `${e.clientX + 14}px`;
+                loupe.style.top = `${e.clientY + 14}px`;
+            }
+            if (swatch) swatch.style.backgroundColor = `rgb(${rgb[0]}, ${rgb[1]}, ${rgb[2]})`;
+            if (rgbTxt) rgbTxt.textContent = `R: ${rgb[0]} G: ${rgb[1]} B: ${rgb[2]}`;
+        });
+
         liveviewCanvas.addEventListener('click', (e) => {
             if (!isLiveviewActive) return;
+
+            if (isEyedropperActive) {
+                e.stopPropagation();
+                e.preventDefault();
+
+                const rect = liveviewCanvas.getBoundingClientRect();
+                const scaleX = liveviewCanvas.width / rect.width;
+                const scaleY = liveviewCanvas.height / rect.height;
+                const cx = (e.clientX - rect.left) * scaleX;
+                const cy = (e.clientY - rect.top) * scaleY;
+                const rgb = sampleCanvasPatch(liveviewCanvas, Math.round(cx), Math.round(cy), 2);
+
+                spawnClickRipple(liveviewCanvas.parentElement, e.clientX, e.clientY);
+
+                fetch('/api/sample_rebate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ rgb: rgb })
+                })
+                .then(res => res.json())
+                .then(data => {
+                    if (data.success) {
+                        activeFilmBaseRatios = data.base_ratios;
+                        activeFilmBaseRGB = data.sampled_rgb;
+                        const cfgN = document.getElementById('config-neutralize');
+                        if (cfgN) cfgN.checked = true;
+                        const bchN = document.getElementById('batch-neutralize');
+                        if (bchN) bchN.checked = true;
+                        updateFilmBaseBadgeUI(activeFilmBaseRatios, activeFilmBaseRGB);
+                        appendLogLine(`[Client] Film base rebate sampled from Live View: R=${activeFilmBaseRatios[0].toFixed(3)}, G=${activeFilmBaseRatios[1].toFixed(3)}, B=${activeFilmBaseRatios[2].toFixed(3)} (RGB: ${rgb.join(',')})`);
+                    }
+                })
+                .catch(err => console.error("Failed to sample film base from live view:", err))
+                .finally(() => {
+                    cancelFilmBaseEyedropper();
+                });
+                return;
+            }
             
             const rect = liveviewCanvas.getBoundingClientRect();
             const x = e.clientX - rect.left;
@@ -1439,18 +1805,23 @@ function fetchCameraStatus() {
                 if (data.simulated) {
                     badge.classList.add('badge-simulated');
                     badge.textContent = 'Simulated';
+                    badge.title = 'Camera: Simulated Mock Device';
                 } else if (data.state === 'searching') {
                     badge.classList.add('badge-disconnected');
                     badge.textContent = 'Searching...';
+                    badge.title = 'Searching for USB camera...';
                 } else if (data.state === 'capturing') {
                     badge.classList.add('badge-connected');
                     badge.textContent = 'Capturing...';
+                    badge.title = 'Camera is actively capturing frames';
                 } else if (data.connected) {
                     badge.classList.add('badge-connected');
-                    badge.textContent = data.model ? `Connected (${data.model})` : 'Connected';
+                    badge.textContent = data.model ? data.model : 'Connected';
+                    badge.title = `Camera Connected: ${data.model || 'Ready'}`;
                 } else {
                     badge.classList.add('badge-disconnected');
                     badge.textContent = 'Disconnected';
+                    badge.title = 'Camera Disconnected';
                 }
             }
 
@@ -1704,26 +2075,87 @@ async function pollLiveviewFrame() {
             updateMarginOverlay(imgSource);
         }
         
-        // Draw onto offscreen canvas for real-time histogram calculation
-        offscreenCanvas.width = 128;
-        offscreenCanvas.height = 96;
-        offscreenCtx.drawImage(imgSource, 0, 0, 128, 96);
+        // High-accuracy sampling canvas for real-time histogram & exposure calculation
+        // Sample at 480px width (preserving aspect ratio) to avoid blurring/damping highlight peaks
+        const aspect = nh > 0 ? (nw / nh) : (4 / 3);
+        const sampleW = 480;
+        const sampleH = Math.round(480 / aspect);
+        if (offscreenCanvas.width !== sampleW || offscreenCanvas.height !== sampleH) {
+            offscreenCanvas.width = sampleW;
+            offscreenCanvas.height = sampleH;
+        }
+        offscreenCtx.drawImage(imgSource, 0, 0, sampleW, sampleH);
         if (imgSource.close) {
             imgSource.close();
         }
         
         try {
-            const imgData = offscreenCtx.getImageData(0, 0, 128, 96);
+            // Apply active scan margin to ignore film carrier borders / metal edges
+            const marginSlider = document.getElementById('config-margin');
+            const marginFraction = marginSlider ? parseFloat(marginSlider.value) : 0.04;
+            const safeMargin = Math.max(0.02, Math.min(0.20, marginFraction));
+            
+            const mx = Math.floor(sampleW * safeMargin);
+            const my = Math.floor(sampleH * safeMargin);
+            const roiW = sampleW - (2 * mx);
+            const roiH = sampleH - (2 * my);
+            
+            const imgData = offscreenCtx.getImageData(mx, my, roiW, roiH);
             const pixels = imgData.data;
-            const rHist = new Array(256).fill(0);
-            const gHist = new Array(256).fill(0);
-            const bHist = new Array(256).fill(0);
+            const totalPixels = roiW * roiH;
+            
+            const rHist = new Uint32Array(256);
+            const gHist = new Uint32Array(256);
+            const bHist = new Uint32Array(256);
+            
+            let clippedCount = 0;
+            let rMax = 0, gMax = 0, bMax = 0;
+            
             for (let i = 0; i < pixels.length; i += 4) {
-                rHist[pixels[i]]++;
-                gHist[pixels[i+1]]++;
-                bHist[pixels[i+2]]++;
+                const r = pixels[i];
+                const g = pixels[i + 1];
+                const b = pixels[i + 2];
+                
+                rHist[r]++;
+                gHist[g]++;
+                bHist[b]++;
+                
+                if (r > rMax) rMax = r;
+                if (g > gMax) gMax = g;
+                if (b > bMax) bMax = b;
+                
+                if (r >= 254 || g >= 254 || b >= 254) {
+                    clippedCount++;
+                }
             }
-            renderRGBHistogram(rHist, gHist, bHist);
+            
+            // Calculate 99.9th percentile values
+            const p999Threshold = totalPixels * 0.999;
+            const calcP99 = (hist) => {
+                let acc = 0;
+                for (let v = 0; v < 256; v++) {
+                    acc += hist[v];
+                    if (acc >= p999Threshold) return v;
+                }
+                return 255;
+            };
+            
+            const rP99 = calcP99(rHist);
+            const gP99 = calcP99(gHist);
+            const bP99 = calcP99(bHist);
+            const clipPct = ((clippedCount / totalPixels) * 100).toFixed(1);
+            
+            const stats = {
+                rMax, gMax, bMax,
+                rP99, gP99, bP99,
+                clippedCount,
+                clipPct,
+                totalPixels,
+                timestamp: Date.now()
+            };
+            window.lastHistogramStats = stats;
+            
+            renderRGBHistogram(rHist, gHist, bHist, stats);
         } catch (e) {
             console.error("Histogram parsing failed:", e);
         }
@@ -1772,7 +2204,7 @@ function triggerCameraCapture() {
     });
 }
 
-function renderRGBHistogram(rHist, gHist, bHist) {
+function renderRGBHistogram(rHist, gHist, bHist, stats = null) {
     if (!histogramCtx || !histogramCanvas) return;
     
     const w = histogramCanvas.width;
@@ -1780,6 +2212,27 @@ function renderRGBHistogram(rHist, gHist, bHist) {
     
     // Clear canvas
     histogramCtx.clearRect(0, 0, w, h);
+    
+    // Draw vertical reference grid lines: 25%, 50% (middle gray), 75%, and 95% (ETTR ceiling)
+    const gridPoints = [
+        { pct: 0.25, stroke: 'rgba(255, 255, 255, 0.07)', dash: [2, 2] },
+        { pct: 0.50, stroke: 'rgba(255, 255, 255, 0.12)', dash: [] }, // 18% middle gray
+        { pct: 0.75, stroke: 'rgba(255, 255, 255, 0.07)', dash: [2, 2] },
+        { pct: 242 / 255, stroke: 'rgba(245, 158, 11, 0.35)', dash: [3, 2] } // 95% ETTR target ceiling
+    ];
+    
+    histogramCtx.save();
+    gridPoints.forEach(pt => {
+        const x = Math.round(pt.pct * w);
+        histogramCtx.beginPath();
+        histogramCtx.setLineDash(pt.dash);
+        histogramCtx.moveTo(x, 0);
+        histogramCtx.lineTo(x, h);
+        histogramCtx.strokeStyle = pt.stroke;
+        histogramCtx.lineWidth = 1;
+        histogramCtx.stroke();
+    });
+    histogramCtx.restore();
     
     const mode = activeHistogramMode;
     
@@ -1882,6 +2335,27 @@ function renderRGBHistogram(rHist, gHist, bHist) {
         // Reset blending mode
         histogramCtx.globalCompositeOperation = 'source-over';
     }
+    
+    // Update live numeric statistics badges
+    if (stats) {
+        const rEl = document.getElementById('hist-val-r');
+        const gEl = document.getElementById('hist-val-g');
+        const bEl = document.getElementById('hist-val-b');
+        if (rEl) rEl.textContent = `${stats.rP99} (${Math.round(stats.rP99 / 2.55)}%)`;
+        if (gEl) gEl.textContent = `${stats.gP99} (${Math.round(stats.gP99 / 2.55)}%)`;
+        if (bEl) bEl.textContent = `${stats.bP99} (${Math.round(stats.bP99 / 2.55)}%)`;
+        
+        const clipText = document.getElementById('hist-clip-text');
+        const clipBadge = document.getElementById('hist-clip-badge');
+        if (clipText) clipText.textContent = `Clip: ${stats.clipPct}%`;
+        if (clipBadge) {
+            if (stats.clippedCount > 0 || parseFloat(stats.clipPct) > 0.0) {
+                clipBadge.classList.add('clip-warning');
+            } else {
+                clipBadge.classList.remove('clip-warning');
+            }
+        }
+    }
 }
 
 function setHistogramMode(mode) {
@@ -1973,29 +2447,199 @@ function toggleMiniScanlightConnection() {
 }
 
 function updateMiniScanlightColor(channel, value) {
-    document.getElementById(`val-mini-sl-${channel}`).textContent = value;
+    const intVal = parseInt(value, 10);
+    const valSpan = document.getElementById(`val-mini-sl-${channel}`);
+    if (valSpan) valSpan.textContent = intVal;
+    const slider = document.getElementById(`mini-sl-${channel}`);
+    if (slider && slider.value !== String(intVal)) slider.value = intVal;
+    
+    let r = parseInt(document.getElementById('mini-sl-red')?.value || 255, 10);
+    let g = parseInt(document.getElementById('mini-sl-green')?.value || 255, 10);
+    let b = parseInt(document.getElementById('mini-sl-blue')?.value || 255, 10);
+    if (channel === 'red') r = intVal;
+    if (channel === 'green') g = intVal;
+    if (channel === 'blue') b = intVal;
     
     if (window.scanlightController) {
-        window.scanlightController[channel] = parseInt(value);
+        window.scanlightController[channel] = intVal;
         
         // Sync slider in main scanlight tab if present
         const mainSlider = document.getElementById(`scanlight-${channel}-slider`);
         const mainInput = document.getElementById(`scanlight-${channel}-val`);
-        if (mainSlider) mainSlider.value = value;
-        if (mainInput) mainInput.value = value;
+        if (mainSlider) mainSlider.value = intVal;
+        if (mainInput) mainInput.value = intVal;
         
         window.scanlightController.updateColor();
+    }
+    
+    // Always notify mock backend for simulated camera shifts
+    fetch('/api/camera/update_mock_leds', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ red: r, green: g, blue: b })
+    }).catch(() => {});
+}
+
+let isAutoTuningLEDs = false;
+
+async function autoTuneLEDLevels() {
+    if (isAutoTuningLEDs) return;
+    
+    const btn = document.getElementById('btn-auto-tune-leds');
+    const statusEl = document.getElementById('auto-tune-status');
+    const headroomSelect = document.getElementById('auto-tune-headroom');
+    const targetCeiling = headroomSelect ? parseInt(headroomSelect.value, 10) : 242;
+    const tolerance = 3;
+    
+    // Check if live view is active
+    if (!isLiveviewActive) {
+        alert("Please enable Live View first so the algorithm can meter real-time film exposure.");
+        return;
+    }
+    
+    isAutoTuningLEDs = true;
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<span>⏳</span> Tuning LEDs...';
+    }
+    if (statusEl) {
+        statusEl.style.display = 'block';
+        statusEl.className = 'auto-tune-status status-active';
+        statusEl.textContent = `Metering exposure... Target: ${targetCeiling} / 255 (~${Math.round(targetCeiling / 2.55)}%)`;
+    }
+    
+    appendLogLine(`[Auto-Tune] Starting closed-loop LED ETTR calibration (Target: ${targetCeiling})...`);
+    
+    const channels = ['red', 'green', 'blue'];
+    const maxIterations = 4;
+    let finalStats = null;
+    
+    try {
+        for (let iter = 1; iter <= maxIterations; iter++) {
+            // Wait for sensor exposure & live view frame to settle
+            await new Promise(r => setTimeout(r, 130));
+            
+            const stats = window.lastHistogramStats;
+            if (!stats) {
+                await new Promise(r => setTimeout(r, 100));
+                continue;
+            }
+            finalStats = stats;
+            
+            const currentPeaks = {
+                red: stats.rP99,
+                green: stats.gP99,
+                blue: stats.bP99
+            };
+            
+            appendLogLine(`[Auto-Tune] Iteration ${iter}/${maxIterations}: P99 Peaks -> R:${currentPeaks.red}, G:${currentPeaks.green}, B:${currentPeaks.blue}`);
+            if (statusEl) {
+                statusEl.textContent = `Pass ${iter}/${maxIterations}: R:${currentPeaks.red} G:${currentPeaks.green} B:${currentPeaks.blue} | Target: ${targetCeiling}`;
+            }
+            
+            let allChannelsDone = true;
+            const nextPWM = {};
+            
+            for (const ch of channels) {
+                const slider = document.getElementById(`mini-sl-${ch}`);
+                const currentVal = slider ? parseInt(slider.value, 10) : 255;
+                const peak = currentPeaks[ch];
+                const error = targetCeiling - peak;
+                
+                // If within tolerance (+-3 levels), channel has converged
+                if (Math.abs(error) <= tolerance) {
+                    nextPWM[ch] = currentVal;
+                    continue;
+                }
+                
+                // If maxed out at 255 and still below target, or at 1 and still above, cannot adjust further
+                if ((currentVal === 255 && error > 0) || (currentVal === 1 && error < 0)) {
+                    nextPWM[ch] = currentVal;
+                    continue;
+                }
+                
+                allChannelsDone = false;
+                
+                let targetRatio;
+                if (peak >= 254) {
+                    // Highlights are clipping: back off immediately by 20%
+                    targetRatio = 0.80;
+                } else {
+                    // Display/Camera live view response curve (~1.7 gamma damping)
+                    targetRatio = Math.pow(targetCeiling / Math.max(peak, 8), 1.7);
+                }
+                
+                let calculated = Math.round(currentVal * targetRatio);
+                // Clamp within valid 8-bit bounds [1, 255]
+                calculated = Math.max(1, Math.min(255, calculated));
+                
+                // If calculated == currentVal but still not in tolerance, nudge by at least 1 step
+                if (calculated === currentVal) {
+                    calculated += (error > 0 ? 1 : -1);
+                    calculated = Math.max(1, Math.min(255, calculated));
+                }
+                
+                nextPWM[ch] = calculated;
+            }
+            
+            // Check if all channels have converged or hit bounds
+            if (allChannelsDone) {
+                break;
+            }
+            
+            // Apply updated PWM to all channels
+            for (const ch of channels) {
+                if (nextPWM[ch] !== undefined) {
+                    updateMiniScanlightColor(ch, nextPWM[ch]);
+                }
+            }
+        }
         
-        // Notify mock backend for simulated camera shifts
-        fetch('/api/camera/update_mock_leds', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                red: window.scanlightController.red,
-                green: window.scanlightController.green,
-                blue: window.scanlightController.blue
-            })
-        }).catch(err => console.error(err));
+        // Final settling pause to confirm final exposure
+        await new Promise(r => setTimeout(r, 140));
+        if (window.lastHistogramStats) {
+            finalStats = window.lastHistogramStats;
+        }
+        
+        const rVal = document.getElementById('mini-sl-red')?.value || 255;
+        const gVal = document.getElementById('mini-sl-green')?.value || 255;
+        const bVal = document.getElementById('mini-sl-blue')?.value || 255;
+        
+        if (finalStats && (finalStats.rMax >= 254 || finalStats.gMax >= 254 || finalStats.bMax >= 254) && (rVal == 1 || gVal == 1 || bVal == 1)) {
+            // Overexposure limit warning: even at minimum power, light is clipping
+            if (statusEl) {
+                statusEl.className = 'auto-tune-status status-warning';
+                statusEl.innerHTML = `⚠️ <strong>Camera Shutter Too Slow:</strong> Highlight clipping persists at minimum LED power. Increase shutter speed or close aperture.`;
+            }
+            appendLogLine(`[Auto-Tune] Notice: Base overexposure detected. Suggest faster camera shutter speed.`);
+        } else if (finalStats && (finalStats.rP99 < 180 && finalStats.gP99 < 180 && finalStats.bP99 < 180) && (rVal == 255 && gVal == 255 && bVal == 255)) {
+            // Underexposure notice: all LEDs maxed out
+            if (statusEl) {
+                statusEl.className = 'auto-tune-status status-warning';
+                statusEl.innerHTML = `ℹ️ <strong>Maximum LED Power Reached (255):</strong> Signal is below target. Decrease shutter speed or open aperture for optimal ETTR.`;
+            }
+            appendLogLine(`[Auto-Tune] Notice: Max LED power reached without hitting ceiling. Suggest slower camera shutter speed.`);
+        } else {
+            // Optimal ETTR achieved
+            if (statusEl) {
+                statusEl.className = 'auto-tune-status status-success';
+                statusEl.innerHTML = `✓ <strong>Optimal ETTR Locked:</strong> R: ${rVal}, G: ${gVal}, B: ${bVal} (0.0% highlight clipping).`;
+            }
+            appendLogLine(`[Auto-Tune] Successfully converged on optimal LED levels: R=${rVal}, G=${gVal}, B=${bVal}`);
+        }
+        
+    } catch (err) {
+        console.error("Auto-tune error:", err);
+        if (statusEl) {
+            statusEl.className = 'auto-tune-status status-warning';
+            statusEl.textContent = `Auto-tune error: ${err.message}`;
+        }
+    } finally {
+        isAutoTuningLEDs = false;
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = '<span>⚡</span> Auto-Tune Optimal LEDs';
+        }
     }
 }
 

@@ -64,6 +64,7 @@ class SessionManager:
             "global_levels": False,
             "compress_tiff": False,
             "neutralize": False,  # compositor neutralization
+            "base_ratios": None,  # custom [R, G, B] neutralizer ratios from eyedropper picker
             "align_channels": False,
             "monochrome": False,
             "monochrome_channel": "luminance",
@@ -289,7 +290,8 @@ class SessionManager:
                                     compress_tiff=self.config["compress_tiff"],
                                     align_channels=self.config["align_channels"],
                                     icc_profile=self.config.get("color_profile", "adobe_rgb"),
-                                    preserve_metadata=self.config.get("embed_metadata", True)
+                                    preserve_metadata=self.config.get("embed_metadata", True),
+                                    base_ratios=self.config.get("base_ratios")
                                 )
                             
                             self.broadcast("triplet_means", {
@@ -315,7 +317,8 @@ class SessionManager:
                                     reversal=self.config.get("reversal", False),
                                     convert_to_tiff=self.config.get("convert_to_tiff", True),
                                     icc_profile=self.config.get("color_profile", "adobe_rgb"),
-                                    preserve_metadata=self.config.get("embed_metadata", True)
+                                    preserve_metadata=self.config.get("embed_metadata", True),
+                                    base_ratios=self.config.get("base_ratios")
                                 )
                             
                             # 3. Move files
@@ -370,7 +373,8 @@ class SessionManager:
                                     reversal=self.config.get("reversal", False),
                                     convert_to_tiff=self.config.get("convert_to_tiff", True),
                                     icc_profile=self.config.get("color_profile", "adobe_rgb"),
-                                    preserve_metadata=self.config.get("embed_metadata", True)
+                                    preserve_metadata=self.config.get("embed_metadata", True),
+                                    base_ratios=self.config.get("base_ratios")
                                 )
                             
                             shutil.move(filepath, os.path.join(self.dirs['processed'], filename))
@@ -447,7 +451,8 @@ class SessionManager:
                                 compress_tiff=self.config["compress_tiff"],
                                 align_channels=self.config["align_channels"],
                                 icc_profile=self.config.get("color_profile", "adobe_rgb"),
-                                preserve_metadata=self.config.get("embed_metadata", True)
+                                preserve_metadata=self.config.get("embed_metadata", True),
+                                base_ratios=self.config.get("base_ratios")
                             )
                         frame_number += 1
                     
@@ -474,7 +479,8 @@ class SessionManager:
                             reversal=self.config.get("reversal", False),
                             convert_to_tiff=self.config.get("convert_to_tiff", True),
                             icc_profile=self.config.get("color_profile", "adobe_rgb"),
-                            preserve_metadata=self.config.get("embed_metadata", True)
+                            preserve_metadata=self.config.get("embed_metadata", True),
+                            base_ratios=self.config.get("base_ratios")
                         )
                     self.log("Batch inversion complete!")
                     
@@ -861,6 +867,129 @@ def get_preview():
         
     except Exception as e:
         return jsonify({"error": f"Failed to generate preview: {str(e)}"}), 500
+
+@app.route('/api/config', methods=['GET', 'POST'])
+def manage_config():
+    if request.method == 'POST':
+        data = request.json or {}
+        with session.lock:
+            for k, v in data.items():
+                session.config[k] = v
+            cfg = dict(session.config)
+        session.broadcast("config_update", cfg)
+        return jsonify({"success": True, "config": cfg})
+    else:
+        with session.lock:
+            cfg = dict(session.config)
+        return jsonify({"success": True, "config": cfg})
+
+@app.route('/api/sample_rebate', methods=['POST'])
+def sample_rebate():
+    """
+    Samples film rebate (orange mask) from either:
+    1) Image path + normalized coordinates (x_ratio, y_ratio) from full-res TIFF/DNG/RAW
+    2) Direct RGB values [r, g, b] sampled from UI preview / live view canvas
+    Computes exact normalized neutralizer ratios [r_ratio, g_ratio, b_ratio],
+    updates session config, and returns the result.
+    """
+    try:
+        data = request.json or {}
+        img_path = data.get('path')
+        x_ratio = data.get('x_ratio')
+        y_ratio = data.get('y_ratio')
+        rgb_input = data.get('rgb')
+        
+        r_ratio, g_ratio, b_ratio = 1.0, 1.0, 1.0
+        sampled_rgb = [255, 255, 255]
+        
+        if img_path and x_ratio is not None and y_ratio is not None:
+            if not session.is_safe_path(img_path):
+                return jsonify({"error": "Unauthorized access path"}), 403
+            if not os.path.exists(img_path):
+                return jsonify({"error": "File not found"}), 404
+                
+            ext = os.path.splitext(img_path)[1].lower()
+            img = None
+            if ext in ['.dng', '.tiff', '.tif']:
+                try:
+                    img = tifffile.imread(img_path)
+                except Exception:
+                    pass
+            if img is None:
+                try:
+                    import rawpy
+                    with rawpy.imread(img_path) as raw:
+                        img = raw.postprocess(gamma=(1, 1), no_auto_bright=True, output_bps=16)
+                except Exception:
+                    from PIL import Image
+                    pil = Image.open(img_path)
+                    img = np.array(pil)
+                    
+            if img is not None:
+                if img.ndim == 3 and img.shape[2] > 3:
+                    img = img[:, :, :3]
+                h, w = img.shape[:2]
+                px = int(np.clip(float(x_ratio) * (w - 1), 0, w - 1))
+                py = int(np.clip(float(y_ratio) * (h - 1), 0, h - 1))
+                
+                # Sample 5x5 patch around (py, px) to filter single-pixel sensor noise / grain
+                patch_r = max(1, min(h // 100, 3))
+                y0, y1 = max(0, py - patch_r), min(h, py + patch_r + 1)
+                x0, x1 = max(0, px - patch_r), min(w, px + patch_r + 1)
+                patch = img[y0:y1, x0:x1]
+                
+                if patch.ndim == 3 and patch.shape[2] >= 3:
+                    r_val = float(np.median(patch[:, :, 0]))
+                    g_val = float(np.median(patch[:, :, 1]))
+                    b_val = float(np.median(patch[:, :, 2]))
+                else:
+                    val = float(np.median(patch))
+                    r_val = g_val = b_val = val
+                    
+                max_val = max(r_val, g_val, b_val, 1e-6)
+                r_ratio = round(r_val / max_val, 4)
+                g_ratio = round(g_val / max_val, 4)
+                b_ratio = round(b_val / max_val, 4)
+                
+                # Scale for display preview (0-255)
+                if img.dtype == np.uint16:
+                    sampled_rgb = [int(np.clip(r_val / 256.0, 0, 255)), int(np.clip(g_val / 256.0, 0, 255)), int(np.clip(b_val / 256.0, 0, 255))]
+                else:
+                    sampled_rgb = [int(np.clip(r_val, 0, 255)), int(np.clip(g_val, 0, 255)), int(np.clip(b_val, 0, 255))]
+                    
+        elif rgb_input is not None and len(rgb_input) >= 3:
+            # Client sampled directly from canvas preview (8-bit sRGB)
+            r_in, g_in, b_in = float(rgb_input[0]), float(rgb_input[1]), float(rgb_input[2])
+            sampled_rgb = [int(np.clip(r_in, 0, 255)), int(np.clip(g_in, 0, 255)), int(np.clip(b_in, 0, 255))]
+            
+            # Linearize from 8-bit gamma 2.2 preview for exact transmission ratios
+            r_lin = max(r_in / 255.0, 0.0) ** 2.2
+            g_lin = max(g_in / 255.0, 0.0) ** 2.2
+            b_lin = max(b_in / 255.0, 0.0) ** 2.2
+            max_lin = max(r_lin, g_lin, b_lin, 1e-6)
+            
+            r_ratio = round(r_lin / max_lin, 4)
+            g_ratio = round(g_lin / max_lin, 4)
+            b_ratio = round(b_lin / max_lin, 4)
+        else:
+            return jsonify({"error": "Missing path/coordinates or rgb payload"}), 400
+
+        with session.lock:
+            session.config["base_ratios"] = [r_ratio, g_ratio, b_ratio]
+            session.config["neutralize"] = True
+            cfg = dict(session.config)
+            
+        session.log(f"Sampled film base rebate: R={r_ratio:.3f}, G={g_ratio:.3f}, B={b_ratio:.3f} (RGB: {sampled_rgb})")
+        session.broadcast("config_update", cfg)
+        
+        return jsonify({
+            "success": True,
+            "base_ratios": [r_ratio, g_ratio, b_ratio],
+            "sampled_rgb": sampled_rgb,
+            "config": cfg
+        })
+    except Exception as e:
+        return jsonify({"error": f"Failed to sample rebate: {str(e)}"}), 500
 
 @app.route('/api/batch', methods=['POST'])
 def run_batch():
