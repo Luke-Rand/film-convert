@@ -240,6 +240,9 @@ def process_positives(input_path, output_dir=None, clip=0.1, gamma=2.2, compress
                             D_raw_img[:, :, c] = np.log10(np.maximum(c_base, 1.0) / np.maximum(img_float[:, :, c], 1.0))
                             D_raw_ana[:, :, c] = np.log10(np.maximum(c_base, 1.0) / np.maximum(analysis_region[:, :, c], 1.0))
                         
+                    inv_gamma_scale = np.float32(np.log(10.0) / gamma_film)
+                    radiance_scale = np.float32(target_max / denom)
+
                     if global_levels:
                         # Global exposure scaling: preserves scene color ratios without independent channel distortion
                         p_low = np.percentile(D_raw_ana, clip)
@@ -250,8 +253,11 @@ def process_positives(input_path, output_dir=None, clip=0.1, gamma=2.2, compress
                                 D_norm = apply_film_characteristic_curve(D_raw_scaled, shoulder_start=0.90, toe_start=0.08)
                             else:
                                 D_norm = np.zeros_like(D_raw_img[:, :, c])
-                            I_pos = (10.0 ** (D_norm / gamma_film) - 1.0) / denom
-                            pos_linear[:, :, c] = I_pos * target_max
+                            # SIMD-accelerated in-place tone curve inversion
+                            np.multiply(D_norm, inv_gamma_scale, out=D_norm)
+                            np.exp(D_norm, out=D_norm)
+                            np.subtract(D_norm, 1.0, out=D_norm)
+                            np.multiply(D_norm, radiance_scale, out=pos_linear[:, :, c])
                     else:
                         for c in range(3):
                             p_low = np.percentile(D_raw_ana[:, :, c], clip)
@@ -263,8 +269,11 @@ def process_positives(input_path, output_dir=None, clip=0.1, gamma=2.2, compress
                             else:
                                 D_norm = np.zeros_like(D_raw_img[:, :, c])
                                 
-                            I_pos = (10.0 ** (D_norm / gamma_film) - 1.0) / denom
-                            pos_linear[:, :, c] = I_pos * target_max
+                            # SIMD-accelerated in-place tone curve inversion
+                            np.multiply(D_norm, inv_gamma_scale, out=D_norm)
+                            np.exp(D_norm, out=D_norm)
+                            np.subtract(D_norm, 1.0, out=D_norm)
+                            np.multiply(D_norm, radiance_scale, out=pos_linear[:, :, c])
                     img_float = pos_linear
                 else:
                     c_base = np.percentile(analysis_region, 99.9)
@@ -280,8 +289,13 @@ def process_positives(input_path, output_dir=None, clip=0.1, gamma=2.2, compress
                     else:
                         D_norm = np.zeros_like(D_raw_img)
                         
-                    I_pos = (10.0 ** (D_norm / gamma_film) - 1.0) / denom
-                    img_float = I_pos * target_max
+                    inv_gamma_scale = np.float32(np.log(10.0) / gamma_film)
+                    radiance_scale = np.float32(target_max / denom)
+                    np.multiply(D_norm, inv_gamma_scale, out=D_norm)
+                    np.exp(D_norm, out=D_norm)
+                    np.subtract(D_norm, 1.0, out=D_norm)
+                    np.multiply(D_norm, radiance_scale, out=D_norm)
+                    img_float = D_norm
 
             # Scale to 16-bit linear light array
             img_float = np.clip(img_float, 0, 65535)

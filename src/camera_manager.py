@@ -69,6 +69,11 @@ class CameraManager:
         self.frame_event = threading.Event()
         self.frame_lock = threading.Lock()
         
+        # Focus activity telemetry and downscaled thumbnail cache
+        self.last_focus_time = 0.0
+        self._fast_focus_thumbnail_cache = None
+        self._cached_thumb_frame_id = -1
+        
         # Simulated mode states
         self.sim_settings = {
             "iso": "400",
@@ -222,6 +227,51 @@ class CameraManager:
     def get_latest_frame(self):
         with self.frame_lock:
             return self.latest_frame
+
+    def notify_focus_adjustment(self):
+        """Notifies the camera manager that a manual focus step or autofocus action is occurring."""
+        self.last_focus_time = time.time()
+
+    def is_fast_focus_active(self, window_sec=1.0):
+        """Returns True if a manual focus command was issued within the last window_sec seconds."""
+        return (time.time() - getattr(self, 'last_focus_time', 0.0)) < window_sec
+
+    def get_fast_focus_frame(self, max_width=640, quality=70):
+        """
+        Returns an optimized, downscaled JPEG thumbnail of the latest live view frame
+        to eliminate socket lag and reduce browser decompression memory during fast manual focus adjustments.
+        Caches the encoded thumbnail per frame_id.
+        """
+        with self.frame_lock:
+            raw_frame = self.latest_frame
+            f_id = self.frame_id
+            if not raw_frame:
+                return None
+            if getattr(self, '_cached_thumb_frame_id', -1) == f_id and getattr(self, '_fast_focus_thumbnail_cache', None) is not None:
+                return self._fast_focus_thumbnail_cache
+
+        try:
+            from PIL import Image
+            import io
+            with Image.open(io.BytesIO(raw_frame)) as img:
+                w, h = img.size
+                if w > max_width:
+                    scale = max_width / float(w)
+                    new_h = int(h * scale)
+                    thumb_img = img.resize((max_width, new_h), Image.Resampling.BILINEAR)
+                else:
+                    thumb_img = img.copy()
+
+                buf = io.BytesIO()
+                thumb_img.save(buf, format='JPEG', quality=quality, optimize=False)
+                thumb_bytes = buf.getvalue()
+
+            with self.frame_lock:
+                self._fast_focus_thumbnail_cache = thumb_bytes
+                self._cached_thumb_frame_id = f_id
+            return thumb_bytes
+        except Exception:
+            return raw_frame
 
     # Private loop running on worker thread
     def _worker_loop(self):
@@ -525,6 +575,8 @@ class CameraManager:
         elif cmd == "set_config":
             name = args["name"].lower()
             val = args["value"]
+            if name == "manualfocusdrive":
+                self.notify_focus_adjustment()
             if self.simulated:
                 if name in self.sim_settings:
                     self.sim_settings[name] = val
@@ -765,6 +817,7 @@ class CameraManager:
                     self.connection_state = "streaming" if self.live_view_active else "connected"
 
         elif cmd == "autofocus":
+            self.notify_focus_adjustment()
             if self.simulated:
                 self.log("Simulating autofocus...")
                 time.sleep(1.0)

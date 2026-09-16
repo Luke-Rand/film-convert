@@ -34,12 +34,17 @@ a = Analysis(
     hiddenimports=[
         'flask',
         'numpy',
+        'scipy',
+        'scipy.fft',
         'rawpy',
         'tifffile',
         'piexif',
         'PIL',
         'PIL.Image',
-        'PIL.ImageDraw'
+        'PIL.ImageDraw',
+        'multiprocessing',
+        'concurrent.futures',
+        'batch_worker'
     ],
     hookspath=[],
     hooksconfig={},

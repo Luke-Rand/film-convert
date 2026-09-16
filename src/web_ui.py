@@ -15,11 +15,18 @@ from flask import Flask, request, jsonify, render_template, send_file, Response
 import numpy as np
 import tifffile
 from PIL import Image
+import multiprocessing
+from concurrent.futures import ProcessPoolExecutor
 
 # Import core logic from existing scripts
 from compositor import process_triplet
 from inverter import process_positives
 from camera_manager import CameraManager
+from batch_worker import (
+    worker_process_triplet,
+    worker_process_positives,
+    worker_process_triplet_pipeline
+)
 
 if hasattr(sys, '_MEIPASS'):
     # Bundled path for PyInstaller
@@ -79,7 +86,28 @@ class SessionManager:
         self.lock = threading.Lock()
         self.subscribers = []
         self.subscribers_lock = threading.Lock()
+        self.executor = None
         self.log("System initialized. Ready.")
+
+    def _get_executor(self):
+        """Returns or lazily creates the background multiprocessing ProcessPoolExecutor."""
+        with self.lock:
+            if self.executor is None:
+                ctx = multiprocessing.get_context('spawn')
+                # Reserve 1 core for Flask / CameraManager
+                max_w = min(4, max(1, (os.cpu_count() or 2) - 1))
+                self.executor = ProcessPoolExecutor(max_workers=max_w, mp_context=ctx)
+            return self.executor
+
+    def shutdown_executor(self):
+        """Cleanly shuts down the background ProcessPoolExecutor on exit."""
+        with self.lock:
+            if self.executor:
+                try:
+                    self.executor.shutdown(wait=False, cancel_futures=True)
+                except Exception:
+                    pass
+                self.executor = None
 
     def add_subscriber(self):
         with self.subscribers_lock:
@@ -275,53 +303,37 @@ class SessionManager:
                             continue
                             
                         frame_number = self.get_next_frame_number(neg_dir)
-                        self.log(f"Triplet detected! Processing Frame {frame_number:02d}...")
+                        self.log(f"Triplet detected! Processing Frame {frame_number:02d} in background worker...")
                         
                         composite_filename = f"Frame_{frame_number:02d}_Composite.dng"
                         composite_filepath = os.path.join(neg_dir, composite_filename)
                         
                         try:
-                            # 1. Composite (redirect stdout to web log)
-                            with contextlib.redirect_stdout(redirector):
-                                r_mean, g_mean, b_mean = process_triplet(
-                                    group=group,
-                                    output_filepath=composite_filepath,
-                                    neutralize_base=self.config["neutralize"],
-                                    compress_tiff=self.config["compress_tiff"],
-                                    align_channels=self.config["align_channels"],
-                                    icc_profile=self.config.get("color_profile", "adobe_rgb"),
-                                    preserve_metadata=self.config.get("embed_metadata", True),
-                                    base_ratios=self.config.get("base_ratios")
-                                )
+                            executor = self._get_executor()
+                            future = executor.submit(
+                                worker_process_triplet_pipeline,
+                                group=group,
+                                composite_filepath=composite_filepath,
+                                positives_dir=self.dirs['positives'],
+                                config=dict(self.config)
+                            )
+                            success, result, worker_logs = future.result()
+                            if worker_logs:
+                                for line in worker_logs.strip().splitlines():
+                                    if line.strip():
+                                        self.log(line)
                             
+                            if not success:
+                                raise Exception(f"Worker failure: {result}")
+                            
+                            r_mean, g_mean, b_mean = result
                             self.broadcast("triplet_means", {
                                 "r_mean": float(r_mean),
                                 "g_mean": float(g_mean),
                                 "b_mean": float(b_mean)
                             })
                             
-                            # 2. Invert (redirect stdout to web log)
-                            with contextlib.redirect_stdout(redirector):
-                                process_positives(
-                                    input_path=composite_filepath,
-                                    output_dir=self.dirs['positives'],
-                                    clip=self.config["clip"],
-                                    gamma=self.config["gamma"],
-                                    compress_tiff=self.config["compress_tiff"],
-                                    global_levels=self.config["global_levels"],
-                                    ignore_margin=self.config["margin"],
-                                    scurve=self.config["scurve"],
-                                    autocrop=self.config["autocrop"],
-                                    monochrome=self.config.get("monochrome", False),
-                                    monochrome_channel=self.config.get("monochrome_channel", "luminance"),
-                                    reversal=self.config.get("reversal", False),
-                                    convert_to_tiff=self.config.get("convert_to_tiff", True),
-                                    icc_profile=self.config.get("color_profile", "adobe_rgb"),
-                                    preserve_metadata=self.config.get("embed_metadata", True),
-                                    base_ratios=self.config.get("base_ratios")
-                                )
-                            
-                            # 3. Move files
+                            # Move files
                             for f in group:
                                 shutil.move(f, os.path.join(self.dirs['processed'], os.path.basename(f)))
                             shutil.move(composite_filepath, os.path.join(self.dirs['processed'], composite_filename))
@@ -354,28 +366,37 @@ class SessionManager:
                             self.stop_event.wait(0.5)
                             continue
                             
-                        self.log(f"Negative detected! Processing {filename}...")
+                        self.log(f"Negative detected! Processing {filename} in background worker...")
                         
                         try:
-                            with contextlib.redirect_stdout(redirector):
-                                process_positives(
-                                    input_path=filepath,
-                                    output_dir=self.dirs['positives'],
-                                    clip=self.config["clip"],
-                                    gamma=self.config["gamma"],
-                                    compress_tiff=self.config["compress_tiff"],
-                                    global_levels=self.config["global_levels"],
-                                    ignore_margin=self.config["margin"],
-                                    scurve=self.config["scurve"],
-                                    autocrop=self.config["autocrop"],
-                                    monochrome=self.config.get("monochrome", False),
-                                    monochrome_channel=self.config.get("monochrome_channel", "luminance"),
-                                    reversal=self.config.get("reversal", False),
-                                    convert_to_tiff=self.config.get("convert_to_tiff", True),
-                                    icc_profile=self.config.get("color_profile", "adobe_rgb"),
-                                    preserve_metadata=self.config.get("embed_metadata", True),
-                                    base_ratios=self.config.get("base_ratios")
-                                )
+                            executor = self._get_executor()
+                            future = executor.submit(
+                                worker_process_positives,
+                                input_path=filepath,
+                                output_dir=self.dirs['positives'],
+                                clip=self.config["clip"],
+                                gamma=self.config["gamma"],
+                                compress_tiff=self.config["compress_tiff"],
+                                global_levels=self.config["global_levels"],
+                                ignore_margin=self.config["margin"],
+                                scurve=self.config["scurve"],
+                                autocrop=self.config["autocrop"],
+                                monochrome=self.config.get("monochrome", False),
+                                monochrome_channel=self.config.get("monochrome_channel", "luminance"),
+                                reversal=self.config.get("reversal", False),
+                                convert_to_tiff=self.config.get("convert_to_tiff", True),
+                                icc_profile=self.config.get("color_profile", "adobe_rgb"),
+                                preserve_metadata=self.config.get("embed_metadata", True),
+                                base_ratios=self.config.get("base_ratios")
+                            )
+                            success, result, worker_logs = future.result()
+                            if worker_logs:
+                                for line in worker_logs.strip().splitlines():
+                                    if line.strip():
+                                        self.log(line)
+
+                            if not success:
+                                raise Exception(f"Worker failure: {result}")
                             
                             shutil.move(filepath, os.path.join(self.dirs['processed'], filename))
                             self.log(f"SUCCESS: {filename} processed and saved.")
@@ -406,14 +427,15 @@ class SessionManager:
         self.broadcast_status()
 
         def _batch_thread():
-            redirector = ThreadLogRedirector(self.log)
-            self.log(f"Starting batch task: {task_type} for '{input_path}'")
+            self.log(f"Starting background batch task: {task_type} for '{input_path}'")
             
             try:
                 # Resolve paths
                 in_path = os.path.abspath(os.path.expanduser(input_path))
                 if not os.path.exists(in_path):
                     raise FileNotFoundError(f"Input path '{in_path}' does not exist.")
+                
+                executor = self._get_executor()
                 
                 if task_type == 'composite':
                     # Composite RAW files in folder
@@ -440,48 +462,60 @@ class SessionManager:
                     frame_number = 1
                     for i in range(0, total_files - 2, 3):
                         group = raw_files[i:i+3]
-                        self.log(f"Processing Frame {frame_number:02d} ({[os.path.basename(f) for f in group]})...")
+                        self.log(f"Processing Frame {frame_number:02d} ({[os.path.basename(f) for f in group]}) in background worker...")
                         output_filepath = os.path.join(out_dir, f"Frame_{frame_number:02d}_Composite.dng")
                         
-                        with contextlib.redirect_stdout(redirector):
-                            process_triplet(
-                                group=group,
-                                output_filepath=output_filepath,
-                                neutralize_base=self.config["neutralize"],
-                                compress_tiff=self.config["compress_tiff"],
-                                align_channels=self.config["align_channels"],
-                                icc_profile=self.config.get("color_profile", "adobe_rgb"),
-                                preserve_metadata=self.config.get("embed_metadata", True),
-                                base_ratios=self.config.get("base_ratios")
-                            )
+                        future = executor.submit(
+                            worker_process_triplet,
+                            group=group,
+                            output_filepath=output_filepath,
+                            neutralize_base=self.config["neutralize"],
+                            compress_tiff=self.config["compress_tiff"],
+                            align_channels=self.config["align_channels"],
+                            icc_profile=self.config.get("color_profile", "adobe_rgb"),
+                            preserve_metadata=self.config.get("embed_metadata", True),
+                            base_ratios=self.config.get("base_ratios")
+                        )
+                        success, result, worker_logs = future.result()
+                        if worker_logs:
+                            for line in worker_logs.strip().splitlines():
+                                if line.strip():
+                                    self.log(line)
+                        if not success:
+                            raise Exception(f"Batch worker error: {result}")
                         frame_number += 1
                     
                     self.log("Batch compositing complete!")
                     
                 elif task_type == 'invert':
-                    # Invert composite images
-                    self.log(f"Processing positive inversions for: {in_path}")
-                    
-                    # We let the inverter script figure out outputs
-                    with contextlib.redirect_stdout(redirector):
-                        process_positives(
-                            input_path=in_path,
-                            output_dir=None,  # let it auto-create subfolder Positives
-                            clip=self.config["clip"],
-                            gamma=self.config["gamma"],
-                            compress_tiff=self.config["compress_tiff"],
-                            global_levels=self.config["global_levels"],
-                            ignore_margin=self.config["margin"],
-                            scurve=self.config["scurve"],
-                            autocrop=self.config["autocrop"],
-                            monochrome=self.config.get("monochrome", False),
-                            monochrome_channel=self.config.get("monochrome_channel", "luminance"),
-                            reversal=self.config.get("reversal", False),
-                            convert_to_tiff=self.config.get("convert_to_tiff", True),
-                            icc_profile=self.config.get("color_profile", "adobe_rgb"),
-                            preserve_metadata=self.config.get("embed_metadata", True),
-                            base_ratios=self.config.get("base_ratios")
-                        )
+                    # Invert composite images in background process
+                    self.log(f"Processing positive inversions for: {in_path} in background worker...")
+                    future = executor.submit(
+                        worker_process_positives,
+                        input_path=in_path,
+                        output_dir=None,  # let it auto-create subfolder Positives
+                        clip=self.config["clip"],
+                        gamma=self.config["gamma"],
+                        compress_tiff=self.config["compress_tiff"],
+                        global_levels=self.config["global_levels"],
+                        ignore_margin=self.config["margin"],
+                        scurve=self.config["scurve"],
+                        autocrop=self.config["autocrop"],
+                        monochrome=self.config.get("monochrome", False),
+                        monochrome_channel=self.config.get("monochrome_channel", "luminance"),
+                        reversal=self.config.get("reversal", False),
+                        convert_to_tiff=self.config.get("convert_to_tiff", True),
+                        icc_profile=self.config.get("color_profile", "adobe_rgb"),
+                        preserve_metadata=self.config.get("embed_metadata", True),
+                        base_ratios=self.config.get("base_ratios")
+                    )
+                    success, result, worker_logs = future.result()
+                    if worker_logs:
+                        for line in worker_logs.strip().splitlines():
+                            if line.strip():
+                                self.log(line)
+                    if not success:
+                        raise Exception(f"Batch worker error: {result}")
                     self.log("Batch inversion complete!")
                     
             except Exception as e:
@@ -507,6 +541,10 @@ import atexit
 import signal
 
 def _cleanup():
+    try:
+        session.shutdown_executor()
+    except Exception:
+        pass
     try:
         camera_manager.stop()
     except Exception:
@@ -556,6 +594,7 @@ def camera_focus_step():
     speed = data.get("speed", "1")
     value = f"{direction.capitalize()} {speed}"
     try:
+        camera_manager.notify_focus_adjustment()
         camera_manager.update_config("manualfocusdrive", value)
         return jsonify({"success": True})
     except Exception as e:
@@ -564,6 +603,7 @@ def camera_focus_step():
 @app.route('/api/camera/autofocus', methods=['POST'])
 def camera_autofocus():
     try:
+        camera_manager.notify_focus_adjustment()
         camera_manager.send_cmd("autofocus", {})
         return jsonify({"success": True})
     except Exception as e:
@@ -612,17 +652,36 @@ def camera_liveview_feed():
             with camera_manager.frame_lock:
                 curr_id = camera_manager.frame_id
                 frame = camera_manager.latest_frame
-            if frame and curr_id != last_id:
-                last_id = curr_id
-                yield (b'--frame\r\n'
-                       b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
+            
+            if not frame or curr_id == last_id:
+                time.sleep(0.02)
+                continue
+
+            # Skip-frame mechanism: Jump directly to latest frame ID
+            last_id = curr_id
+
+            # Downscaling thumbnail cache during fast manual focus adjustments
+            if camera_manager.is_fast_focus_active(window_sec=1.0):
+                frame_to_send = camera_manager.get_fast_focus_frame(max_width=640, quality=70) or frame
             else:
-                time.sleep(0.04)
+                frame_to_send = frame
+
+            try:
+                yield (b'--frame\r\n'
+                       b'Content-Type: image/jpeg\r\n\r\n' + frame_to_send + b'\r\n')
+            except GeneratorExit:
+                break
+            except Exception:
+                break
     return Response(generate(), mimetype='multipart/x-mixed-replace; boundary=frame')
 
 @app.route('/api/camera/frame')
 def get_camera_single_frame():
-    frame = camera_manager.get_latest_frame()
+    force_downscale = request.args.get('downscale', type=int)
+    if force_downscale or camera_manager.is_fast_focus_active(window_sec=1.0):
+        frame = camera_manager.get_fast_focus_frame(max_width=640, quality=70)
+    else:
+        frame = camera_manager.get_latest_frame()
     if not frame:
         return Response(status=204)
     return Response(frame, mimetype='image/jpeg')
@@ -1072,6 +1131,7 @@ def browse_directory():
         }), 400
 
 if __name__ == "__main__":
+    multiprocessing.freeze_support()
     # Start local Flask server
     host = os.environ.get("HOST", "127.0.0.1")
     port = int(os.environ.get("PORT", 5001))
