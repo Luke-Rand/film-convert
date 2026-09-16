@@ -199,6 +199,19 @@
                                 </div>
                                 <canvas id="camera-histogram-canvas" width="256" height="120"
                                     class="histogram-canvas"></canvas>
+                                <div class="histogram-stats-bar" id="histogram-stats-bar">
+                                    <div class="hist-stat-group">
+                                        <span class="hist-stat-badge hist-badge-r" title="Red Channel Peak (P99.9)">R: <strong id="hist-val-r">0</strong></span>
+                                        <span class="hist-stat-badge hist-badge-g" title="Green Channel Peak (P99.9)">G: <strong id="hist-val-g">0</strong></span>
+                                        <span class="hist-stat-badge hist-badge-b" title="Blue Channel Peak (P99.9)">B: <strong id="hist-val-b">0</strong></span>
+                                    </div>
+                                    <div class="hist-stat-group">
+                                        <span class="hist-stat-clip" id="hist-clip-badge" title="Highlights at or above 254 (clipping risk)">
+                                            <span class="clip-dot" id="hist-clip-dot"></span>
+                                            <span id="hist-clip-text">Clip: 0.0%</span>
+                                        </span>
+                                    </div>
+                                </div>
                             </div>
                         </div>
 
@@ -298,6 +311,22 @@
                                 <input type="range" id="mini-sl-blue" min="0" max="255" step="1" value="255"
                                     oninput="updateMiniScanlightColor('blue', this.value)"
                                     data-tooltip="Blue LED brightness (0–255)">
+                            </div>
+
+                            <!-- Auto-Tune Optimal LEDs (ETTR) -->
+                            <div class="auto-tune-container" style="margin-top: 0.85rem; padding: 0.65rem; background: rgba(255, 255, 255, 0.03); border: 1px solid var(--border-color); border-radius: var(--radius-md);">
+                                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.45rem;">
+                                    <span style="font-size: 0.72rem; font-weight: 600; color: var(--text-light); text-transform: uppercase; letter-spacing: 0.04em;">Auto Exposure (ETTR)</span>
+                                    <select id="auto-tune-headroom" class="select-mini" style="font-size: 0.7rem; padding: 0.15rem 0.35rem; background: #131b2e; border: 1px solid var(--border-color); border-radius: 4px; color: var(--text-primary);" data-tooltip="Target exposure ceiling below 255 clipping">
+                                        <option value="242" selected>95% Target (-0.3 EV)</option>
+                                        <option value="248">97% Max SNR (-0.1 EV)</option>
+                                        <option value="235">92% Safe (-0.5 EV)</option>
+                                    </select>
+                                </div>
+                                <button class="btn btn-primary btn-small" id="btn-auto-tune-leds" onclick="autoTuneLEDLevels()" style="width: 100%; font-size: 0.75rem; padding: 0.4rem 0.75rem; display: flex; align-items: center; justify-content: center; gap: 0.35rem;" data-tooltip="Automatically balance and maximize R, G, B LED power to ETTR target without clipping highlights">
+                                    <span>⚡</span> Auto-Tune Optimal LEDs
+                                </button>
+                                <div id="auto-tune-status" class="auto-tune-status" style="display: none; font-size: 0.72rem; margin-top: 0.45rem; padding: 0.35rem 0.5rem; border-radius: 4px; line-height: 1.35;"></div>
                             </div>
 
                             <!-- Quick Channel Presets -->

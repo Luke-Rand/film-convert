@@ -1808,8 +1808,92 @@ input:checked + .switch-slider:before {
     height: 120px;
     background: #070a13;
     border: 1px solid var(--border-color);
-    border-radius: var(--radius-md);
+    border-radius: var(--radius-md) var(--radius-md) 0 0;
     display: block;
+}
+
+/* Histogram Stats Bar below canvas */
+.histogram-stats-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: rgba(13, 18, 30, 0.95);
+    border: 1px solid var(--border-color);
+    border-top: none;
+    border-radius: 0 0 var(--radius-md) var(--radius-md);
+    padding: 0.35rem 0.6rem;
+    font-size: 0.72rem;
+    color: var(--text-secondary);
+}
+
+.hist-stat-group {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.hist-stat-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.2rem;
+    font-size: 0.7rem;
+    font-weight: 500;
+}
+
+.hist-badge-r strong { color: #f87171; }
+.hist-badge-g strong { color: #4ade80; }
+.hist-badge-b strong { color: #60a5fa; }
+
+.hist-stat-clip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-size: 0.7rem;
+    font-weight: 600;
+    color: #10b981;
+    transition: var(--transition-fast);
+}
+
+.hist-stat-clip .clip-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #10b981;
+    display: inline-block;
+}
+
+.hist-stat-clip.clip-warning {
+    color: #ef4444;
+}
+
+.hist-stat-clip.clip-warning .clip-dot {
+    background: #ef4444;
+    box-shadow: 0 0 8px rgba(239, 68, 68, 0.8);
+    animation: clipBlink 1s infinite alternate;
+}
+
+@keyframes clipBlink {
+    0% { opacity: 0.6; }
+    100% { opacity: 1; transform: scale(1.2); }
+}
+
+/* Auto-Tune LED status message box */
+.auto-tune-status.status-success {
+    background: rgba(16, 185, 129, 0.15);
+    border: 1px solid rgba(16, 185, 129, 0.3);
+    color: #34d399;
+}
+
+.auto-tune-status.status-warning {
+    background: rgba(245, 158, 11, 0.15);
+    border: 1px solid rgba(245, 158, 11, 0.3);
+    color: #fbbf24;
+}
+
+.auto-tune-status.status-active {
+    background: rgba(59, 130, 246, 0.15);
+    border: 1px solid rgba(59, 130, 246, 0.3);
+    color: #60a5fa;
 }
 
 .btn-capture {

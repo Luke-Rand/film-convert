@@ -2075,26 +2075,87 @@ async function pollLiveviewFrame() {
             updateMarginOverlay(imgSource);
         }
         
-        // Draw onto offscreen canvas for real-time histogram calculation
-        offscreenCanvas.width = 128;
-        offscreenCanvas.height = 96;
-        offscreenCtx.drawImage(imgSource, 0, 0, 128, 96);
+        // High-accuracy sampling canvas for real-time histogram & exposure calculation
+        // Sample at 480px width (preserving aspect ratio) to avoid blurring/damping highlight peaks
+        const aspect = nh > 0 ? (nw / nh) : (4 / 3);
+        const sampleW = 480;
+        const sampleH = Math.round(480 / aspect);
+        if (offscreenCanvas.width !== sampleW || offscreenCanvas.height !== sampleH) {
+            offscreenCanvas.width = sampleW;
+            offscreenCanvas.height = sampleH;
+        }
+        offscreenCtx.drawImage(imgSource, 0, 0, sampleW, sampleH);
         if (imgSource.close) {
             imgSource.close();
         }
         
         try {
-            const imgData = offscreenCtx.getImageData(0, 0, 128, 96);
+            // Apply active scan margin to ignore film carrier borders / metal edges
+            const marginSlider = document.getElementById('config-margin');
+            const marginFraction = marginSlider ? parseFloat(marginSlider.value) : 0.04;
+            const safeMargin = Math.max(0.02, Math.min(0.20, marginFraction));
+            
+            const mx = Math.floor(sampleW * safeMargin);
+            const my = Math.floor(sampleH * safeMargin);
+            const roiW = sampleW - (2 * mx);
+            const roiH = sampleH - (2 * my);
+            
+            const imgData = offscreenCtx.getImageData(mx, my, roiW, roiH);
             const pixels = imgData.data;
-            const rHist = new Array(256).fill(0);
-            const gHist = new Array(256).fill(0);
-            const bHist = new Array(256).fill(0);
+            const totalPixels = roiW * roiH;
+            
+            const rHist = new Uint32Array(256);
+            const gHist = new Uint32Array(256);
+            const bHist = new Uint32Array(256);
+            
+            let clippedCount = 0;
+            let rMax = 0, gMax = 0, bMax = 0;
+            
             for (let i = 0; i < pixels.length; i += 4) {
-                rHist[pixels[i]]++;
-                gHist[pixels[i+1]]++;
-                bHist[pixels[i+2]]++;
+                const r = pixels[i];
+                const g = pixels[i + 1];
+                const b = pixels[i + 2];
+                
+                rHist[r]++;
+                gHist[g]++;
+                bHist[b]++;
+                
+                if (r > rMax) rMax = r;
+                if (g > gMax) gMax = g;
+                if (b > bMax) bMax = b;
+                
+                if (r >= 254 || g >= 254 || b >= 254) {
+                    clippedCount++;
+                }
             }
-            renderRGBHistogram(rHist, gHist, bHist);
+            
+            // Calculate 99.9th percentile values
+            const p999Threshold = totalPixels * 0.999;
+            const calcP99 = (hist) => {
+                let acc = 0;
+                for (let v = 0; v < 256; v++) {
+                    acc += hist[v];
+                    if (acc >= p999Threshold) return v;
+                }
+                return 255;
+            };
+            
+            const rP99 = calcP99(rHist);
+            const gP99 = calcP99(gHist);
+            const bP99 = calcP99(bHist);
+            const clipPct = ((clippedCount / totalPixels) * 100).toFixed(1);
+            
+            const stats = {
+                rMax, gMax, bMax,
+                rP99, gP99, bP99,
+                clippedCount,
+                clipPct,
+                totalPixels,
+                timestamp: Date.now()
+            };
+            window.lastHistogramStats = stats;
+            
+            renderRGBHistogram(rHist, gHist, bHist, stats);
         } catch (e) {
             console.error("Histogram parsing failed:", e);
         }
@@ -2143,7 +2204,7 @@ function triggerCameraCapture() {
     });
 }
 
-function renderRGBHistogram(rHist, gHist, bHist) {
+function renderRGBHistogram(rHist, gHist, bHist, stats = null) {
     if (!histogramCtx || !histogramCanvas) return;
     
     const w = histogramCanvas.width;
@@ -2151,6 +2212,27 @@ function renderRGBHistogram(rHist, gHist, bHist) {
     
     // Clear canvas
     histogramCtx.clearRect(0, 0, w, h);
+    
+    // Draw vertical reference grid lines: 25%, 50% (middle gray), 75%, and 95% (ETTR ceiling)
+    const gridPoints = [
+        { pct: 0.25, stroke: 'rgba(255, 255, 255, 0.07)', dash: [2, 2] },
+        { pct: 0.50, stroke: 'rgba(255, 255, 255, 0.12)', dash: [] }, // 18% middle gray
+        { pct: 0.75, stroke: 'rgba(255, 255, 255, 0.07)', dash: [2, 2] },
+        { pct: 242 / 255, stroke: 'rgba(245, 158, 11, 0.35)', dash: [3, 2] } // 95% ETTR target ceiling
+    ];
+    
+    histogramCtx.save();
+    gridPoints.forEach(pt => {
+        const x = Math.round(pt.pct * w);
+        histogramCtx.beginPath();
+        histogramCtx.setLineDash(pt.dash);
+        histogramCtx.moveTo(x, 0);
+        histogramCtx.lineTo(x, h);
+        histogramCtx.strokeStyle = pt.stroke;
+        histogramCtx.lineWidth = 1;
+        histogramCtx.stroke();
+    });
+    histogramCtx.restore();
     
     const mode = activeHistogramMode;
     
@@ -2253,6 +2335,27 @@ function renderRGBHistogram(rHist, gHist, bHist) {
         // Reset blending mode
         histogramCtx.globalCompositeOperation = 'source-over';
     }
+    
+    // Update live numeric statistics badges
+    if (stats) {
+        const rEl = document.getElementById('hist-val-r');
+        const gEl = document.getElementById('hist-val-g');
+        const bEl = document.getElementById('hist-val-b');
+        if (rEl) rEl.textContent = `${stats.rP99} (${Math.round(stats.rP99 / 2.55)}%)`;
+        if (gEl) gEl.textContent = `${stats.gP99} (${Math.round(stats.gP99 / 2.55)}%)`;
+        if (bEl) bEl.textContent = `${stats.bP99} (${Math.round(stats.bP99 / 2.55)}%)`;
+        
+        const clipText = document.getElementById('hist-clip-text');
+        const clipBadge = document.getElementById('hist-clip-badge');
+        if (clipText) clipText.textContent = `Clip: ${stats.clipPct}%`;
+        if (clipBadge) {
+            if (stats.clippedCount > 0 || parseFloat(stats.clipPct) > 0.0) {
+                clipBadge.classList.add('clip-warning');
+            } else {
+                clipBadge.classList.remove('clip-warning');
+            }
+        }
+    }
 }
 
 function setHistogramMode(mode) {
@@ -2344,29 +2447,199 @@ function toggleMiniScanlightConnection() {
 }
 
 function updateMiniScanlightColor(channel, value) {
-    document.getElementById(`val-mini-sl-${channel}`).textContent = value;
+    const intVal = parseInt(value, 10);
+    const valSpan = document.getElementById(`val-mini-sl-${channel}`);
+    if (valSpan) valSpan.textContent = intVal;
+    const slider = document.getElementById(`mini-sl-${channel}`);
+    if (slider && slider.value !== String(intVal)) slider.value = intVal;
+    
+    let r = parseInt(document.getElementById('mini-sl-red')?.value || 255, 10);
+    let g = parseInt(document.getElementById('mini-sl-green')?.value || 255, 10);
+    let b = parseInt(document.getElementById('mini-sl-blue')?.value || 255, 10);
+    if (channel === 'red') r = intVal;
+    if (channel === 'green') g = intVal;
+    if (channel === 'blue') b = intVal;
     
     if (window.scanlightController) {
-        window.scanlightController[channel] = parseInt(value);
+        window.scanlightController[channel] = intVal;
         
         // Sync slider in main scanlight tab if present
         const mainSlider = document.getElementById(`scanlight-${channel}-slider`);
         const mainInput = document.getElementById(`scanlight-${channel}-val`);
-        if (mainSlider) mainSlider.value = value;
-        if (mainInput) mainInput.value = value;
+        if (mainSlider) mainSlider.value = intVal;
+        if (mainInput) mainInput.value = intVal;
         
         window.scanlightController.updateColor();
+    }
+    
+    // Always notify mock backend for simulated camera shifts
+    fetch('/api/camera/update_mock_leds', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ red: r, green: g, blue: b })
+    }).catch(() => {});
+}
+
+let isAutoTuningLEDs = false;
+
+async function autoTuneLEDLevels() {
+    if (isAutoTuningLEDs) return;
+    
+    const btn = document.getElementById('btn-auto-tune-leds');
+    const statusEl = document.getElementById('auto-tune-status');
+    const headroomSelect = document.getElementById('auto-tune-headroom');
+    const targetCeiling = headroomSelect ? parseInt(headroomSelect.value, 10) : 242;
+    const tolerance = 3;
+    
+    // Check if live view is active
+    if (!isLiveviewActive) {
+        alert("Please enable Live View first so the algorithm can meter real-time film exposure.");
+        return;
+    }
+    
+    isAutoTuningLEDs = true;
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<span>⏳</span> Tuning LEDs...';
+    }
+    if (statusEl) {
+        statusEl.style.display = 'block';
+        statusEl.className = 'auto-tune-status status-active';
+        statusEl.textContent = `Metering exposure... Target: ${targetCeiling} / 255 (~${Math.round(targetCeiling / 2.55)}%)`;
+    }
+    
+    appendLogLine(`[Auto-Tune] Starting closed-loop LED ETTR calibration (Target: ${targetCeiling})...`);
+    
+    const channels = ['red', 'green', 'blue'];
+    const maxIterations = 4;
+    let finalStats = null;
+    
+    try {
+        for (let iter = 1; iter <= maxIterations; iter++) {
+            // Wait for sensor exposure & live view frame to settle
+            await new Promise(r => setTimeout(r, 130));
+            
+            const stats = window.lastHistogramStats;
+            if (!stats) {
+                await new Promise(r => setTimeout(r, 100));
+                continue;
+            }
+            finalStats = stats;
+            
+            const currentPeaks = {
+                red: stats.rP99,
+                green: stats.gP99,
+                blue: stats.bP99
+            };
+            
+            appendLogLine(`[Auto-Tune] Iteration ${iter}/${maxIterations}: P99 Peaks -> R:${currentPeaks.red}, G:${currentPeaks.green}, B:${currentPeaks.blue}`);
+            if (statusEl) {
+                statusEl.textContent = `Pass ${iter}/${maxIterations}: R:${currentPeaks.red} G:${currentPeaks.green} B:${currentPeaks.blue} | Target: ${targetCeiling}`;
+            }
+            
+            let allChannelsDone = true;
+            const nextPWM = {};
+            
+            for (const ch of channels) {
+                const slider = document.getElementById(`mini-sl-${ch}`);
+                const currentVal = slider ? parseInt(slider.value, 10) : 255;
+                const peak = currentPeaks[ch];
+                const error = targetCeiling - peak;
+                
+                // If within tolerance (+-3 levels), channel has converged
+                if (Math.abs(error) <= tolerance) {
+                    nextPWM[ch] = currentVal;
+                    continue;
+                }
+                
+                // If maxed out at 255 and still below target, or at 1 and still above, cannot adjust further
+                if ((currentVal === 255 && error > 0) || (currentVal === 1 && error < 0)) {
+                    nextPWM[ch] = currentVal;
+                    continue;
+                }
+                
+                allChannelsDone = false;
+                
+                let targetRatio;
+                if (peak >= 254) {
+                    // Highlights are clipping: back off immediately by 20%
+                    targetRatio = 0.80;
+                } else {
+                    // Display/Camera live view response curve (~1.7 gamma damping)
+                    targetRatio = Math.pow(targetCeiling / Math.max(peak, 8), 1.7);
+                }
+                
+                let calculated = Math.round(currentVal * targetRatio);
+                // Clamp within valid 8-bit bounds [1, 255]
+                calculated = Math.max(1, Math.min(255, calculated));
+                
+                // If calculated == currentVal but still not in tolerance, nudge by at least 1 step
+                if (calculated === currentVal) {
+                    calculated += (error > 0 ? 1 : -1);
+                    calculated = Math.max(1, Math.min(255, calculated));
+                }
+                
+                nextPWM[ch] = calculated;
+            }
+            
+            // Check if all channels have converged or hit bounds
+            if (allChannelsDone) {
+                break;
+            }
+            
+            // Apply updated PWM to all channels
+            for (const ch of channels) {
+                if (nextPWM[ch] !== undefined) {
+                    updateMiniScanlightColor(ch, nextPWM[ch]);
+                }
+            }
+        }
         
-        // Notify mock backend for simulated camera shifts
-        fetch('/api/camera/update_mock_leds', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                red: window.scanlightController.red,
-                green: window.scanlightController.green,
-                blue: window.scanlightController.blue
-            })
-        }).catch(err => console.error(err));
+        // Final settling pause to confirm final exposure
+        await new Promise(r => setTimeout(r, 140));
+        if (window.lastHistogramStats) {
+            finalStats = window.lastHistogramStats;
+        }
+        
+        const rVal = document.getElementById('mini-sl-red')?.value || 255;
+        const gVal = document.getElementById('mini-sl-green')?.value || 255;
+        const bVal = document.getElementById('mini-sl-blue')?.value || 255;
+        
+        if (finalStats && (finalStats.rMax >= 254 || finalStats.gMax >= 254 || finalStats.bMax >= 254) && (rVal == 1 || gVal == 1 || bVal == 1)) {
+            // Overexposure limit warning: even at minimum power, light is clipping
+            if (statusEl) {
+                statusEl.className = 'auto-tune-status status-warning';
+                statusEl.innerHTML = `⚠️ <strong>Camera Shutter Too Slow:</strong> Highlight clipping persists at minimum LED power. Increase shutter speed or close aperture.`;
+            }
+            appendLogLine(`[Auto-Tune] Notice: Base overexposure detected. Suggest faster camera shutter speed.`);
+        } else if (finalStats && (finalStats.rP99 < 180 && finalStats.gP99 < 180 && finalStats.bP99 < 180) && (rVal == 255 && gVal == 255 && bVal == 255)) {
+            // Underexposure notice: all LEDs maxed out
+            if (statusEl) {
+                statusEl.className = 'auto-tune-status status-warning';
+                statusEl.innerHTML = `ℹ️ <strong>Maximum LED Power Reached (255):</strong> Signal is below target. Decrease shutter speed or open aperture for optimal ETTR.`;
+            }
+            appendLogLine(`[Auto-Tune] Notice: Max LED power reached without hitting ceiling. Suggest slower camera shutter speed.`);
+        } else {
+            // Optimal ETTR achieved
+            if (statusEl) {
+                statusEl.className = 'auto-tune-status status-success';
+                statusEl.innerHTML = `✓ <strong>Optimal ETTR Locked:</strong> R: ${rVal}, G: ${gVal}, B: ${bVal} (0.0% highlight clipping).`;
+            }
+            appendLogLine(`[Auto-Tune] Successfully converged on optimal LED levels: R=${rVal}, G=${gVal}, B=${bVal}`);
+        }
+        
+    } catch (err) {
+        console.error("Auto-tune error:", err);
+        if (statusEl) {
+            statusEl.className = 'auto-tune-status status-warning';
+            statusEl.textContent = `Auto-tune error: ${err.message}`;
+        }
+    } finally {
+        isAutoTuningLEDs = false;
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = '<span>⚡</span> Auto-Tune Optimal LEDs';
+        }
     }
 }
 
