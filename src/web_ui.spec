@@ -44,7 +44,10 @@ a = Analysis(
         'PIL.ImageDraw',
         'multiprocessing',
         'concurrent.futures',
-        'batch_worker'
+        'batch_worker',
+        'pydantic',
+        'pydantic_core',
+        'schemas'
     ],
     hookspath=[],
     hooksconfig={},

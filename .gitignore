@@ -43,4 +43,7 @@ build/
 dist/
 dist-app/
 
-
+# Test artifacts
+playwright-report/
+test-results/
+.pytest_cache/

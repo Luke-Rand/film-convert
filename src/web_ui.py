@@ -18,6 +18,34 @@ from PIL import Image
 import multiprocessing
 from concurrent.futures import ProcessPoolExecutor
 
+from typing import Optional, Dict, Any, List, Tuple
+from pydantic import ValidationError
+
+try:
+    from schemas import (
+        SessionConfigSchema,
+        SessionConfigUpdateSchema,
+        StartSessionSchema,
+        BatchJobSchema,
+        SampleRebateSchema,
+        CameraConfigSchema,
+        CameraFocusStepSchema,
+        CameraToggleLiveviewSchema,
+        CameraMockLedsSchema
+    )
+except ImportError:
+    from src.schemas import (
+        SessionConfigSchema,
+        SessionConfigUpdateSchema,
+        StartSessionSchema,
+        BatchJobSchema,
+        SampleRebateSchema,
+        CameraConfigSchema,
+        CameraFocusStepSchema,
+        CameraToggleLiveviewSchema,
+        CameraMockLedsSchema
+    )
+
 # Import core logic from existing scripts
 from compositor import process_triplet
 from inverter import process_positives
@@ -40,6 +68,14 @@ else:
 
 app = Flask(__name__, template_folder=template_dir, static_folder=static_dir)
 
+def format_validation_error(e: ValidationError) -> str:
+    err_msgs = []
+    for err in e.errors():
+        loc = ".".join(str(l) for l in err.get("loc", []))
+        msg = err.get("msg", "Invalid value")
+        err_msgs.append(f"{loc}: {msg}" if loc else msg)
+    return "; ".join(err_msgs)
+
 # Thread log redirector to capture stdout from composite/inverter scripts
 class ThreadLogRedirector:
     def __init__(self, log_callback):
@@ -56,40 +92,23 @@ class ThreadLogRedirector:
         sys.__stdout__.flush()
 
 class SessionManager:
-    def __init__(self):
-        self.status = "idle"  # idle, monitoring, batch_processing
-        self.mode = "triplet"  # triplet, single
-        self.root_folder = os.path.abspath(os.path.expanduser("~/Pictures/Scans"))
-        self.session_name = ""
-        self.dirs = {}
-        self.config = {
-            "clip": 0.1,
-            "gamma": 2.2,
-            "scurve": 0.0,
-            "margin": 0.03,
-            "autocrop": False,
-            "global_levels": False,
-            "compress_tiff": False,
-            "neutralize": False,  # compositor neutralization
-            "base_ratios": None,  # custom [R, G, B] neutralizer ratios from eyedropper picker
-            "align_channels": False,
-            "monochrome": False,
-            "monochrome_channel": "luminance",
-            "reversal": False,
-            "convert_to_tiff": True,
-            "color_profile": "adobe_rgb",
-            "embed_metadata": True
-        }
-        self.logs = deque(maxlen=1000)
-        self.monitor_thread = None
-        self.stop_event = threading.Event()
-        self.lock = threading.Lock()
-        self.subscribers = []
-        self.subscribers_lock = threading.Lock()
-        self.executor = None
+    def __init__(self) -> None:
+        self.status: str = "idle"  # idle, monitoring, batch_processing
+        self.mode: str = "triplet"  # triplet, single
+        self.root_folder: str = os.path.abspath(os.path.expanduser("~/Pictures/Scans"))
+        self.session_name: str = ""
+        self.dirs: Dict[str, str] = {}
+        self.config: Dict[str, Any] = SessionConfigSchema().model_dump()
+        self.logs: deque = deque(maxlen=1000)
+        self.monitor_thread: Optional[threading.Thread] = None
+        self.stop_event: threading.Event = threading.Event()
+        self.lock: threading.Lock = threading.Lock()
+        self.subscribers: List[queue.Queue] = []
+        self.subscribers_lock: threading.Lock = threading.Lock()
+        self.executor: Optional[ProcessPoolExecutor] = None
         self.log("System initialized. Ready.")
 
-    def _get_executor(self):
+    def _get_executor(self) -> ProcessPoolExecutor:
         """Returns or lazily creates the background multiprocessing ProcessPoolExecutor."""
         with self.lock:
             if self.executor is None:
@@ -99,7 +118,7 @@ class SessionManager:
                 self.executor = ProcessPoolExecutor(max_workers=max_w, mp_context=ctx)
             return self.executor
 
-    def shutdown_executor(self):
+    def shutdown_executor(self) -> None:
         """Cleanly shuts down the background ProcessPoolExecutor on exit."""
         with self.lock:
             if self.executor:
@@ -109,23 +128,23 @@ class SessionManager:
                     pass
                 self.executor = None
 
-    def add_subscriber(self):
+    def add_subscriber(self) -> queue.Queue:
         with self.subscribers_lock:
             q = queue.Queue()
             self.subscribers.append(q)
             return q
 
-    def remove_subscriber(self, q):
+    def remove_subscriber(self, q: queue.Queue) -> None:
         with self.subscribers_lock:
             if q in self.subscribers:
                 self.subscribers.remove(q)
 
-    def broadcast(self, event_type, data):
+    def broadcast(self, event_type: str, data: Any) -> None:
         with self.subscribers_lock:
             for q in self.subscribers:
                 q.put((event_type, data))
 
-    def broadcast_status(self):
+    def broadcast_status(self) -> None:
         with self.lock:
             status_data = {
                 "status": self.status,
@@ -137,7 +156,7 @@ class SessionManager:
             }
         self.broadcast("status", status_data)
 
-    def log(self, message):
+    def log(self, message: str) -> None:
         timestamp = datetime.now().strftime("%H:%M:%S")
         formatted = f"[{timestamp}] {message}"
         self.logs.append(formatted)
@@ -156,12 +175,12 @@ class SessionManager:
         if hasattr(self, 'subscribers_lock'):
             self.broadcast("log", {"line": formatted})
 
-    def clear_logs(self):
+    def clear_logs(self) -> None:
         with self.lock:
             self.logs.clear()
             self.log("Logs cleared.")
 
-    def is_safe_path(self, path):
+    def is_safe_path(self, path: str) -> bool:
         # Allow reading files that are within the current root folder or workspace
         try:
             real_path = os.path.realpath(path)
@@ -178,7 +197,7 @@ class SessionManager:
         except Exception:
             return False
 
-    def start_monitoring(self, root_dir, session_name, mode, config):
+    def start_monitoring(self, root_dir: str, session_name: str, mode: str, config: Optional[Dict[str, Any]] = None) -> Tuple[bool, str]:
         with self.lock:
             if self.status != "idle":
                 return False, f"Cannot start monitoring, current status is '{self.status}'"
@@ -189,7 +208,8 @@ class SessionManager:
                 
                 self.session_name = session_name
                 self.mode = mode
-                self.config.update(config)
+                if config:
+                    self.config.update(config)
                 
                 session_dir = os.path.join(self.root_folder, self.session_name)
                 self.dirs = {
@@ -228,7 +248,7 @@ class SessionManager:
         self.broadcast_status()
         return True, "Monitoring started successfully"
 
-    def stop_monitoring(self):
+    def stop_monitoring(self) -> Tuple[bool, str]:
         with self.lock:
             if self.status != "monitoring":
                 return False, "Not currently monitoring"
@@ -248,7 +268,7 @@ class SessionManager:
         self.broadcast_status()
         return True, "Monitoring stopped successfully"
 
-    def get_next_frame_number(self, negatives_dir):
+    def get_next_frame_number(self, negatives_dir: str) -> int:
         search_dirs = [negatives_dir]
         if self.dirs:
             for key in ['processed', 'positives']:
@@ -270,7 +290,7 @@ class SessionManager:
                         pass
         return max_num + 1
 
-    def _monitor_loop(self):
+    def _monitor_loop(self) -> None:
         supported_triplet_exts = {'.cr3', '.raf', '.nef', '.arw', '.rw2', '.nrw', '.dcr'}
         supported_single_exts = {'.dng', '.tiff', '.tif', '.cr3', '.raf', '.nef', '.arw', '.rw2', '.nrw', '.dcr'}
         
@@ -345,6 +365,7 @@ class SessionManager:
                             for f in group:
                                 try:
                                     shutil.move(f, os.path.join(self.dirs['errors'], os.path.basename(f)))
+                                
                                 except Exception: pass
                             if os.path.exists(composite_filepath):
                                 try:
@@ -416,13 +437,14 @@ class SessionManager:
             
         self.log("Background scanner monitor loop stopped.")
 
-    def run_batch_job(self, task_type, input_path, config):
+    def run_batch_job(self, task_type: str, input_path: str, config: Optional[Dict[str, Any]] = None) -> Tuple[bool, str]:
         with self.lock:
             if self.status != "idle":
                 return False, f"System is currently '{self.status}'"
             
             self.status = "batch_processing"
-            self.config.update(config)
+            if config:
+                self.config.update(config)
             
         self.broadcast_status()
 
@@ -576,23 +598,24 @@ def get_camera_status():
 
 @app.route('/api/camera/config', methods=['POST'])
 def set_camera_config():
-    data = request.json or {}
-    name = data.get("name")
-    value = data.get("value")
-    if not name or not value:
-        return jsonify({"success": False, "message": "Missing name or value"}), 400
     try:
-        camera_manager.update_config(name, value)
+        payload = CameraConfigSchema.model_validate(request.json or {})
+    except ValidationError as e:
+        return jsonify({"success": False, "message": f"Invalid camera config: {format_validation_error(e)}"}), 400
+    try:
+        camera_manager.update_config(payload.name, payload.value)
         return jsonify({"success": True})
     except Exception as e:
         return jsonify({"success": False, "message": str(e)}), 500
 
 @app.route('/api/camera/focus_step', methods=['POST'])
 def camera_focus_step():
-    data = request.json or {}
-    direction = data.get("direction", "near")
-    speed = data.get("speed", "1")
-    value = f"{direction.capitalize()} {speed}"
+    try:
+        payload = CameraFocusStepSchema.model_validate(request.json or {})
+    except ValidationError as e:
+        return jsonify({"success": False, "message": f"Invalid focus step: {format_validation_error(e)}"}), 400
+    direction = str(payload.direction).capitalize()
+    value = f"{direction} {payload.speed}"
     try:
         camera_manager.notify_focus_adjustment()
         camera_manager.update_config("manualfocusdrive", value)
@@ -620,9 +643,11 @@ def capture_camera_image():
 
 @app.route('/api/camera/toggle_liveview', methods=['POST'])
 def toggle_camera_liveview():
-    data = request.json or {}
-    active = data.get("active", False)
-    camera_manager.set_liveview(active)
+    try:
+        payload = CameraToggleLiveviewSchema.model_validate(request.json or {})
+    except ValidationError as e:
+        return jsonify({"success": False, "message": f"Invalid liveview payload: {format_validation_error(e)}"}), 400
+    camera_manager.set_liveview(payload.active)
     return jsonify({"success": True})
 
 @app.route('/api/camera/reconnect', methods=['POST'])
@@ -636,11 +661,11 @@ def reconnect_camera():
 
 @app.route('/api/camera/update_mock_leds', methods=['POST'])
 def update_camera_mock_leds():
-    data = request.json or {}
-    r = data.get("red", 255)
-    g = data.get("green", 255)
-    b = data.get("blue", 255)
-    camera_manager.update_mock_leds(r, g, b)
+    try:
+        payload = CameraMockLedsSchema.model_validate(request.json or {})
+    except ValidationError as e:
+        return jsonify({"success": False, "message": f"Invalid LED payload: {format_validation_error(e)}"}), 400
+    camera_manager.update_mock_leds(payload.red, payload.green, payload.blue)
     return jsonify({"success": True})
 
 @app.route('/api/camera/liveview')
@@ -757,17 +782,27 @@ def sse_stream():
 @app.route('/api/start', methods=['POST'])
 def start_session():
     try:
-        data = request.json or {}
-        root_dir = data.get("root_dir") or "~/Pictures/Scans"
-        session_name = data.get("session_name") or ""
-        mode = data.get("mode") or "triplet"
-        config = data.get("config") or {}
+        try:
+            payload = StartSessionSchema.model_validate(request.json or {})
+        except ValidationError as e:
+            return jsonify({"success": False, "message": f"Invalid start session payload: {format_validation_error(e)}"}), 400
+
+        root_dir = payload.root_dir or "~/Pictures/Scans"
+        session_name = payload.session_name or ""
+        mode = payload.mode
+        
+        if isinstance(payload.config, (SessionConfigSchema, SessionConfigUpdateSchema)):
+            config = payload.config.model_dump(exclude_unset=True)
+        elif isinstance(payload.config, dict):
+            config = payload.config
+        else:
+            config = {}
         
         if not session_name:
             # Generate default session name based on film stock etc.
-            stock = str(data.get("stock") or "FilmStock").strip().replace(" ", "")
-            fmt = str(data.get("format") or "135").strip().replace(" ", "")
-            roll = str(data.get("roll") or "01").strip().zfill(2)
+            stock = str(payload.stock or "FilmStock").strip().replace(" ", "")
+            fmt = str(payload.format or "135").strip().replace(" ", "")
+            roll = str(payload.roll or "01").strip().zfill(2)
             session_name = f"{stock}-{fmt}-{roll}"
 
         success, msg = session.start_monitoring(root_dir, session_name, mode, config)
@@ -917,6 +952,7 @@ def get_preview():
             h_size = int((float(pil_img.size[1]) * float(w_percent)))
             pil_img = pil_img.resize((width, h_size), Image.Resampling.LANCZOS)
             
+            
         img_io = io.BytesIO()
         # Serve as high-quality JPEG
         pil_img.save(img_io, 'JPEG', quality=85)
@@ -930,10 +966,14 @@ def get_preview():
 @app.route('/api/config', methods=['GET', 'POST'])
 def manage_config():
     if request.method == 'POST':
-        data = request.json or {}
+        try:
+            payload = SessionConfigUpdateSchema.model_validate(request.json or {})
+        except ValidationError as e:
+            return jsonify({"success": False, "message": f"Invalid configuration: {format_validation_error(e)}"}), 400
+        
+        updates = payload.model_dump(exclude_unset=True)
         with session.lock:
-            for k, v in data.items():
-                session.config[k] = v
+            session.config.update(updates)
             cfg = dict(session.config)
         session.broadcast("config_update", cfg)
         return jsonify({"success": True, "config": cfg})
@@ -952,11 +992,15 @@ def sample_rebate():
     updates session config, and returns the result.
     """
     try:
-        data = request.json or {}
-        img_path = data.get('path')
-        x_ratio = data.get('x_ratio')
-        y_ratio = data.get('y_ratio')
-        rgb_input = data.get('rgb')
+        try:
+            payload = SampleRebateSchema.model_validate(request.json or {})
+        except ValidationError as e:
+            return jsonify({"error": f"Invalid rebate payload: {format_validation_error(e)}"}), 400
+
+        img_path = payload.path
+        x_ratio = payload.x_ratio
+        y_ratio = payload.y_ratio
+        rgb_input = payload.rgb
         
         r_ratio, g_ratio, b_ratio = 1.0, 1.0, 1.0
         sampled_rgb = [255, 255, 255]
@@ -1052,15 +1096,19 @@ def sample_rebate():
 
 @app.route('/api/batch', methods=['POST'])
 def run_batch():
-    data = request.json or {}
-    task_type = data.get("task_type")  # composite, invert
-    input_path = data.get("input_path")
-    config = data.get("config", {})
-    
-    if not task_type or not input_path:
-        return jsonify({"success": False, "message": "Missing task_type or input_path"}), 400
+    try:
+        payload = BatchJobSchema.model_validate(request.json or {})
+    except ValidationError as e:
+        return jsonify({"success": False, "message": f"Invalid batch payload: {format_validation_error(e)}"}), 400
+
+    if isinstance(payload.config, (SessionConfigSchema, SessionConfigUpdateSchema)):
+        config = payload.config.model_dump(exclude_unset=True)
+    elif isinstance(payload.config, dict):
+        config = payload.config
+    else:
+        config = {}
         
-    success, msg = session.run_batch_job(task_type, input_path, config)
+    success, msg = session.run_batch_job(payload.task_type, payload.input_path, config)
     return jsonify({"success": success, "message": msg})
 
 @app.route('/api/browse', methods=['GET'])
