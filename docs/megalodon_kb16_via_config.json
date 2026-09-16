@@ -1,0 +1,37 @@
+{
+  "name": "FilmConvert - Megalodon KB16",
+  "vendorProductId": 0,
+  "macros": [],
+  "layers": [
+    [
+      "A(KC_1)", "A(KC_2)", "A(KC_3)", "A(KC_4)",
+      "KC_V",    "KC_F",    "KC_R",    "KC_O",
+      "KC_E",    "KC_T",    "KC_P",    "KC_H",
+      "KC_A",    "KC_M",    "S(KC_SLSH)", "KC_ESC",
+      "KC_F",    "KC_1",    "KC_2",
+      "KC_U",    "KC_LBRC", "KC_RBRC",
+      "KC_SPC",  "S(KC_LBRC)", "S(KC_RBRC)"
+    ],
+    [
+      "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS",
+      "KC_1",    "KC_2",    "KC_3",    "KC_TRNS",
+      "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS",
+      "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS",
+      "KC_TRNS", "KC_TRNS", "KC_TRNS",
+      "KC_TRNS", "KC_TRNS", "KC_TRNS",
+      "KC_C",    "KC_TRNS", "KC_TRNS"
+    ]
+  ],
+  "encoders": [
+    [
+      ["KC_1", "KC_2"],
+      ["KC_LBRC", "KC_RBRC"],
+      ["S(KC_LBRC)", "S(KC_RBRC)"]
+    ],
+    [
+      ["KC_1", "KC_3"],
+      ["KC_LEFT", "KC_RGHT"],
+      ["S(KC_LEFT)", "S(KC_RGHT)"]
+    ]
+  ]
+}
