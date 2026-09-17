@@ -480,7 +480,8 @@ def generate_contact_sheet(
             draw.line([(cell_x, label_top), (cell_x + cell_w, label_top)], fill=divider_color, width=1)
 
             # Frame Number Badge
-            badge_w = 95
+            badge_text_w = int(draw.textlength(frame_label, font=font_frame_num)) if hasattr(draw, 'textlength') else 95
+            badge_w = max(95, badge_text_w + 16)
             badge_h = 24
             badge_x = cell_x + 8
             badge_y = label_top + 8
