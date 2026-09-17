@@ -27,6 +27,7 @@ try:
         SessionConfigUpdateSchema,
         StartSessionSchema,
         BatchJobSchema,
+        ContactSheetGenerateSchema,
         SampleRebateSchema,
         CameraConfigSchema,
         CameraFocusStepSchema,
@@ -39,6 +40,7 @@ except ImportError:
         SessionConfigUpdateSchema,
         StartSessionSchema,
         BatchJobSchema,
+        ContactSheetGenerateSchema,
         SampleRebateSchema,
         CameraConfigSchema,
         CameraFocusStepSchema,
@@ -49,6 +51,7 @@ except ImportError:
 # Import core logic from existing scripts
 from compositor import process_triplet
 from inverter import process_positives
+from contact_sheet import generate_contact_sheet
 from camera_manager import CameraManager
 from batch_worker import (
     worker_process_triplet,
@@ -264,8 +267,38 @@ class SessionManager:
             self.status = "idle"
             self.monitor_thread = None
             self.log("Monitor stopped.")
-            
+            session_dirs_copy = dict(self.dirs) if self.dirs else {}
+            session_name_copy = self.session_name
+            root_folder_copy = self.root_folder
+            cfg_copy = dict(self.config)
+
         self.broadcast_status()
+
+        # Check if auto contact sheet generation is enabled and positive frames exist
+        if cfg_copy.get("auto_contact_sheet", True) and session_dirs_copy.get("positives"):
+            positives_dir = session_dirs_copy.get("positives")
+            if os.path.isdir(positives_dir):
+                valid_exts = {'.tiff', '.tif', '.dng', '.jpg', '.jpeg', '.png', '.cr3', '.raf', '.nef', '.arw'}
+                has_frames = any(os.path.isfile(os.path.join(positives_dir, f)) and os.path.splitext(f)[1].lower() in valid_exts for f in os.listdir(positives_dir))
+                if has_frames:
+                    session_folder = os.path.join(root_folder_copy, session_name_copy)
+                    self.log("Auto-generating archival roll summary & contact sheet...")
+                    try:
+                        cs_res = generate_contact_sheet(
+                            session_dir=session_folder,
+                            session_name=session_name_copy,
+                            columns=cfg_copy.get("contact_sheet_columns", 6),
+                            theme=cfg_copy.get("contact_sheet_theme", "dark"),
+                            config=cfg_copy
+                        )
+                        if cs_res.get("success"):
+                            self.log(f"Contact sheet complete: {cs_res.get('message')}")
+                            self.broadcast("contact_sheet_generated", cs_res)
+                        else:
+                            self.log(f"Contact sheet note: {cs_res.get('message')}")
+                    except Exception as cs_err:
+                        self.log(f"Error auto-generating contact sheet: {cs_err}")
+
         return True, "Monitoring stopped successfully"
 
     def get_next_frame_number(self, negatives_dir: str) -> int:
@@ -880,13 +913,93 @@ def get_files():
                         "size": stat.st_size,
                         "mtime": stat.st_mtime
                     })
-                    
+
+        contact_sheets = []
+        session_folder = os.path.join(session.root_folder, session.session_name) if session.session_name else None
+        search_cs_dirs = [d for d in [session_folder, positives_dir] if d and os.path.isdir(d)]
+        seen_cs = set()
+        for csd in search_cs_dirs:
+            for fname in os.listdir(csd):
+                fl = fname.lower()
+                if "_contact_sheet" in fl and (fl.endswith(".pdf") or fl.endswith(".jpg") or fl.endswith(".jpeg") or fl.endswith(".png")):
+                    fp = os.path.join(csd, fname)
+                    if fp not in seen_cs and os.path.isfile(fp):
+                        seen_cs.add(fp)
+                        stat = os.stat(fp)
+                        contact_sheets.append({
+                            "name": fname,
+                            "path": fp,
+                            "type": "pdf" if fl.endswith(".pdf") else "jpeg",
+                            "size": stat.st_size,
+                            "mtime": stat.st_mtime
+                        })
+        contact_sheets.sort(key=lambda x: (0 if x["type"] == "pdf" else 1, x["name"]))
+
         return jsonify({
             "success": True,
             "positives": positives,
             "processed": processed,
-            "negatives": negatives
+            "negatives": negatives,
+            "contact_sheets": contact_sheets
         })
+
+
+@app.route('/api/contact_sheet/generate', methods=['POST'])
+def api_generate_contact_sheet():
+    try:
+        payload = ContactSheetGenerateSchema.model_validate(request.json or {})
+    except ValidationError as e:
+        return jsonify({"success": False, "message": f"Invalid contact sheet payload: {format_validation_error(e)}"}), 400
+
+    target_dir = payload.session_dir
+    with session.lock:
+        if not target_dir:
+            if session.dirs and session.session_name:
+                target_dir = os.path.join(session.root_folder, session.session_name)
+            else:
+                return jsonify({"success": False, "message": "No active session. Please specify session_dir."}), 400
+        cfg = dict(session.config)
+        session_name = payload.session_name or session.session_name
+
+    session.log(f"Generating contact sheet for: '{target_dir}'...")
+    try:
+        res = generate_contact_sheet(
+            session_dir=target_dir,
+            film_stock=payload.stock or "",
+            film_format=payload.format or "",
+            roll_number=payload.roll or "",
+            session_name=session_name,
+            columns=payload.columns,
+            theme=payload.theme,
+            config=cfg,
+            export_pdf=payload.export_pdf,
+            export_jpeg=payload.export_jpeg
+        )
+        if res.get("success"):
+            session.log(f"Contact sheet complete: {res.get('message')}")
+            session.broadcast("contact_sheet_generated", res)
+            return jsonify(res)
+        else:
+            session.log(f"Contact sheet failed: {res.get('message')}")
+            return jsonify(res), 400
+    except Exception as e:
+        session.log(f"Contact sheet error: {str(e)}")
+        return jsonify({"success": False, "message": str(e)}), 500
+
+
+@app.route('/api/contact_sheet/download', methods=['GET'])
+def api_download_contact_sheet():
+    file_path = request.args.get('path')
+    if not file_path:
+        return jsonify({"error": "Missing path parameter"}), 400
+    if not session.is_safe_path(file_path):
+        return jsonify({"error": "Unauthorized access path"}), 403
+    if not os.path.exists(file_path):
+        return jsonify({"error": "File not found"}), 404
+
+    as_attachment = request.args.get('download', '0') == '1'
+    mimetype = 'application/pdf' if file_path.lower().endswith('.pdf') else 'image/jpeg'
+    return send_file(file_path, mimetype=mimetype, as_attachment=as_attachment, download_name=os.path.basename(file_path))
 
 @app.route('/api/preview', methods=['GET'])
 def get_preview():

@@ -273,6 +273,16 @@ function connectSSE() {
         }
     });
 
+    eventSource.addEventListener('contact_sheet_generated', (event) => {
+        try {
+            const data = JSON.parse(event.data);
+            appendLogLine(`[Archival Contact Sheet] ${data.message}`);
+            refreshFiles();
+        } catch (err) {
+            console.error("Error parsing contact_sheet_generated SSE data:", err);
+        }
+    });
+
     eventSource.onerror = (err) => {
         console.error("SSE connection error:", err);
         eventSource.close();
@@ -718,7 +728,8 @@ function toggleMonitor() {
             reversal: document.getElementById('config-reversal') ? document.getElementById('config-reversal').checked : false,
             convert_to_tiff: document.getElementById('config-convert-tiff') ? document.getElementById('config-convert-tiff').checked : true,
             color_profile: document.getElementById('config-color-profile') ? document.getElementById('config-color-profile').value : 'adobe_rgb',
-            embed_metadata: document.getElementById('config-embed-metadata') ? document.getElementById('config-embed-metadata').checked : true
+            embed_metadata: document.getElementById('config-embed-metadata') ? document.getElementById('config-embed-metadata').checked : true,
+            auto_contact_sheet: document.getElementById('config-auto-contact-sheet') ? document.getElementById('config-auto-contact-sheet').checked : true
         };
 
         const payload = {
@@ -893,6 +904,8 @@ function runBatchJob() {
 function refreshFiles() {
     const grid = document.getElementById('gallery-grid');
     const countInfo = document.getElementById('gallery-count-info');
+    const csBanner = document.getElementById('contact-sheet-banner');
+    const csActions = document.getElementById('cs-banner-actions');
     
     if (!grid) return;
     
@@ -904,12 +917,60 @@ function refreshFiles() {
             if (!data.success) {
                 grid.innerHTML = `<div class="empty-gallery-msg">${data.message || 'No active session. Please start monitoring or run a batch task.'}</div>`;
                 countInfo.textContent = '0 Positive Frames found in session';
+                if (csBanner) csBanner.style.display = 'none';
                 return;
             }
             
-            const positives = data.positives;
+            const positives = data.positives || [];
+            const contactSheets = data.contact_sheets || [];
             countInfo.textContent = `${positives.length} Positive Frame(s) found in session`;
             
+            // Handle Archival Contact Sheet Banner
+            if (csBanner && csActions) {
+                if (contactSheets.length > 0) {
+                    csBanner.style.display = 'flex';
+                    csActions.innerHTML = '';
+                    
+                    // Separate PDFs and JPEGs
+                    const pdfs = contactSheets.filter(cs => cs.type === 'pdf');
+                    const jpegs = contactSheets.filter(cs => cs.type === 'jpeg');
+                    
+                    if (pdfs.length > 0) {
+                        const pdf = pdfs[0];
+                        const btnDl = document.createElement('a');
+                        btnDl.className = 'btn btn-primary btn-small';
+                        btnDl.href = `/api/contact_sheet/download?path=${encodeURIComponent(pdf.path)}&download=1`;
+                        btnDl.innerHTML = `<span>📥</span> Download PDF (${formatBytes(pdf.size)})`;
+                        csActions.appendChild(btnDl);
+
+                        const btnView = document.createElement('a');
+                        btnView.className = 'btn btn-secondary btn-small';
+                        btnView.href = `/api/contact_sheet/download?path=${encodeURIComponent(pdf.path)}`;
+                        btnView.target = '_blank';
+                        btnView.innerHTML = `<span>👁️</span> View PDF`;
+                        csActions.appendChild(btnView);
+                    }
+                    
+                    if (jpegs.length > 0) {
+                        jpegs.forEach((jpg, i) => {
+                            const btnJpg = document.createElement('a');
+                            btnJpg.className = 'btn btn-secondary btn-small';
+                            btnJpg.href = `/api/contact_sheet/download?path=${encodeURIComponent(jpg.path)}&download=1`;
+                            btnJpg.innerHTML = `<span>🖼️</span> JPG${jpegs.length > 1 ? ' #' + (i + 1) : ''} (${formatBytes(jpg.size)})`;
+                            csActions.appendChild(btnJpg);
+                        });
+                    }
+
+                    const btnRegen = document.createElement('button');
+                    btnRegen.className = 'btn btn-secondary btn-small';
+                    btnRegen.onclick = openContactSheetModal;
+                    btnRegen.innerHTML = `<span>⚙️</span> Options`;
+                    csActions.appendChild(btnRegen);
+                } else {
+                    csBanner.style.display = 'none';
+                }
+            }
+
             if (positives.length === 0) {
                 grid.innerHTML = '<div class="empty-gallery-msg">No positive TIFF scans found yet. Triplets will appear here once processed.</div>';
                 return;
@@ -957,6 +1018,105 @@ function refreshFiles() {
         .catch(err => {
             grid.innerHTML = `<div class="empty-gallery-msg text-error">Failed to fetch files: ${err}</div>`;
         });
+}
+
+// Contact Sheet Modal Controls
+function openContactSheetModal() {
+    const modal = document.getElementById('contact-sheet-modal');
+    if (!modal) return;
+    
+    // Auto-populate default fields from scanner inputs
+    const stockInput = document.getElementById('cs-stock-input');
+    const formatInput = document.getElementById('cs-format-input');
+    const rollInput = document.getElementById('cs-roll-input');
+    const statusDiv = document.getElementById('cs-generate-status');
+    
+    if (stockInput) stockInput.value = document.getElementById('scanner-stock')?.value || '';
+    if (formatInput) formatInput.value = document.getElementById('scanner-format')?.value || '135';
+    if (rollInput) rollInput.value = document.getElementById('scanner-roll')?.value || '01';
+    if (statusDiv) {
+        statusDiv.style.display = 'none';
+        statusDiv.textContent = '';
+    }
+    
+    modal.classList.add('active');
+}
+
+function closeContactSheetModal() {
+    const modal = document.getElementById('contact-sheet-modal');
+    if (modal) modal.classList.remove('active');
+}
+
+function submitContactSheetGeneration() {
+    const folderInput = document.getElementById('cs-session-folder');
+    const stockInput = document.getElementById('cs-stock-input');
+    const formatInput = document.getElementById('cs-format-input');
+    const rollInput = document.getElementById('cs-roll-input');
+    const colsSelect = document.getElementById('cs-columns-select');
+    const themeSelect = document.getElementById('cs-theme-select');
+    const exportPdfCheck = document.getElementById('cs-export-pdf');
+    const exportJpegCheck = document.getElementById('cs-export-jpeg');
+    const submitBtn = document.getElementById('btn-submit-contact-sheet');
+    const statusDiv = document.getElementById('cs-generate-status');
+    
+    const payload = {
+        session_dir: folderInput?.value.trim() || null,
+        stock: stockInput?.value.trim() || '',
+        format: formatInput?.value.trim() || '',
+        roll: rollInput?.value.trim() || '',
+        columns: parseInt(colsSelect?.value || '6', 10),
+        theme: themeSelect?.value || 'dark',
+        export_pdf: exportPdfCheck ? exportPdfCheck.checked : true,
+        export_jpeg: exportJpegCheck ? exportJpegCheck.checked : true
+    };
+    
+    if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.textContent = '⏳ Rendering Contact Sheet...';
+    }
+    if (statusDiv) {
+        statusDiv.style.display = 'block';
+        statusDiv.className = 'text-muted';
+        statusDiv.textContent = 'Generating high-resolution archival sheets...';
+    }
+    
+    fetch('/api/contact_sheet/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+    })
+    .then(async res => {
+        const data = await res.json().catch(() => null);
+        if (!res.ok) {
+            const err = (data && data.message) || `Error ${res.status}: ${res.statusText}`;
+            throw new Error(err);
+        }
+        return data;
+    })
+    .then(data => {
+        if (statusDiv) {
+            statusDiv.className = 'text-success';
+            statusDiv.textContent = `✅ ${data.message}`;
+        }
+        appendLogLine(`[Archival Contact Sheet] ${data.message}`);
+        setTimeout(() => {
+            closeContactSheetModal();
+            refreshFiles();
+        }, 1200);
+    })
+    .catch(err => {
+        if (statusDiv) {
+            statusDiv.className = 'text-error';
+            statusDiv.textContent = `❌ ${err.message || err}`;
+        }
+        appendLogLine(`[Client Error] Contact sheet failed: ${err.message || err}`);
+    })
+    .finally(() => {
+        if (submitBtn) {
+            submitBtn.disabled = false;
+            submitBtn.textContent = '⚡ Generate Contact Sheet';
+        }
+    });
 }
 
 // Human readable file size formatter

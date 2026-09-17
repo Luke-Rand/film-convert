@@ -521,6 +521,12 @@
                                     <span>Convert to 16-Bit TIFF</span>
                                 </label>
                                 <label class="checkbox-container-mini"
+                                    style="display: flex; align-items: center; gap: 0.5rem;"
+                                    data-tooltip="Automatically generate an archival PDF and high-resolution JPEG contact sheet index print when the session completes">
+                                    <input type="checkbox" id="config-auto-contact-sheet" checked>
+                                    <span>Auto Contact Sheet</span>
+                                </label>
+                                <label class="checkbox-container-mini"
                                     style="display: flex; align-items: center; gap: 0.5rem; border-top: 1px solid var(--border-color); padding-top: 0.5rem; margin-top: 0.25rem;"
                                     data-tooltip="Show or hide the Live View / Histogram panel in the first column">
                                     <input type="checkbox" id="ui-show-liveview" checked
@@ -891,17 +897,35 @@
 
             <!-- TAB 3: SCAN GALLERY -->
             <section class="tab-panel" id="panel-gallery">
-                <div class="panel-header" style="display: flex; justify-content: space-between; align-items: center;">
+                <div class="panel-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem;">
                     <div>
-                        <h2>Scan Gallery</h2>
-                        <p>Browse positives generated during the current scanning session.</p>
+                        <h2>Scan Gallery & Roll Summary</h2>
+                        <p>Browse positives and archival contact sheets generated during scanning sessions.</p>
                     </div>
-                    <button class="btn btn-secondary" onclick="refreshFiles()"
-                        data-tooltip="Re-scan the session output folder and reload the gallery with the latest positive frames">🔄
-                        Refresh Files</button>
+                    <div style="display: flex; gap: 0.5rem; align-items: center;">
+                        <button class="btn btn-primary" id="btn-gallery-contact-sheet" onclick="openContactSheetModal()"
+                            data-tooltip="Generate an archival PDF and high-resolution JPEG contact sheet index print with exposure metadata">
+                            📄 Generate Contact Sheet
+                        </button>
+                        <button class="btn btn-secondary" onclick="refreshFiles()"
+                            data-tooltip="Re-scan the session output folder and reload the gallery with the latest positive frames">🔄
+                            Refresh Files</button>
+                    </div>
                 </div>
 
                 <div class="gallery-container">
+                    <!-- Contact Sheet Archival Banner (dynamically displayed when contact sheets exist) -->
+                    <div id="contact-sheet-banner" class="contact-sheet-banner" style="display: none;">
+                        <div class="cs-banner-icon">🎞️</div>
+                        <div class="cs-banner-content">
+                            <div class="cs-banner-title" id="cs-banner-title">Archival Contact Sheet & Roll Summary Ready</div>
+                            <div class="cs-banner-desc" id="cs-banner-desc">PDF index print and high-resolution JPEGs available for archiving.</div>
+                        </div>
+                        <div class="cs-banner-actions" id="cs-banner-actions">
+                            <!-- Populated dynamically with PDF / JPEG download buttons -->
+                        </div>
+                    </div>
+
                     <div class="gallery-toolbar">
                         <span class="toolbar-info" id="gallery-count-info">0 Positive Frames found in session</span>
                     </div>
@@ -1275,6 +1299,79 @@
             <div class="modal-footer">
                 <button class="btn btn-secondary" id="btn-sl-trim-cancel">Cancel</button>
                 <button class="btn btn-primary" id="btn-sl-trim-ok">Save Trimming</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Contact Sheet Generator Modal -->
+    <div class="modal" id="contact-sheet-modal" onclick="closeContactSheetModal()">
+        <div class="modal-content-wrapper" onclick="event.stopPropagation()" style="max-width: 540px;">
+            <div class="modal-header">
+                <div style="display: flex; align-items: center; gap: 0.5rem;">
+                    <span style="font-size: 1.25rem;">📄</span>
+                    <h3>Generate Archival Contact Sheet</h3>
+                </div>
+                <span class="modal-close" onclick="closeContactSheetModal()">&times;</span>
+            </div>
+            <div class="modal-body">
+                <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1.25rem; line-height: 1.4;">
+                    Generate an archival PDF document and high-resolution JPEG contact sheet (index print) containing thumbnail grids, frame numbers, exposure metadata, and roll identification for lab archiving.
+                </p>
+                <div class="form-group">
+                    <label for="cs-session-folder">Target Session / Roll Folder</label>
+                    <div class="input-with-button">
+                        <input type="text" id="cs-session-folder" placeholder="Defaults to current session folder...">
+                        <button class="btn btn-secondary btn-input-action" type="button" onclick="openFolderBrowser('cs-session-folder')">📁</button>
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="cs-stock-input">Film Stock</label>
+                        <input type="text" id="cs-stock-input" placeholder="e.g. KodakGold200">
+                    </div>
+                    <div class="form-group size-small">
+                        <label for="cs-format-input">Format</label>
+                        <input type="text" id="cs-format-input" placeholder="135">
+                    </div>
+                    <div class="form-group size-small">
+                        <label for="cs-roll-input">Roll #</label>
+                        <input type="text" id="cs-roll-input" placeholder="01">
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group" style="flex: 1;">
+                        <label for="cs-columns-select">Grid Columns</label>
+                        <select id="cs-columns-select" class="select-presets">
+                            <option value="6" selected>6 Columns (Standard 35mm / 135)</option>
+                            <option value="4">4 Columns (Medium Format / 120)</option>
+                            <option value="5">5 Columns</option>
+                            <option value="3">3 Columns (Large Detail)</option>
+                            <option value="8">8 Columns (Ultra-Compact)</option>
+                        </select>
+                    </div>
+                    <div class="form-group" style="flex: 1;">
+                        <label for="cs-theme-select">Visual Theme</label>
+                        <select id="cs-theme-select" class="select-presets">
+                            <option value="dark" selected>Darkroom Dark (OLED / Lab Display)</option>
+                            <option value="light">Archival Clean Light (Print Ready)</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="checkbox-grid-mini" style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; margin-top: 1rem;">
+                    <label class="checkbox-container-mini" style="display: flex; align-items: center; gap: 0.5rem;">
+                        <input type="checkbox" id="cs-export-pdf" checked>
+                        <span>Archival Multi-page PDF</span>
+                    </label>
+                    <label class="checkbox-container-mini" style="display: flex; align-items: center; gap: 0.5rem;">
+                        <input type="checkbox" id="cs-export-jpeg" checked>
+                        <span>High-Resolution JPEG</span>
+                    </label>
+                </div>
+                <div id="cs-generate-status" style="display: none; margin-top: 1rem; font-size: 0.8rem; padding: 0.5rem 0.75rem; border-radius: 4px;"></div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeContactSheetModal()">Cancel</button>
+                <button class="btn btn-primary" id="btn-submit-contact-sheet" onclick="submitContactSheetGeneration()">⚡ Generate Contact Sheet</button>
             </div>
         </div>
     </div>

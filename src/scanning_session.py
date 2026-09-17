@@ -7,6 +7,7 @@ import sys
 
 from compositor import process_triplet
 from inverter import process_positives
+from contact_sheet import generate_contact_sheet
 
 def setup_session():
     """Interactively gather session details and create necessary folders."""
@@ -231,10 +232,34 @@ def run_single_shot_pipeline(dirs, is_mono, mono_chan, is_reversal=False, conver
 
 def run_pipeline(dirs, mode, is_mono, mono_chan, is_reversal=False, convert_to_tiff=True, color_profile="adobe_rgb", base_ratios=None):
     """Dispatches to the correct pipeline based on user's choice."""
-    if mode == 'triplet':
-        run_triplet_pipeline(dirs, is_mono, mono_chan, is_reversal, convert_to_tiff, color_profile=color_profile, base_ratios=base_ratios)
-    elif mode == 'single':
-        run_single_shot_pipeline(dirs, is_mono, mono_chan, is_reversal, convert_to_tiff, color_profile=color_profile, base_ratios=base_ratios)
+    try:
+        if mode == 'triplet':
+            run_triplet_pipeline(dirs, is_mono, mono_chan, is_reversal, convert_to_tiff, color_profile=color_profile, base_ratios=base_ratios)
+        elif mode == 'single':
+            run_single_shot_pipeline(dirs, is_mono, mono_chan, is_reversal, convert_to_tiff, color_profile=color_profile, base_ratios=base_ratios)
+    finally:
+        positives_dir = dirs.get('positives')
+        if positives_dir and os.path.exists(positives_dir):
+            valid_exts = {'.tiff', '.tif', '.dng', '.jpg', '.jpeg', '.png', '.cr3', '.raf', '.nef', '.arw'}
+            has_positives = any(os.path.isfile(os.path.join(positives_dir, f)) and os.path.splitext(f)[1].lower() in valid_exts for f in os.listdir(positives_dir))
+            if has_positives:
+                session_dir = os.path.dirname(positives_dir)
+                print(f"\n{'='*50}\n📄 Generating Archival Contact Sheet & Roll Summary...")
+                try:
+                    res = generate_contact_sheet(
+                        session_dir=session_dir,
+                        columns=6,
+                        theme="dark"
+                    )
+                    if res.get("success"):
+                        print(f"✅ {res.get('message')}")
+                        if res.get("pdf_path"):
+                            print(f"   PDF:  {res['pdf_path']}")
+                        for jp in res.get("jpeg_paths", []):
+                            print(f"   JPEG: {jp}")
+                except Exception as e:
+                    print(f"❌ Failed to generate contact sheet: {e}")
+                print("="*50 + "\n")
 
 if __name__ == "__main__":
     try:
