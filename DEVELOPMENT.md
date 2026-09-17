@@ -76,7 +76,50 @@ npm start
 
 ---
 
-## 4. Packaging and Compiling Installer Binaries
+## 4. Automated Testing Suite
+
+FilmConvert maintains a comprehensive testing suite covering backend processing algorithms, camera drivers, metadata preservation, ICC profiles, API validation, and frontend interactions.
+
+### Running Python Unit & Integration Tests
+Execute the full pytest suite from the project root:
+```bash
+pytest
+```
+
+To run specific subsystems:
+```bash
+# Test subpixel FFT alignment and channel registration
+pytest tests/test_triplet_alignment_subpixel.py
+
+# Test sensitometric inversion, curves, and base neutralization
+pytest tests/test_inverter.py tests/test_film_base_neutralization_picker.py
+
+# Test archival contact sheet generation and metadata extraction
+pytest tests/test_contact_sheet.py
+
+# Test true DNG tags, EXIF preservation, and ICC color profile tagging
+pytest tests/test_metadata_and_icc.py tests/test_dng_artifacts.py
+
+# Test Pydantic API validation schemas
+pytest tests/test_schemas_and_validation.py
+
+# Test multiprocessing concurrency and throughput
+pytest tests/test_perf_concurrency.py
+```
+
+### Running Frontend End-to-End Tests (Playwright)
+Run the automated browser test suite against the web frontend:
+```bash
+# Install test dependencies if running for the first time
+npx playwright install --with-deps
+
+# Run the Playwright test suite
+npx playwright test
+```
+
+---
+
+## 5. Packaging and Compiling Installer Binaries
 
 To build a standalone distributable installer (e.g. a `.dmg` on macOS or an `.exe` on Windows):
 
@@ -106,7 +149,46 @@ npm run deploy:mac
 
 ---
 
-## 5. Technical Note: Camera Tethering & macOS USB Setup
+## 6. Architecture & Subsystems Overview
+
+```
+FilmConvert Architecture
+├── Frontend (Electron / Vanilla JS)
+│   ├── static/js/app.js           <-- Live view canvas, shortcuts, REST/SSE client
+│   └── static/js/scanlight.js     <-- WebSerial hardware LED controller
+├── Web Backend (Flask / REST / SSE)
+│   ├── src/web_ui.py              <-- API endpoints, SSE dispatcher, session monitor
+│   └── src/schemas.py             <-- Pydantic request models & data validators
+├── Hardware & Acquisition
+│   └── src/camera_manager.py      <-- libgphoto2 USB tethering, daemon control, autofocus
+└── Image Processing Core
+    ├── src/batch_worker.py        <-- ProcessPoolExecutor multiprocessing tasks
+    ├── src/compositor.py          <-- RAW parsing, FFT subpixel alignment, RGB stacking
+    ├── src/inverter.py            <-- Density inversion, S-curves, channel auto-levels
+    ├── src/tiff_writer.py         <-- Striped 16-bit TIFF & True DNG packing
+    ├── src/icc_manager.py         <-- Embedded ICC profile tagging (Adobe RGB, ROMM, sRGB)
+    ├── src/metadata_preservation.py <-- Lossless EXIF/IPTC copying via exiftool
+    └── src/contact_sheet.py       <-- Archival multi-page PDF & JPEG roll summaries
+```
+
+### Multiprocessing & Concurrency (`src/batch_worker.py`)
+To prevent heavy CPU computations (RAW demosaicing, FFT phase correlation, 16-bit float matrix inversions) from stalling the Flask HTTP server or interrupting the Live View camera thread, operations are executed across a spawned `ProcessPoolExecutor`. Functions in `src/batch_worker.py` are isolated top-level tasks designed for serialization across worker processes.
+
+### Pydantic Validation Layer (`src/schemas.py`)
+All REST API inputs are validated using Pydantic V2 models. Constraints (e.g. clipping percentiles `0.0 <= p <= 10.0`, gamma curves `0.1 <= g <= 5.0`, base transmission ratios length 3) are enforced before reaching core processing pipelines.
+
+### Archival Contact Sheet Engine (`src/contact_sheet.py`)
+Extracts frame-level EXIF parameters (exposure time, aperture, ISO, focal length, camera model, lens) and renders multi-page PDF documents and JPEG contact sheets. Dynamically formats frame badges, handles varying aspect ratios (135, 120 6x6/6x7), and optimizes font sizes across platforms.
+
+### ICC Profile Management (`src/icc_manager.py`)
+Bundles standardized ICC profiles in `src/icc_profiles/` (Adobe RGB 1998, ProPhoto RGB / ROMM, sRGB, and Generic Gray Gamma 2.2). Profiles are losslessly embedded into output TIFFs and DNGs to ensure exact color reproduction in color-managed NLEs and photo editing software.
+
+### Metadata Preservation (`src/metadata_preservation.py`)
+Uses `exiftool` to losslessly replicate full camera EXIF and IPTC structures from original RAW frames to composite and positive output files, including lens serial numbers, exposure timestamps, and shooting tags.
+
+---
+
+## 7. Technical Note: Camera Tethering & macOS USB Setup
 
 ### macOS USB Daemons (`icdd` & `ptpcamerad`)
 macOS includes system daemons that automatically claim any connected DSLR/mirrorless camera over USB as soon as it is plugged in or powered on:
@@ -132,7 +214,7 @@ For Canon EOS mirrorless and DSLR cameras (e.g., EOS R6 Mark III, EOS RP, EOS 5D
 
 ---
 
-## 6. Technical Specifications: DNG Stacking & Inversion
+## 8. Technical Specifications: DNG Stacking & Inversion
 
 FilmConvert outputs Digital Negative (DNG) files to offer standard RAW editing capabilities in editors like Lightroom.
 
@@ -150,3 +232,4 @@ To prevent double-gamma rendering in RAW editors (which automatically apply thei
 
 ### Web UI Display Gamma
 Because output DNG files are saved strictly in their linear state, they would render too dark in standard web browsers. To solve this, the preview endpoint (`/api/preview` in `web_ui.py`) dynamically applies a standard `2.2` gamma display curve when generating preview thumbnails and lightbox images for the frontend.
+

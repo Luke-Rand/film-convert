@@ -1,12 +1,14 @@
 # FilmConvert Web UI API Reference
 
-The FilmConvert Web UI exposes a JSON-based REST API and Server-Sent Events (SSE) stream to control tethered camera hardware, adjust parameters, manage active film roll sessions, and process digitized negative exposures.
+The FilmConvert Web UI exposes a JSON-based REST API and Server-Sent Events (SSE) stream to control tethered camera hardware, adjust image processing parameters, manage active film roll sessions, process digitized negative exposures, and generate archival contact sheets.
+
+All input payloads are validated via [Pydantic schemas](file:///Users/lukerand/Documents/repos/film-convert/src/schemas.py). Invalid requests return HTTP `400 Bad Request` with descriptive field validation messages.
 
 ---
 
 ## 1. Camera Control Endpoints
 
-These endpoints manage communication with physical camera hardware (e.g., Canon EOS RP) via `libgphoto2` using a serialized worker-thread model. When no hardware is connected, it transparently falls back to simulated settings and visual preview generators.
+These endpoints manage communication with physical camera hardware (e.g., Canon EOS R-series/DSLR, Nikon, or Sony) via `libgphoto2` using a serialized background worker thread. When no hardware is connected, FilmConvert transparently operates in simulated mode with synthetic preview feeds and parameter controls.
 
 ### `GET /api/camera/status`
 Reads the active connection state, cached parameters, and available choices from the camera.
@@ -32,7 +34,7 @@ Reads the active connection state, cached parameters, and available choices from
 ### `POST /api/camera/config`
 Updates camera settings like ISO, Aperture, or Shutter Speed.
 
-* **Request Body**:
+* **Request Body** (Validated by `CameraConfigSchema`):
   ```json
   {
     "name": "iso",
@@ -47,13 +49,13 @@ Updates camera settings like ISO, Aperture, or Shutter Speed.
   ```
 
 ### `POST /api/camera/focus_step`
-Steps the camera lens focus motor. Used for precision physical alignment.
+Steps the camera lens motorized focus drive. Used for fine physical alignment and live framing.
 
-* **Request Body**:
+* **Request Body** (Validated by `CameraFocusStepSchema`):
   ```json
   {
     "direction": "near",  // Options: "near" or "far"
-    "speed": "3"          // Options: "1" (micro-step) or "3" (coarse step)
+    "speed": "1"          // Options: "1" (micro-step), "2" (medium), or "3" (coarse step)
   }
   ```
 * **Response (200 OK)**:
@@ -64,7 +66,7 @@ Steps the camera lens focus motor. Used for precision physical alignment.
   ```
 
 ### `POST /api/camera/autofocus`
-Sequences an autofocus lock command on the camera by pressing half-way down, waiting for a latch delay, and releasing.
+Triggers an autofocus sequence on the camera by pressing half-way down, waiting for focus lock, and releasing.
 
 * **Response (200 OK)**:
   ```json
@@ -74,26 +76,26 @@ Sequences an autofocus lock command on the camera by pressing half-way down, wai
   ```
 
 ### `POST /api/camera/capture`
-Triggers an immediate high-resolution capture and downloads the RAW image from the camera storage into the session's active `negatives/` directory.
+Triggers an immediate high-resolution capture and downloads the RAW image from camera storage into the session's active `negatives/` directory.
 
 * **Request Body (Optional)**:
   ```json
   {
-    "autofocus": false  // Set to false to temporarily disable autofocus on capture (defaults to true)
+    "autofocus": false  // Set to false to temporarily bypass autofocus on capture (defaults to true)
   }
   ```
 * **Response (200 OK)**:
   ```json
   {
     "success": true,
-    "path": "/Users/lukerand/Pictures/Scans/SessionName/negatives/Frame_01_Capture_white.cr3"
+    "path": "/Users/lukerand/Pictures/Scans/Ektar100-135-01/negatives/Frame_01_Capture_white.cr3"
   }
   ```
 
 ### `POST /api/camera/toggle_liveview`
-Toggles active live view streaming state on the camera sensor.
+Toggles active live view viewfinder streaming on the camera sensor.
 
-* **Request Body**:
+* **Request Body** (Validated by `CameraToggleLiveviewSchema`):
   ```json
   {
     "active": true  // Options: true (start stream) or false (shut down sensor preview loop)
@@ -107,7 +109,7 @@ Toggles active live view streaming state on the camera sensor.
   ```
 
 ### `POST /api/camera/reconnect`
-Disconnects active hardware instances and triggers a re-query on the USB bus. This forces the PTP connection routine to run, clearing state lockups without requiring a server shutdown.
+Disconnects active hardware instances, resets the macOS Image Capture / PTP daemon locks (`icdd` and `ptpcamerad`), and re-queries the USB bus to clear device lockups.
 
 * **Response (200 OK)**:
   ```json
@@ -117,9 +119,9 @@ Disconnects active hardware instances and triggers a re-query on the USB bus. Th
   ```
 
 ### `POST /api/camera/update_mock_leds`
-Tells the simulated mock engine what RGB light balances are active so it can adjust color casts inside mock preview frames.
+Updates simulated LED brightness levels so the mock preview engine adjusts color casts in simulated mode.
 
-* **Request Body**:
+* **Request Body** (Validated by `CameraMockLedsSchema`):
   ```json
   {
     "red": 255,
@@ -135,12 +137,12 @@ Tells the simulated mock engine what RGB light balances are active so it can adj
   ```
 
 ### `GET /api/camera/liveview`
-Serves a continuous real-time preview feed as an MJPEG stream.
+Serves a continuous real-time preview feed as an MJPEG stream with dynamic sleep backoff when paused.
 
 * **Response**: `multipart/x-mixed-replace; boundary=frame`
 
 ### `GET /api/camera/frame`
-Serves the latest viewfinder frame in the buffer as a single JPEG image. Used by the browser canvas polling loop for edge detection filters.
+Serves the latest viewfinder frame as a single JPEG image. Used by frontend canvas loops for high-contrast edge focus peaking and histogram rendering.
 
 * **Response**: `image/jpeg` binary data.
 
@@ -148,40 +150,52 @@ Serves the latest viewfinder frame in the buffer as a single JPEG image. Used by
 
 ## 2. Session & Hot Folder Monitor Endpoints
 
-These endpoints manage roll monitoring settings and folder watcher threads.
+These endpoints manage scanning session configurations, folder watcher threads, and real-time processing updates.
 
 ### `GET /api/status`
-Returns the active configuration and operational state of the hot folder watcher.
+Returns the active configuration, folder paths, and operational status of the session monitor.
 
 * **Response (200 OK)**:
   ```json
   {
-    "status": "monitoring",  // Options: "idle" or "monitoring"
-    "mode": "triplet",       // Options: "triplet" or "single"
+    "status": "monitoring",  // "idle" | "monitoring" | "batch_processing"
+    "mode": "triplet",       // "triplet" | "single"
     "root_folder": "/Users/lukerand/Pictures/Scans",
     "session_name": "Ektar100-135-01",
     "dirs": {
       "negatives": "/Users/lukerand/Pictures/Scans/Ektar100-135-01/negatives",
       "positives": "/Users/lukerand/Pictures/Scans/Ektar100-135-01/positives",
-      "processed": "/Users/lukerand/Pictures/Scans/Ektar100-135-01/processed"
+      "processed": "/Users/lukerand/Pictures/Scans/Ektar100-135-01/processed_raws",
+      "errors": "/Users/lukerand/Pictures/Scans/Ektar100-135-01/error_raws"
     },
     "config": {
+      "clip": 0.1,
       "gamma": 2.2,
-      "clip": 0.005,
-      "scurve": 1.2,
-      "margin": 0.05,
-      "autocrop": true,
-      "compress_dng": true,
-      "neutralize": true,
-      "monochrome": false
+      "scurve": 0.0,
+      "margin": 0.03,
+      "autocrop": false,
+      "global_levels": false,
+      "compress_tiff": false,
+      "neutralize": false,
+      "base_ratios": [1.0, 0.58, 0.23],
+      "align_channels": true,
+      "monochrome": false,
+      "monochrome_channel": "luminance",
+      "reversal": false,
+      "convert_to_tiff": true,
+      "color_profile": "adobe_rgb",
+      "embed_metadata": true,
+      "auto_contact_sheet": true,
+      "contact_sheet_columns": 6,
+      "contact_sheet_theme": "dark"
     }
   }
   ```
 
 ### `POST /api/start`
-Starts monitoring a folder directory for incoming camera file captures.
+Initializes session directories and starts the hot folder monitor thread.
 
-* **Request Body**:
+* **Request Body** (Validated by `StartSessionSchema`):
   ```json
   {
     "root_dir": "~/Pictures/Scans",
@@ -191,7 +205,10 @@ Starts monitoring a folder directory for incoming camera file captures.
     "mode": "triplet",
     "config": {
       "gamma": 2.2,
-      "clip": 0.01
+      "clip": 0.1,
+      "align_channels": true,
+      "neutralize": true,
+      "color_profile": "adobe_rgb"
     }
   }
   ```
@@ -204,7 +221,7 @@ Starts monitoring a folder directory for incoming camera file captures.
   ```
 
 ### `POST /api/stop`
-Stops the active folder monitor thread.
+Stops the active hot folder monitor thread and triggers automatic contact sheet generation if enabled.
 
 * **Response (200 OK)**:
   ```json
@@ -214,18 +231,231 @@ Stops the active folder monitor thread.
   }
   ```
 
+### `GET /api/config`
+Retrieves the current session processing configuration.
+
+* **Response (200 OK)**:
+  ```json
+  {
+    "success": true,
+    "config": {
+      "clip": 0.1,
+      "gamma": 2.2,
+      "scurve": 0.0,
+      "margin": 0.03,
+      "autocrop": false,
+      "global_levels": false,
+      "compress_tiff": false,
+      "neutralize": true,
+      "base_ratios": [1.0, 0.58, 0.23],
+      "align_channels": true,
+      "monochrome": false,
+      "monochrome_channel": "luminance",
+      "reversal": false,
+      "convert_to_tiff": true,
+      "color_profile": "adobe_rgb",
+      "embed_metadata": true,
+      "auto_contact_sheet": true,
+      "contact_sheet_columns": 6,
+      "contact_sheet_theme": "dark"
+    }
+  }
+  ```
+
+### `POST /api/config`
+Dynamically updates session processing configuration properties without requiring a session restart.
+
+* **Request Body** (Validated by `SessionConfigUpdateSchema`):
+  ```json
+  {
+    "gamma": 2.2,
+    "scurve": 0.2,
+    "clip": 0.05,
+    "align_channels": true,
+    "color_profile": "adobe_rgb"
+  }
+  ```
+* **Response (200 OK)**:
+  ```json
+  {
+    "success": true,
+    "config": { ... }
+  }
+  ```
+
+### `POST /api/sample_rebate`
+Samples unexposed film rebate (orange mask) from either high-resolution image coordinates or direct RGB color values, computes normalized neutralizer ratios `[R, G, B]`, updates session configuration, and returns the calculated balance ratios.
+
+* **Request Body** (Validated by `SampleRebateSchema`):
+  * *Option A (High-Res Image Coordinates):*
+    ```json
+    {
+      "path": "/Users/lukerand/Pictures/Scans/Ektar100-135-01/negatives/Frame_01_Capture_white.cr3",
+      "x_ratio": 0.05,
+      "y_ratio": 0.50
+    }
+    ```
+  * *Option B (Direct RGB Values from Preview Canvas):*
+    ```json
+    {
+      "rgb": [215, 128, 62]
+    }
+    ```
+* **Response (200 OK)**:
+  ```json
+  {
+    "success": true,
+    "sampled_rgb": [215, 128, 62],
+    "base_ratios": [1.0, 0.595, 0.288],
+    "message": "Calculated film base ratios: R=1.000, G=0.595, B=0.288"
+  }
+  ```
+
 ### `GET /api/stream`
-Server-Sent Events (SSE) subscription endpoint. Streams status changes, processing progress events, and new log lines in real-time.
+Server-Sent Events (SSE) subscription endpoint. Streams status changes, batch progress, log messages, and contact sheet notifications in real-time.
 
 * **Mimetype**: `text/event-stream`
-* **Pings**: Keep-alive ping sent every 10 seconds.
-* **Events**:
-  * `status`: Dispatches roll configuration and activity changes.
-  * `log`: Dispatches new server-side activity logs.
+* **Keep-Alive**: Ping sent every 10 seconds (`: ping\n\n`).
+* **Event Types**:
+  * `status`: Dispatches session state, mode, folder locations, and active configuration.
+  * `log`: Dispatches server log strings `{"line": "[10:39:35] ..."}`.
+  * `config_update`: Dispatches updated session configuration dictionary.
+  * `contact_sheet_generated`: Dispatches contact sheet creation metadata (`pdf_path`, `jpeg_paths`, `frame_count`, `pages_count`).
+  * `batch_progress`: Dispatches batch processing completion counters.
 
 ---
 
-## 3. Logs & File Gallery Endpoints
+## 3. Archival Contact Sheet Endpoints
+
+### `POST /api/contact_sheet/generate`
+Generates archival multi-page PDF documents and high-resolution JPEG contact sheets for a scanned roll session.
+
+* **Request Body** (Validated by `ContactSheetGenerateSchema`):
+  ```json
+  {
+    "session_dir": "/Users/lukerand/Pictures/Scans/Ektar100-135-01", // Optional (defaults to active session)
+    "stock": "Kodak Ektar 100",
+    "format": "135",
+    "roll": "01",
+    "session_name": "Ektar100-135-01",
+    "columns": 6,                    // Grid columns (2 - 8, default: 6)
+    "theme": "dark",                 // "dark" | "light" (default: "dark")
+    "export_pdf": true,              // Generate PDF document
+    "export_jpeg": true              // Generate JPEG index prints
+  }
+  ```
+* **Response (200 OK)**:
+  ```json
+  {
+    "success": true,
+    "pdf_path": "/Users/lukerand/Pictures/Scans/Ektar100-135-01/Ektar100-135-01_contact_sheet.pdf",
+    "jpeg_paths": [
+      "/Users/lukerand/Pictures/Scans/Ektar100-135-01/Ektar100-135-01_contact_sheet_p1.jpg"
+    ],
+    "frame_count": 36,
+    "pages_count": 1,
+    "message": "Successfully generated contact sheet with 36 frames (1 page)"
+  }
+  ```
+
+### `GET /api/contact_sheet/download`
+Streams or downloads a generated contact sheet PDF or JPEG file.
+
+* **Query Parameters**:
+  * `path` (required): Absolute path to the contact sheet file.
+  * `download` (optional): Set to `1` to send as an attachment download; set to `0` to view inline in the browser.
+* **Response**: Binary stream with `application/pdf` or `image/jpeg` mimetype.
+
+---
+
+## 4. Logs & File Gallery Endpoints
+
+### `GET /api/files`
+Returns a structured listing of negatives, processed intermediate composites, converted positives, and contact sheets in the active session.
+
+* **Response (200 OK)**:
+  ```json
+  {
+    "success": true,
+    "positives": [
+      {
+        "name": "Frame_01_Capture_white.tif",
+        "path": "/Users/lukerand/Pictures/Scans/Ektar100-135-01/positives/Frame_01_Capture_white.tif",
+        "size": 50381920,
+        "mtime": 1782846831.0
+      }
+    ],
+    "processed": [],
+    "negatives": [
+      {
+        "name": "Frame_01_Capture_white.cr3",
+        "path": "/Users/lukerand/Pictures/Scans/Ektar100-135-01/negatives/Frame_01_Capture_white.cr3",
+        "size": 32184910,
+        "mtime": 1782846800.0
+      }
+    ],
+    "contact_sheets": [
+      {
+        "name": "Ektar100-135-01_contact_sheet.pdf",
+        "path": "/Users/lukerand/Pictures/Scans/Ektar100-135-01/Ektar100-135-01_contact_sheet.pdf",
+        "type": "pdf",
+        "size": 4125890,
+        "mtime": 1782847000.0
+      }
+    ]
+  }
+  ```
+
+### `GET /api/preview`
+Loads, scales, and downsamples images (16-bit TIFFs, DNGs, and camera RAWs) to high-quality JPEGs for web rendering. For linear DNGs, dynamically applies a `2.2` gamma display curve for accurate browser display.
+
+* **Query Parameters**:
+  * `path` (required): Absolute path to the source image file.
+  * `w` (optional): Requested target width in pixels for thumbnail sizing.
+* **Response**: `image/jpeg` binary data.
+
+### `GET /api/browse`
+A folder-hierarchy browser API used to navigate host file systems in folder picker dialogs.
+
+* **Query Parameters**:
+  * `path` (optional): Directory path string to inspect. Defaults to the user home directory.
+* **Response (200 OK)**:
+  ```json
+  {
+    "current": "/Users/lukerand/Pictures",
+    "parent": "/Users/lukerand",
+    "drives": [],
+    "folders": [
+      {
+        "name": "Scans",
+        "path": "/Users/lukerand/Pictures/Scans"
+      }
+    ]
+  }
+  ```
+
+### `POST /api/batch`
+Submits an offline batch job to composite or invert an existing directory of frame files using multiprocessing worker pools.
+
+* **Request Body** (Validated by `BatchJobSchema`):
+  ```json
+  {
+    "task_type": "invert",  // Options: "invert" | "composite"
+    "input_path": "/Users/lukerand/Pictures/Scans/Ektar100-135-01/negatives",
+    "config": {
+      "gamma": 2.2,
+      "clip": 0.005,
+      "scurve": 0.2
+    }
+  }
+  ```
+* **Response (200 OK)**:
+  ```json
+  {
+    "success": true,
+    "message": "Batch processing started."
+  }
+  ```
 
 ### `GET /api/logs`
 Returns historical session log lines.
@@ -250,84 +480,14 @@ Clears the active logs cache.
   }
   ```
 
-### `GET /api/files`
-Returns a list of negatives, processed frames, and neutralized/inverted positives in the active session.
-
-* **Response (200 OK)**:
-  ```json
-  {
-    "success": true,
-    "positives": [
-      {
-        "name": "Frame_01_Capture_white.tif",
-        "path": "/Users/lukerand/Pictures/Scans/Ektar100-135-01/positives/Frame_01_Capture_white.tif",
-        "size": 5038192,
-        "mtime": 1782846831.0
-      }
-    ],
-    "processed": [],
-    "negatives": []
-  }
-  ```
-
-### `GET /api/preview`
-Loads, scales, and downsamples raw or processed images (including 16-bit TIFF files) to high-quality JPEGs for web rendering.
-
-* **Query Parameters**:
-  * `path` (required): Absolute path to the source image file.
-  * `w` (optional): Requested target width in pixels for thumbnail sizing.
-* **Response**: `image/jpeg` binary data.
-
-### `GET /api/browse`
-A folder-hierarchy browser API used to select host directories via local folder picker dialogs.
-
-* **Query Parameters**:
-  * `path` (optional): Path string to inspect. Defaults to user home directory. Pass `"root"` on Windows to list drive mount nodes.
-* **Response (200 OK)**:
-  ```json
-  {
-    "current": "/Users/lukerand/Pictures",
-    "parent": "/Users/lukerand",
-    "drives": [],
-    "folders": [
-      {
-        "name": "Scans",
-        "path": "/Users/lukerand/Pictures/Scans"
-      }
-    ]
-  }
-  ```
-
-### `POST /api/batch`
-Triggers an offline batch run to composites or inverts existing folders of frames.
-
-* **Request Body**:
-  ```json
-  {
-    "task_type": "invert",  // Options: "invert" or "composite"
-    "input_path": "/Users/lukerand/Pictures/Scans/Ektar100-135-01/negatives",
-    "config": {
-      "gamma": 2.2,
-      "clip": 0.005
-    }
-  }
-  ```
-* **Response (200 OK)**:
-  ```json
-  {
-    "success": true,
-    "message": "Batch processing started."
-  }
-  ```
-
 ---
 
-## 4. Diagnostics & Debugging Endpoints
+## 5. Diagnostics & Hardware Debugging
 
 ### `GET /api/debug/config_values`
-Returns the raw camera configuration tree values from the tethered `gphoto2` context.
+Returns the raw camera configuration tree values queried from the tethered `gphoto2` context.
 
-* **Response (200 OK)**: Key-value map of found settings parameters.
+* **Response (200 OK)**: Key-value map of camera settings parameters.
 
 ### `GET /api/debug/widgets`
-Returns matching diagnostic tests for registered setting components.
+Returns matching diagnostic tests and widget types for registered camera components.

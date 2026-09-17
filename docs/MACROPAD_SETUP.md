@@ -80,3 +80,35 @@ This guide details the optimized VIA keymap layout tailored specifically for the
    - `~/Downloads/filmconvert_kb16_layout.json`
    - or `docs/megalodon_kb16_via_config.json`
 5. It will load instantly into the macropad without errors.
+
+---
+
+## ⌨️ Full FilmConvert Keyboard Shortcuts Reference
+
+For operators using standard computer keyboards or programming custom stream decks:
+
+| Key Binding | Action / Feature | Notes |
+| :--- | :--- | :--- |
+| `Space` or `C` | **Capture RAW Frame** | Immediate high-res RAW exposure & download |
+| `U` or `Shift + A` | **Trigger Autofocus** | Camera lens autofocus sequence |
+| `T` | **Auto-Tune LEDs (ETTR)** | Calibrates LED brightness for maximum dynamic range |
+| `A` | **Auto R-G-B Triplet Sequence** | Sequences Red → Green → Blue captures |
+| `[` / `]` | **Fine Focus Step (Near / Far)** | Step 1 micro-focus movement |
+| `{` / `}` *(Shift + `[` / `]`)* | **Coarse Focus Step (Near / Far)** | Step 3 coarse focus movement |
+| `-` / `_` / `,` | **Shutter Speed Slower** | Step camera exposure time down |
+| `=` / `+` / `.` | **Shutter Speed Faster** | Step camera exposure time up |
+| `P` | **Toggle Focus Peaking** | High-contrast edge detection overlay |
+| `H` | **Cycle Histogram Channel** | Cycles RGB, Red, Green, Blue, or Luminance |
+| `E` | **Film Rebate Eyedropper** | Toggle interactive film base mask sampling |
+| `O` | **Toggle Margins Overlay** | Display histogram border margin exclusion boxes |
+| `R` | **Rotate Live View 180°** | Inverts viewfinder orientation |
+| `V` or `L` | **Toggle Live View Feed** | Start/stop camera sensor preview stream |
+| `F` | **Toggle Fullscreen** | Expand Live View to full display window |
+| `M` | **Toggle Hot Folder Monitor** | Start/stop automatic capture watcher |
+| `Alt + 1` | **Live Scanner Tab** | Switch to main camera & scan controls |
+| `Alt + 2` | **Batch Processor Tab** | Switch to offline folder batch processing |
+| `Alt + 3` | **Scan Gallery Tab** | Switch to positives gallery & contact sheets |
+| `Alt + 4` | **Scanlight Controller Tab** | Switch to hardware LED controls |
+| `?` or `Shift + /` | **Shortcuts Help Modal** | Show interactive keyboard shortcuts overlay |
+| `Esc` | **Cancel / Close Modal** | Closes overlays, modals, and eyedropper |
+
