@@ -2351,4 +2351,50 @@ kbd {
     user-select: none;
 }
 
+/* Contact Sheet Archival Banner */
+.contact-sheet-banner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1.25rem;
+    padding: 1rem 1.25rem;
+    margin-bottom: 1.25rem;
+    background: linear-gradient(135deg, rgba(30, 41, 59, 0.7) 0%, rgba(15, 23, 42, 0.9) 100%);
+    border: 1px solid rgba(56, 189, 248, 0.3);
+    border-left: 4px solid var(--accent-blue);
+    border-radius: var(--radius-lg);
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+    flex-wrap: wrap;
+}
+
+.cs-banner-icon {
+    font-size: 2rem;
+    line-height: 1;
+    flex-shrink: 0;
+}
+
+.cs-banner-content {
+    flex: 1;
+    min-width: 200px;
+}
+
+.cs-banner-title {
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: #f8fafc;
+    margin-bottom: 0.2rem;
+}
+
+.cs-banner-desc {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+}
+
+.cs-banner-actions {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
 

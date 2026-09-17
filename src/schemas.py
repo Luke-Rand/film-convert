@@ -24,6 +24,9 @@ class SessionConfigSchema(BaseModel):
     convert_to_tiff: bool = Field(default=True, description="Save converted output as 16-bit TIFF alongside DNG")
     color_profile: str = Field(default="adobe_rgb", description="ICC output color profile ('adobe_rgb', 'srgb', 'prophoto_rgb', 'romm_rgb', 'generic_gray')")
     embed_metadata: bool = Field(default=True, description="Preserve EXIF and capture metadata in output files")
+    auto_contact_sheet: bool = Field(default=True, description="Whether to automatically generate archival contact sheet on session completion")
+    contact_sheet_columns: int = Field(default=6, ge=2, le=8, description="Number of columns in contact sheet grid")
+    contact_sheet_theme: str = Field(default="dark", description="Contact sheet theme: 'dark' or 'light'")
 
     @field_validator("base_ratios")
     @classmethod
@@ -60,6 +63,9 @@ class SessionConfigUpdateSchema(BaseModel):
     convert_to_tiff: Optional[bool] = None
     color_profile: Optional[str] = None
     embed_metadata: Optional[bool] = None
+    auto_contact_sheet: Optional[bool] = None
+    contact_sheet_columns: Optional[int] = Field(default=None, ge=2, le=8)
+    contact_sheet_theme: Optional[str] = None
 
     @field_validator("base_ratios")
     @classmethod
@@ -98,6 +104,23 @@ class BatchJobSchema(BaseModel):
     task_type: Literal["composite", "invert"] = Field(..., description="Batch job type: composite or invert")
     input_path: str = Field(..., min_length=1, description="Path to folder or file to process")
     config: Optional[Union[SessionConfigUpdateSchema, SessionConfigSchema, dict]] = Field(default=None, description="Overrides for batch job config")
+
+    model_config = {
+        "extra": "ignore"
+    }
+
+
+class ContactSheetGenerateSchema(BaseModel):
+    """Payload schema for generating contact sheets on demand."""
+    session_dir: Optional[str] = Field(default=None, description="Target session folder path")
+    stock: Optional[str] = Field(default="", description="Film stock name")
+    format: Optional[str] = Field(default="", description="Film format")
+    roll: Optional[str] = Field(default="", description="Roll number")
+    session_name: Optional[str] = Field(default="", description="Session name")
+    columns: int = Field(default=6, ge=2, le=8, description="Number of grid columns")
+    theme: Literal["dark", "light"] = Field(default="dark", description="Visual theme: dark or light")
+    export_pdf: bool = Field(default=True, description="Export archival PDF")
+    export_jpeg: bool = Field(default=True, description="Export high-resolution JPEG")
 
     model_config = {
         "extra": "ignore"

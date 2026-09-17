@@ -10,6 +10,7 @@ from schemas import (
     SessionConfigUpdateSchema,
     StartSessionSchema,
     BatchJobSchema,
+    ContactSheetGenerateSchema,
     SampleRebateSchema,
     CameraConfigSchema,
     CameraFocusStepSchema,
@@ -35,6 +36,29 @@ def test_session_config_schema_defaults():
     assert cfg.color_profile == "adobe_rgb"
     assert cfg.embed_metadata is True
     assert cfg.base_ratios is None
+    assert cfg.auto_contact_sheet is True
+    assert cfg.contact_sheet_columns == 6
+    assert cfg.contact_sheet_theme == "dark"
+
+def test_contact_sheet_generate_schema():
+    # Defaults
+    cs_cfg = ContactSheetGenerateSchema()
+    assert cs_cfg.columns == 6
+    assert cs_cfg.theme == "dark"
+    assert cs_cfg.export_pdf is True
+    assert cs_cfg.export_jpeg is True
+
+    # Custom
+    cs_custom = ContactSheetGenerateSchema(columns=4, theme="light", stock="Portra400")
+    assert cs_custom.columns == 4
+    assert cs_custom.theme == "light"
+    assert cs_custom.stock == "Portra400"
+
+    # Invalid columns (< 2 or > 8)
+    with pytest.raises(ValidationError):
+        ContactSheetGenerateSchema(columns=1)
+    with pytest.raises(ValidationError):
+        ContactSheetGenerateSchema(columns=10)
 
 def test_session_config_schema_validation():
     # Valid base ratios

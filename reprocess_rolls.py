@@ -16,6 +16,7 @@ sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'src'))
 
 from compositor import process_triplet
 from inverter import process_positives
+from contact_sheet import generate_contact_sheet
 
 SUPPORTED_EXTS = {'.cr3', '.raf', '.nef', '.arw', '.rw2', '.nrw', '.dcr'}
 
@@ -159,6 +160,26 @@ def reprocess_roll(roll_dir, args):
         except Exception as e:
             print(f"  -> ERROR processing Frame {next_num:02d}: {e}\n")
 
+    if successful_frames > 0 and getattr(args, "contact_sheet", True):
+        print(f"  -> Generating archival roll contact sheet...")
+        try:
+            cs_res = generate_contact_sheet(
+                session_dir=roll_dir,
+                columns=getattr(args, "contact_sheet_columns", 6),
+                theme="dark",
+                config={
+                    "gamma": args.gamma,
+                    "clip": args.clip,
+                    "scurve": args.scurve,
+                    "neutralize": args.neutralize,
+                    "color_profile": args.icc_profile
+                }
+            )
+            if cs_res.get("success"):
+                print(f"  ✅ Contact sheet created: {cs_res.get('message')}")
+        except Exception as e:
+            print(f"  ❌ Error generating contact sheet: {e}")
+
     return successful_frames
 
 def main():
@@ -191,6 +212,11 @@ def main():
                         help="Embedded ICC color profile (default: adobe_rgb)")
     parser.add_argument("--no-metadata", action="store_true",
                         help="Disable embedding original camera RAW EXIF/IPTC metadata into composites and positives")
+    parser.add_argument("--no-contact-sheet", dest="contact_sheet", action="store_false",
+                        help="Disable automatic contact sheet generation after roll processing")
+    parser.add_argument("--contact-sheet-columns", type=int, default=6,
+                        help="Number of columns on contact sheet grid (default: 6)")
+    parser.set_defaults(contact_sheet=True)
     
     args = parser.parse_args()
     

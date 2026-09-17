@@ -42,9 +42,12 @@ a = Analysis(
         'PIL',
         'PIL.Image',
         'PIL.ImageDraw',
+        'PIL.ImageFont',
+        'PIL.PdfImagePlugin',
         'multiprocessing',
         'concurrent.futures',
         'batch_worker',
+        'contact_sheet',
         'pydantic',
         'pydantic_core',
         'schemas'
