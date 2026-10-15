@@ -16,7 +16,8 @@ class TestCameraConnectionManager(unittest.TestCase):
     def test_initial_state_machine(self):
         cm = CameraManager()
         from camera_manager import GPHOTO2_AVAILABLE
-        if GPHOTO2_AVAILABLE:
+        has_physical_backend = GPHOTO2_AVAILABLE or (cm.windows_bridge is not None and cm.windows_bridge.bridge_available)
+        if has_physical_backend:
             self.assertFalse(cm.simulated)
             self.assertEqual(cm.connection_state, "searching")
         else:

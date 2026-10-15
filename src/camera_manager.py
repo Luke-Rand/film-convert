@@ -65,15 +65,29 @@ except ImportError as e:
 class CameraManager:
     def __init__(self, session_manager=None):
         self.session_manager = session_manager
-        self.simulated = not GPHOTO2_AVAILABLE
         self.camera = None
         self.camera_connected = False
-        self.connection_state = "simulated" if self.simulated else "searching"
-        self.model_name = "Simulated Camera" if self.simulated else ""
         self.is_canon = False
         self.is_nikon = False
         self.is_sony = False
         self._daemons_suspended = False
+
+        # Modular Windows bridge support (for native EDSDK / PTP on Windows)
+        import sys
+        self.windows_bridge = None
+        if sys.platform == 'win32':
+            try:
+                from camera_backends.windows_bridge import WindowsBridgeBackend
+                wb = WindowsBridgeBackend(log_callback=self.log)
+                if wb.bridge_available:
+                    self.windows_bridge = wb
+            except Exception:
+                pass
+
+        # In simulated mode if neither gphoto2 nor windows bridge is available
+        self.simulated = not GPHOTO2_AVAILABLE and (self.windows_bridge is None)
+        self.connection_state = "simulated" if self.simulated else "searching"
+        self.model_name = "Simulated Camera" if self.simulated else ""
         
         # Thread safety control
         self.cmd_queue = queue.Queue()
@@ -169,6 +183,13 @@ class CameraManager:
             except Exception:
                 pass
             self.camera = None
+
+        if self.windows_bridge:
+            try:
+                self.windows_bridge.disconnect()
+            except Exception:
+                pass
+
         self.camera_connected = False
         self._physical_viewfinder_active = False
         self._cached_dcim_folder = None
@@ -312,7 +333,7 @@ class CameraManager:
 
             now = time.time()
             # 2. If physical camera is not connected and not in forced simulated mode, attempt discovery
-            if not self.simulated and not self.camera:
+            if not self.simulated and not self.camera_connected:
                 if now - last_detect_attempt >= 2.0:
                     last_detect_attempt = now
                     self._try_connect_physical_camera()
@@ -320,17 +341,20 @@ class CameraManager:
                     time.sleep(0.15)
                     continue
 
-            # Viewfinder state transition for Nikon/Canon
-            if self.camera_connected and self.camera:
-                if self.live_view_active and not self._physical_viewfinder_active:
-                    success = self._set_camera_viewfinder(1)
-                    if success:
-                        self._physical_viewfinder_active = True
-                        self.connection_state = "streaming"
-                elif not self.live_view_active and self._physical_viewfinder_active:
-                    self._set_camera_viewfinder(0)
-                    self._physical_viewfinder_active = False
-                    self.connection_state = "connected"
+            # Viewfinder state transition for Nikon/Canon/Windows Bridge
+            if self.camera_connected:
+                if self.windows_bridge and self.windows_bridge.camera_connected:
+                    self.connection_state = "streaming" if self.live_view_active else "connected"
+                elif self.camera:
+                    if self.live_view_active and not self._physical_viewfinder_active:
+                        success = self._set_camera_viewfinder(1)
+                        if success:
+                            self._physical_viewfinder_active = True
+                            self.connection_state = "streaming"
+                    elif not self.live_view_active and self._physical_viewfinder_active:
+                        self._set_camera_viewfinder(0)
+                        self._physical_viewfinder_active = False
+                        self.connection_state = "connected"
 
             # 3. Grab preview frame if live view is active and not paused for setting update
             if self.live_view_active and not self.pause_preview:
@@ -388,6 +412,23 @@ class CameraManager:
 
     # Worker actions (Guaranteed to execute sequentially on the camera thread)
     def _try_connect_physical_camera(self):
+        import sys
+        # 1. On Windows, attempt connection via native camera bridge (EDSDK)
+        if sys.platform == 'win32' and self.windows_bridge and not self.simulated:
+            try:
+                if self.windows_bridge.connect():
+                    self.camera_connected = True
+                    self.simulated = False
+                    self.is_canon = True
+                    self.model_name = self.windows_bridge.model_name
+                    self.connection_state = "connected"
+                    self.camera_settings = self.windows_bridge.get_settings()
+                    self.camera_choices = self.windows_bridge.get_choices()
+                    self.log(f"Successfully connected to camera via Windows Native Bridge: {self.model_name}")
+                    return
+            except Exception as e:
+                self.log(f"Windows camera bridge connection attempt failed: {e}")
+
         if not GPHOTO2_AVAILABLE or self.simulated:
             self.simulated = True
             self.connection_state = "simulated"
@@ -606,6 +647,13 @@ class CameraManager:
                     self.log(f"Simulated setting updated (action): {name} = {val}")
                     return True
                 raise ValueError(f"Unknown setting: {name}")
+            elif self.windows_bridge and self.windows_bridge.camera_connected:
+                if name == "manualfocusdrive":
+                    coarse = (str(val) in ["3", "-3", "near_coarse", "far_coarse"])
+                    direction = "near" if ("-" in str(val) or "near" in str(val).lower()) else "far"
+                    return self.windows_bridge.step_focus(direction, coarse=coarse)
+                else:
+                    return self.windows_bridge.set_setting(name, val)
             else:
                 self.pause_preview = True
                 time.sleep(0.15)
@@ -689,7 +737,15 @@ class CameraManager:
                 return {"error": str(e)}
 
         elif cmd == "capture":
-            if self.simulated or not self.camera_connected or not self.camera:
+            if self.windows_bridge and self.windows_bridge.camera_connected:
+                self.pause_preview = True
+                self.connection_state = "capturing"
+                try:
+                    return self.windows_bridge.capture_image(autofocus=args.get("autofocus", True))
+                finally:
+                    self.pause_preview = False
+                    self.connection_state = "streaming" if self.live_view_active else "connected"
+            elif self.simulated or not self.camera_connected or not self.camera:
                 self.log("Simulating capture...")
                 time.sleep(0.8) # simulate shutter release sound/lag
                 return self._simulate_raw_capture()
@@ -842,6 +898,8 @@ class CameraManager:
                 self.log("Simulating autofocus...")
                 time.sleep(1.0)
                 return True
+            elif self.windows_bridge and self.windows_bridge.camera_connected:
+                return self.windows_bridge.trigger_autofocus()
             else:
                 self.pause_preview = True
                 try:
@@ -898,7 +956,14 @@ class CameraManager:
                 b_led=self.mock_leds["blue"],
                 is_monochrome=is_mono
             )
-            
+
+        if self.windows_bridge and self.windows_bridge.camera_connected:
+            frame = self.windows_bridge.grab_preview_frame()
+            if frame:
+                return frame
+            time.sleep(0.02)
+            return None
+
         retries = 3
         last_err = None
         for attempt in range(retries):
