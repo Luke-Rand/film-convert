@@ -17,19 +17,41 @@ datas = [
     (icc_path, 'icc_profiles')
 ]
 
-# Locate gphoto2 camlibs and iolibs if present
-for p in ['/opt/homebrew/lib', '/usr/local/lib']:
-    for m in glob.glob(os.path.join(p, 'libgphoto2', '*')):
-        if os.path.isdir(m) and os.path.exists(os.path.join(m, 'ptp2.so')):
-            datas.append((m, os.path.join('gphoto2', 'camlibs', os.path.basename(m))))
-    for m in glob.glob(os.path.join(p, 'libgphoto2_port', '*')):
-        if os.path.isdir(m) and os.path.exists(os.path.join(m, 'usb1.so')):
-            datas.append((m, os.path.join('gphoto2', 'iolibs', os.path.basename(m))))
+binaries = []
+
+# 1. Package macOS bundled relocatable libgphoto2 if present
+mac_vendor_gphoto2 = os.path.abspath('src/vendor/gphoto2_mac')
+if os.path.isdir(mac_vendor_gphoto2):
+    camlibs_dir = os.path.join(mac_vendor_gphoto2, 'camlibs')
+    iolibs_dir = os.path.join(mac_vendor_gphoto2, 'iolibs')
+    lib_dir = os.path.join(mac_vendor_gphoto2, 'lib')
+    if os.path.isdir(camlibs_dir):
+        datas.append((camlibs_dir, os.path.join('gphoto2', 'camlibs')))
+    if os.path.isdir(iolibs_dir):
+        datas.append((iolibs_dir, os.path.join('gphoto2', 'iolibs')))
+    if os.path.isdir(lib_dir):
+        datas.append((lib_dir, os.path.join('gphoto2', 'lib')))
+        for dylib in glob.glob(os.path.join(lib_dir, '*.dylib')):
+            binaries.append((dylib, '.'))
+else:
+    # Fallback to local development Homebrew paths on macOS
+    for p in ['/opt/homebrew/lib', '/usr/local/lib']:
+        for m in glob.glob(os.path.join(p, 'libgphoto2', '*')):
+            if os.path.isdir(m) and os.path.exists(os.path.join(m, 'ptp2.so')):
+                datas.append((m, os.path.join('gphoto2', 'camlibs', os.path.basename(m))))
+        for m in glob.glob(os.path.join(p, 'libgphoto2_port', '*')):
+            if os.path.isdir(m) and os.path.exists(os.path.join(m, 'usb1.so')):
+                datas.append((m, os.path.join('gphoto2', 'iolibs', os.path.basename(m))))
+
+# 2. Package Windows native camera bridge helper if present
+win_vendor_bridge = os.path.abspath('src/vendor/camera_bridge_win')
+if os.path.isdir(win_vendor_bridge):
+    datas.append((win_vendor_bridge, 'camera_bridge'))
 
 a = Analysis(
     ['web_ui.py'],
     pathex=['src'],
-    binaries=[],
+    binaries=binaries,
     datas=datas,
     hiddenimports=[
         'flask',
@@ -50,7 +72,11 @@ a = Analysis(
         'contact_sheet',
         'pydantic',
         'pydantic_core',
-        'schemas'
+        'schemas',
+        'camera_backends',
+        'camera_backends.base',
+        'camera_backends.simulated',
+        'camera_backends.windows_bridge'
     ],
     hookspath=[],
     hooksconfig={},

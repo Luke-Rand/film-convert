@@ -14,21 +14,41 @@ def _configure_gphoto2_env():
         if hasattr(sys, '_MEIPASS'):
             search_roots.append(os.path.join(sys._MEIPASS, 'gphoto2'))
             search_roots.append(sys._MEIPASS)
+
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        search_roots.append(os.path.join(repo_root, 'src', 'vendor', 'gphoto2_mac'))
+        search_roots.append(os.path.join(repo_root, 'vendor', 'gphoto2_mac'))
         search_roots.extend(['/opt/homebrew/lib', '/usr/local/lib', '/usr/lib'])
 
         for root in search_roots:
+            if not os.path.exists(root):
+                continue
             if 'CAMLIBS' not in os.environ:
-                matches = glob.glob(os.path.join(root, 'libgphoto2', '*')) + glob.glob(os.path.join(root, 'camlibs', '*'))
-                for m in sorted(matches, reverse=True):
-                    if os.path.isdir(m) and (os.path.exists(os.path.join(m, 'ptp2.so')) or os.path.exists(os.path.join(m, 'canon.so'))):
-                        os.environ['CAMLIBS'] = m
-                        break
+                direct_cam = os.path.join(root, 'camlibs')
+                if os.path.isdir(direct_cam) and (os.path.exists(os.path.join(direct_cam, 'ptp2.so')) or os.path.exists(os.path.join(direct_cam, 'canon.so'))):
+                    os.environ['CAMLIBS'] = direct_cam
+                else:
+                    matches = glob.glob(os.path.join(root, 'libgphoto2', '*')) + glob.glob(os.path.join(root, 'camlibs', '*'))
+                    for m in sorted(matches, reverse=True):
+                        if os.path.isdir(m) and (os.path.exists(os.path.join(m, 'ptp2.so')) or os.path.exists(os.path.join(m, 'canon.so'))):
+                            os.environ['CAMLIBS'] = m
+                            break
             if 'IOLIBS' not in os.environ:
-                matches = glob.glob(os.path.join(root, 'libgphoto2_port', '*')) + glob.glob(os.path.join(root, 'iolibs', '*'))
-                for m in sorted(matches, reverse=True):
-                    if os.path.isdir(m) and (os.path.exists(os.path.join(m, 'usb1.so')) or os.path.exists(os.path.join(m, 'disk.so'))):
-                        os.environ['IOLIBS'] = m
-                        break
+                direct_io = os.path.join(root, 'iolibs')
+                if os.path.isdir(direct_io) and (os.path.exists(os.path.join(direct_io, 'usb1.so')) or os.path.exists(os.path.join(direct_io, 'disk.so'))):
+                    os.environ['IOLIBS'] = direct_io
+                else:
+                    matches = glob.glob(os.path.join(root, 'libgphoto2_port', '*')) + glob.glob(os.path.join(root, 'iolibs', '*'))
+                    for m in sorted(matches, reverse=True):
+                        if os.path.isdir(m) and (os.path.exists(os.path.join(m, 'usb1.so')) or os.path.exists(os.path.join(m, 'disk.so'))):
+                            os.environ['IOLIBS'] = m
+                            break
+
+            if sys.platform == 'darwin':
+                lib_dir = os.path.join(root, 'lib') if os.path.isdir(os.path.join(root, 'lib')) else root
+                cur_dyld = os.environ.get('DYLD_FALLBACK_LIBRARY_PATH', '')
+                if lib_dir not in cur_dyld:
+                    os.environ['DYLD_FALLBACK_LIBRARY_PATH'] = f"{lib_dir}:{cur_dyld}" if cur_dyld else lib_dir
 
 _configure_gphoto2_env()
 
