@@ -131,7 +131,7 @@ npx playwright test
 
 ## 5. Packaging and Compiling Installer Binaries
 
-To build a standalone distributable installer (e.g. a `.dmg` on macOS or an `.exe` on Windows):
+To build a standalone distributable installer (e.g. an `.AppImage` on Linux, a `.dmg` on macOS, or an `.exe` on Windows):
 
 ### Step 1: Compile the Python Backend
 Use PyInstaller to compile the Flask backend, scripts, and Python runtime into a standalone compiled binary:
@@ -146,10 +146,16 @@ Package the Electron wrapper and include the compiled Python backend from Step 1
 ```bash
 npm run dist
 ```
+* **Linux:** Produces an `.AppImage` standalone executable package.
 * **macOS:** Produces a `.dmg` installer containing `FilmConvert.app`.
 * **Windows:** Produces a setup `.exe` installer.
 
 The final installer package will be available in the `dist-app/` directory.
+
+To package the application into an unpacked local directory on Linux without generating the final AppImage:
+```bash
+npm run package:linux
+```
 
 ### Step 3: Direct Local macOS Deployment
 To build the Python backend, package the Electron application, copy it to `/Applications/FilmConvert.app`, clear quarantine bits, and sign it with required USB/camera entitlements:
