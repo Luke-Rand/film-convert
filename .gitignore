@@ -42,6 +42,7 @@ npm-debug.log*
 build/
 dist/
 dist-app/
+src/vendor/gphoto2_mac/
 
 # Test artifacts
 playwright-report/

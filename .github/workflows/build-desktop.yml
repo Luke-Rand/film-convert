@@ -33,6 +33,11 @@ jobs:
         with:
           python-version: '3.11'
 
+      - name: Install System Dependencies (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew install gphoto2 libusb libexif libtool
+
       - name: Create Python Virtual Environment & Install Dependencies
         shell: bash
         run: |
@@ -45,7 +50,15 @@ jobs:
             .venv/bin/python -m pip install --upgrade pip
             .venv/bin/pip install pyinstaller
             .venv/bin/pip install -r requirements.txt
+            .venv/bin/pip install gphoto2
           fi
+
+      - name: Bundle Relocatable libgphoto2 (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          python scripts/bundle_macos_gphoto2.py
+
 
       - name: Set App Version from Git
         shell: bash

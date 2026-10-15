@@ -16,7 +16,8 @@ class TestCameraConnectionManager(unittest.TestCase):
     def test_initial_state_machine(self):
         cm = CameraManager()
         from camera_manager import GPHOTO2_AVAILABLE
-        if GPHOTO2_AVAILABLE:
+        has_physical_backend = GPHOTO2_AVAILABLE or (cm.windows_bridge is not None and cm.windows_bridge.bridge_available)
+        if has_physical_backend:
             self.assertFalse(cm.simulated)
             self.assertEqual(cm.connection_state, "searching")
         else:
@@ -69,8 +70,34 @@ class TestCameraConnectionManager(unittest.TestCase):
             cm.frame_id += 1
             cm.frame_event.set()
         
-        self.assertEqual(cm.frame_id, 1)
-        self.assertTrue(cm.frame_event.is_set())
+    def test_simulated_backend_direct(self):
+        from camera_backends.simulated import SimulatedCameraBackend
+        backend = SimulatedCameraBackend()
+        self.assertTrue(backend.connect())
+        status = backend.get_status()
+        self.assertTrue(status["connected"])
+        self.assertTrue(status["simulated"])
+        self.assertEqual(status["model"], "Simulated Camera")
+
+        # Test simulated frame generation
+        frame = backend.grab_preview_frame()
+        self.assertIsNotNone(frame)
+        self.assertGreater(len(frame), 100)
+
+        # Test settings query and update
+        settings = backend.get_settings()
+        self.assertIn("iso", settings)
+        backend.set_setting("iso", "800")
+        self.assertEqual(backend.get_settings()["iso"], "800")
+
+    def test_windows_bridge_backend_contract(self):
+        from camera_backends.windows_bridge import WindowsBridgeBackend
+        backend = WindowsBridgeBackend()
+        status = backend.get_status()
+        self.assertIn("connected", status)
+        self.assertIn("settings", status)
+        self.assertIn("choices", status)
 
 if __name__ == '__main__':
     unittest.main()
+

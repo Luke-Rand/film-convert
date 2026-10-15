@@ -41,15 +41,25 @@ Install dependencies required by the stacking scripts, inversion processor, and 
 pip install -r requirements.txt -r requirements-web.txt
 ```
 
-### Step 4: Install gPhoto2 Binding (Optional)
-If you require physical camera tethering/Live View streaming:
-1. Install system library dependencies:
-   * **macOS (via Homebrew):** `brew install gphoto2`
-   * **Linux (Debian/Ubuntu):** `sudo apt install gphoto2 libgphoto2-dev`
-2. Install the python binding wrapper:
-   ```bash
-   pip install gphoto2
-   ```
+### Step 4: Camera Tethering & Bundled Drivers
+FilmConvert includes a modular camera subsystem (`src/camera_backends/`) designed for zero-dependency end-user distribution:
+1. **Local Development (macOS / Linux):**
+   * Install system dependencies:
+     * **macOS:** `brew install gphoto2 libusb libexif libtool`
+     * **Linux:** `sudo apt install gphoto2 libgphoto2-dev`
+   * Install the Python binding:
+     ```bash
+     pip install gphoto2
+     ```
+2. **Production macOS Bundling:**
+   * Run the automated relocatable bundler before compiling with PyInstaller:
+     ```bash
+     python scripts/bundle_macos_gphoto2.py
+     ```
+   * This packages `libgphoto2`, `libgphoto2_port`, `ptp2.so`, `usb1.so`, and `libusb` with relative `@rpath` references, making the resulting `.dmg` completely independent of Homebrew.
+3. **Windows Zero-Dependency Bridge:**
+   * Windows uses `WindowsBridgeBackend` to communicate with cameras over native Windows PTP/MTP drivers without requiring Zadig or manual driver swapping.
+
 
 ### Step 5: Install Electron Frontend Dependencies
 Install the Node.js packages required by the Electron shell wrapper:
