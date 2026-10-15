@@ -98,8 +98,8 @@ def bundle_macos_gphoto2(dest_dir=None):
 
     brew_lib = Path(prefix) / 'lib'
 
-    # Find required dylibs
-    dylibs_to_copy = set()
+    # Find required dylibs and resolve symlinks
+    found_dylibs = {}  # alias_name -> resolved_path
     patterns = [
         'libgphoto2.*.dylib',
         'libgphoto2_port.*.dylib',
@@ -109,24 +109,9 @@ def bundle_macos_gphoto2(dest_dir=None):
     ]
     for pat in patterns:
         for match in brew_lib.glob(pat):
-            if match.is_symlink():
-                continue
-            dylibs_to_copy.add(match)
-
-    if not dylibs_to_copy:
-        raise RuntimeError(f"No libgphoto2 dylibs found under {brew_lib}")
-
-    copied_dylibs = []
-    for dylib in dylibs_to_copy:
-        dest = lib_dest / dylib.name
-        shutil.copy2(dylib, dest)
-        copied_dylibs.append(dest)
-        # Also create clean unversioned symlink if needed (e.g. libgphoto2.dylib -> libgphoto2.6.dylib)
-        parts = dylib.name.split('.')
-        clean_name = f"{parts[0]}.dylib"
-        clean_link = lib_dest / clean_name
-        if not clean_link.exists():
-            clean_link.symlink_to(dylib.name)
+            resolved = match.resolve()
+            if resolved.is_file():
+                found_dylibs[match.name] = resolved
 
     # Find and copy camlibs (specifically ptp2 and canon)
     camlib_roots = list(brew_lib.glob('libgphoto2/*'))
@@ -148,7 +133,39 @@ def bundle_macos_gphoto2(dest_dir=None):
                 shutil.copy2(so_file, dest)
                 copied_iolibs.append(dest)
 
-    print(f"Copied {len(copied_dylibs)} dylibs, {len(copied_camlibs)} camlibs, {len(copied_iolibs)} iolibs.")
+    # Discover any non-system dylib dependencies recursively
+    to_scan = list(found_dylibs.values()) + copied_camlibs + copied_iolibs
+    for binary in to_scan:
+        for dep in get_dylib_dependencies(binary):
+            p = Path(dep)
+            if p.exists() and p.is_file():
+                found_dylibs[p.name] = p.resolve()
+
+    if not found_dylibs:
+        raise RuntimeError(f"No libgphoto2 dylibs found under {brew_lib}")
+
+    copied_dylibs = []
+    resolved_to_dest = {}
+    for alias_name, resolved_path in found_dylibs.items():
+        if resolved_path not in resolved_to_dest:
+            dest = lib_dest / resolved_path.name
+            shutil.copy2(resolved_path, dest)
+            resolved_to_dest[resolved_path] = dest
+            copied_dylibs.append(dest)
+        else:
+            dest = resolved_to_dest[resolved_path]
+
+        alias_dest = lib_dest / alias_name
+        if not alias_dest.exists():
+            alias_dest.symlink_to(dest.name)
+
+        parts = alias_name.split('.')
+        clean_name = f"{parts[0]}.dylib"
+        clean_link = lib_dest / clean_name
+        if not clean_link.exists():
+            clean_link.symlink_to(dest.name)
+
+    print(f"Copied {len(copied_dylibs)} dylibs ({len(found_dylibs)} aliases), {len(copied_camlibs)} camlibs, {len(copied_iolibs)} iolibs.")
 
     # Relocate all copied binaries
     all_binaries = copied_dylibs + copied_camlibs + copied_iolibs
