@@ -14,9 +14,12 @@ if sys.stderr and hasattr(sys.stderr, 'reconfigure'):
 # Ensure src is on python path
 sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'src'))
 
+import multiprocessing
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from compositor import process_triplet
 from inverter import process_positives
 from contact_sheet import generate_contact_sheet
+from batch_worker import worker_process_triplet_pipeline
 
 SUPPORTED_EXTS = {'.cr3', '.raf', '.nef', '.arw', '.rw2', '.nrw', '.dcr'}
 
@@ -109,56 +112,116 @@ def reprocess_roll(roll_dir, args):
     print(f"Found {total_raws} RAW files -> {num_frames} frames to process.\n")
     
     successful_frames = 0
-    for i in range(0, total_raws - 2, 3):
-        group_files = raw_files[i:i+3]
-        frame_idx = (i // 3) + 1
-        
-        next_num = extract_frame_num(group_files[-1]) + 1
-        comp_name = f"Frame_{next_num:02d}_Composite.dng"
-        comp_path = os.path.join(raw_source_dir, comp_name)
-        
-        print(f"[{frame_idx:02d}/{num_frames:02d}] Processing Frame {next_num:02d} ({', '.join(group_files)})...")
-        group_full_paths = [os.path.join(raw_source_dir, f) for f in group_files]
-        
-        start_t = time.time()
-        try:
-            # 1. Composite triplet with sub-pixel alignment & grain-safe demosaicing
-            process_triplet(
-                group=group_full_paths,
-                output_filepath=comp_path,
-                neutralize_base=args.neutralize or (args.base_ratios is not None),
-                compress_tiff=args.compress,
-                align_channels=not args.no_align,
-                icc_profile=args.icc_profile,
-                preserve_metadata=not args.no_metadata,
-                base_ratios=args.base_ratios
-            )
+    max_workers = getattr(args, "workers", None) or min(4, max(1, (os.cpu_count() or 2) - 1))
+    pipeline_config = {
+        "neutralize": args.neutralize or (args.base_ratios is not None),
+        "compress_tiff": args.compress,
+        "align_channels": not args.no_align,
+        "color_profile": args.icc_profile,
+        "embed_metadata": not args.no_metadata,
+        "base_ratios": args.base_ratios,
+        "clip": args.clip,
+        "gamma": args.gamma,
+        "global_levels": args.global_levels,
+        "margin": args.margin,
+        "scurve": args.scurve,
+        "autocrop": args.autocrop,
+        "monochrome": args.monochrome,
+        "monochrome_channel": args.monochrome_channel,
+        "reversal": args.reversal,
+        "convert_to_tiff": True,
+    }
+
+    if max_workers > 1 and num_frames > 1:
+        ctx = multiprocessing.get_context("spawn")
+        with ProcessPoolExecutor(max_workers=max_workers, mp_context=ctx) as executor:
+            futures = {}
+            for i in range(0, total_raws - 2, 3):
+                group_files = raw_files[i:i+3]
+                frame_idx = (i // 3) + 1
+                next_num = extract_frame_num(group_files[-1]) + 1
+                comp_name = f"Frame_{next_num:02d}_Composite.dng"
+                comp_path = os.path.join(raw_source_dir, comp_name)
+                group_full_paths = [os.path.join(raw_source_dir, f) for f in group_files]
+                print(f"[{frame_idx:02d}/{num_frames:02d}] Queueing Frame {next_num:02d} ({', '.join(group_files)})...")
+                fut = executor.submit(
+                    worker_process_triplet_pipeline,
+                    group=group_full_paths,
+                    composite_filepath=comp_path,
+                    positives_dir=positives_dir,
+                    config=pipeline_config,
+                )
+                futures[fut] = (frame_idx, next_num)
+
+            for fut in as_completed(futures):
+                frame_idx, next_num = futures[fut]
+                try:
+                    success, result, worker_logs = fut.result()
+                    if worker_logs:
+                        print(worker_logs.strip())
+                    if success:
+                        print(f"  -> [{frame_idx:02d}/{num_frames:02d}] Frame {next_num:02d} converted successfully\n")
+                        successful_frames += 1
+                    else:
+                        print(f"  -> ERROR processing Frame {next_num:02d}: {result}\n")
+                except Exception as e:
+                    print(f"  -> ERROR processing Frame {next_num:02d}: {e}\n")
+    else:
+        for i in range(0, total_raws - 2, 3):
+            group_files = raw_files[i:i+3]
+            frame_idx = (i // 3) + 1
             
-            # 2. Sensitometric Inversion with smooth monotonic knee roll-off
-            process_positives(
-                input_path=comp_path,
-                output_dir=positives_dir,
-                clip=args.clip,
-                gamma=args.gamma,
-                compress_tiff=args.compress,
-                global_levels=args.global_levels,
-                ignore_margin=args.margin,
-                scurve=args.scurve,
-                autocrop=args.autocrop,
-                monochrome=args.monochrome,
-                monochrome_channel=args.monochrome_channel,
-                reversal=args.reversal,
-                convert_to_tiff=True,
-                icc_profile=args.icc_profile,
-                preserve_metadata=not args.no_metadata,
-                base_ratios=args.base_ratios
-            )
-            elapsed = time.time() - start_t
-            print(f"  -> Successfully converted in {elapsed:.1f}s\n")
-            successful_frames += 1
+            next_num = extract_frame_num(group_files[-1]) + 1
+            comp_name = f"Frame_{next_num:02d}_Composite.dng"
+            comp_path = os.path.join(raw_source_dir, comp_name)
             
-        except Exception as e:
-            print(f"  -> ERROR processing Frame {next_num:02d}: {e}\n")
+            print(f"[{frame_idx:02d}/{num_frames:02d}] Processing Frame {next_num:02d} ({', '.join(group_files)})...")
+            group_full_paths = [os.path.join(raw_source_dir, f) for f in group_files]
+            
+            start_t = time.time()
+            try:
+                preserve_meta = not args.no_metadata
+                source_meta = (group_full_paths[1] if len(group_full_paths) > 1 else group_full_paths[0]) if preserve_meta else None
+                # 1. Composite triplet with sub-pixel alignment & grain-safe demosaicing (in-memory handoff)
+                _, composite_rgb = process_triplet(
+                    group=group_full_paths,
+                    output_filepath=comp_path,
+                    neutralize_base=args.neutralize or (args.base_ratios is not None),
+                    compress_tiff=args.compress,
+                    align_channels=not args.no_align,
+                    icc_profile=args.icc_profile,
+                    preserve_metadata=preserve_meta,
+                    base_ratios=args.base_ratios,
+                    return_image=True
+                )
+                
+                # 2. Sensitometric Inversion directly from in-memory composite_rgb
+                process_positives(
+                    input_path=comp_path,
+                    output_dir=positives_dir,
+                    clip=args.clip,
+                    gamma=args.gamma,
+                    compress_tiff=args.compress,
+                    global_levels=args.global_levels,
+                    ignore_margin=args.margin,
+                    scurve=args.scurve,
+                    autocrop=args.autocrop,
+                    monochrome=args.monochrome,
+                    monochrome_channel=args.monochrome_channel,
+                    reversal=args.reversal,
+                    convert_to_tiff=True,
+                    icc_profile=args.icc_profile,
+                    preserve_metadata=preserve_meta,
+                    base_ratios=args.base_ratios,
+                    preloaded_image=composite_rgb,
+                    source_metadata_path=source_meta
+                )
+                elapsed = time.time() - start_t
+                print(f"  -> Successfully converted in {elapsed:.1f}s\n")
+                successful_frames += 1
+                
+            except Exception as e:
+                print(f"  -> ERROR processing Frame {next_num:02d}: {e}\n")
 
     if successful_frames > 0 and getattr(args, "contact_sheet", True):
         print(f"  -> Generating archival roll contact sheet...")
@@ -216,6 +279,8 @@ def main():
                         help="Disable automatic contact sheet generation after roll processing")
     parser.add_argument("--contact-sheet-columns", type=int, default=6,
                         help="Number of columns on contact sheet grid (default: 6)")
+    parser.add_argument("-w", "--workers", type=int, default=None,
+                        help="Number of parallel worker processes (default: auto based on CPU cores)")
     parser.set_defaults(contact_sheet=True)
     
     args = parser.parse_args()

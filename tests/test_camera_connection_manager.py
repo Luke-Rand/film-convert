@@ -98,6 +98,27 @@ class TestCameraConnectionManager(unittest.TestCase):
         self.assertIn("settings", status)
         self.assertIn("choices", status)
 
+    def test_gphoto2_backend_contract(self):
+        from camera_backends.gphoto2_backend import GPhoto2CameraBackend
+        backend = GPhoto2CameraBackend()
+        status = backend.get_status()
+        self.assertIn("connected", status)
+        self.assertIn("settings", status)
+        self.assertIn("choices", status)
+        self.assertEqual(backend._predict_next_filename("IMG_0042.CR3"), "IMG_0043.CR3")
+        self.assertEqual(backend.dump_config(), ["Simulated Mode Active - No Physical Config"])
+
+    def test_camera_manager_backend_delegation(self):
+        cm = CameraManager()
+        cm.simulated = True
+        cm.update_mock_leds(200, 100, 50)
+        self.assertEqual(cm.simulated_backend.mock_leds, {"red": 200, "green": 100, "blue": 50})
+        res = cm._handle_worker_cmd("set_config", {"name": "iso", "value": "1600"})
+        self.assertTrue(res)
+        self.assertEqual(cm.sim_settings["iso"], "1600")
+        self.assertEqual(cm.simulated_backend.get_settings()["iso"], "1600")
+
 if __name__ == '__main__':
     unittest.main()
+
 

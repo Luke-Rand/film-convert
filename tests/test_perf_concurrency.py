@@ -124,5 +124,44 @@ class TestPerfConcurrency(unittest.TestCase):
         self.assertIn("Frame_01_Composite", logs)
         self.assertEqual(len(result), 3) # (r_mean, g_mean, b_mean)
 
+    def test_in_memory_triplet_to_positive_handoff(self):
+        """Verify process_triplet return_image=True and process_positives preloaded_image avoid disk re-reads."""
+        from compositor import process_triplet
+        from inverter import process_positives
+        import tifffile
+        from unittest.mock import patch
+
+        f1 = os.path.join(self.test_dir, "Frame_01_Capture_red.cr3")
+        f2 = os.path.join(self.test_dir, "Frame_01_Capture_green.cr3")
+        f3 = os.path.join(self.test_dir, "Frame_01_Capture_blue.cr3")
+        for f in [f1, f2, f3]:
+            with open(f, "w") as fp:
+                fp.write("MOCK RAW DATA")
+
+        out_composite = os.path.join(self.test_dir, "Frame_01_Composite.dng")
+        out_positives = os.path.join(self.test_dir, "Positives")
+        os.makedirs(out_positives, exist_ok=True)
+
+        means, comp_rgb = process_triplet(
+            group=[f1, f2, f3],
+            output_filepath=out_composite,
+            preserve_metadata=False,
+            return_image=True
+        )
+        self.assertEqual(len(means), 3)
+        self.assertEqual(comp_rgb.dtype, np.uint16)
+
+        # Ensure tifffile.imread is NOT called when preloaded_image is supplied
+        with patch("inverter.tifffile.imread", side_effect=AssertionError("Should not read composite from disk!")):
+            process_positives(
+                input_path=out_composite,
+                output_dir=out_positives,
+                preserve_metadata=False,
+                preloaded_image=comp_rgb
+            )
+
+        expected_pos = os.path.join(out_positives, "Frame_01_Positive.tiff")
+        self.assertTrue(os.path.exists(expected_pos))
+
 if __name__ == '__main__':
     unittest.main()

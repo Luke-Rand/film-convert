@@ -72,11 +72,20 @@ def get_font(size: int = 14, bold: bool = False) -> ImageFont.ImageFont:
         return ImageFont.load_default()
 
 
-def extract_frame_metadata(image_path: str) -> Dict[str, Any]:
-    """
-    Extracts exposure, camera, and geometry metadata for a single scan.
-    """
-    meta: Dict[str, Any] = {
+def _extract_frame_num_from_filename(image_path: str) -> int:
+    """Extracts frame number purely from filename without any disk I/O or subprocess spawns."""
+    base_name = os.path.basename(image_path)
+    match = re.search(r'Frame_(\d+)', base_name, re.IGNORECASE)
+    if match:
+        return int(match.group(1))
+    match_any = re.search(r'(\d+)', base_name)
+    if match_any:
+        return int(match_any.group(1))
+    return 0
+
+
+def _init_meta_dict(image_path: str) -> Dict[str, Any]:
+    return {
         "filename": os.path.basename(image_path),
         "path": image_path,
         "width": 0,
@@ -89,18 +98,33 @@ def extract_frame_metadata(image_path: str) -> Dict[str, Any]:
         "camera": "",
         "lens": "",
         "date_time": "",
-        "frame_num": 0
+        "frame_num": _extract_frame_num_from_filename(image_path)
     }
 
-    # Extract frame number from filename (e.g. Frame_01_Positive.tiff -> 1)
-    base_name = os.path.basename(image_path)
-    match = re.search(r'Frame_(\d+)', base_name, re.IGNORECASE)
-    if match:
-        meta["frame_num"] = int(match.group(1))
-    else:
-        match_any = re.search(r'(\d+)', base_name)
-        if match_any:
-            meta["frame_num"] = int(match_any.group(1))
+
+def _populate_fallback_geometry(meta: Dict[str, Any], image_path: str) -> None:
+    """Populates image width/height/megapixels from file headers if not already present."""
+    if meta["width"] == 0 or meta["height"] == 0:
+        try:
+            ext = os.path.splitext(image_path)[1].lower()
+            if ext in ['.tiff', '.tif', '.dng']:
+                with tifffile.TiffFile(image_path) as tif:
+                    page = tif.pages[0]
+                    meta["height"], meta["width"] = page.shape[:2]
+                    meta["megapixels"] = round((meta["width"] * meta["height"]) / 1_000_000, 1)
+            else:
+                with Image.open(image_path) as img:
+                    meta["width"], meta["height"] = img.size
+                    meta["megapixels"] = round((meta["width"] * meta["height"]) / 1_000_000, 1)
+        except Exception:
+            pass
+
+
+def extract_frame_metadata(image_path: str) -> Dict[str, Any]:
+    """
+    Extracts exposure, camera, and geometry metadata for a single scan.
+    """
+    meta = _init_meta_dict(image_path)
 
     # Fast exiftool extraction if available
     exiftool = find_exiftool()
@@ -148,22 +172,89 @@ def extract_frame_metadata(image_path: str) -> Dict[str, Any]:
             pass
 
     # If geometry not found, inspect with PIL or tifffile
-    if meta["width"] == 0 or meta["height"] == 0:
+    _populate_fallback_geometry(meta, image_path)
+
+    return meta
+
+
+def extract_batch_frame_metadata(image_paths: List[str]) -> Dict[str, Dict[str, Any]]:
+    """
+    Extracts metadata for all image_paths in a single batch exiftool JSON call,
+    eliminating per-file subprocess spawn overhead during contact sheet generation.
+    """
+    import json
+    results: Dict[str, Dict[str, Any]] = {}
+    norm_lookup: Dict[str, str] = {}
+    existing_paths: List[str] = []
+
+    for p in image_paths:
+        results[p] = _init_meta_dict(p)
+        norm_lookup[os.path.normcase(os.path.abspath(p))] = p
+        if os.path.exists(p):
+            existing_paths.append(p)
+
+    exiftool = find_exiftool()
+    if exiftool and existing_paths:
         try:
-            ext = os.path.splitext(image_path)[1].lower()
-            if ext in ['.tiff', '.tif', '.dng']:
-                with tifffile.TiffFile(image_path) as tif:
-                    page = tif.pages[0]
-                    meta["height"], meta["width"] = page.shape[:2]
-                    meta["megapixels"] = round((meta["width"] * meta["height"]) / 1_000_000, 1)
-            else:
-                with Image.open(image_path) as img:
-                    meta["width"], meta["height"] = img.size
-                    meta["megapixels"] = round((meta["width"] * meta["height"]) / 1_000_000, 1)
+            cmd = [
+                exiftool,
+                "-j",
+                "-ImageWidth",
+                "-ImageHeight",
+                "-ExposureTime",
+                "-FNumber",
+                "-ISO",
+                "-FocalLength",
+                "-Model",
+                "-LensModel",
+                "-DateTimeOriginal",
+                *existing_paths
+            ]
+            res = subprocess.run(cmd, capture_output=True, text=True, timeout=max(5, len(existing_paths)))
+            if res.returncode == 0 and res.stdout.strip():
+                items = json.loads(res.stdout)
+                for item in items:
+                    src = item.get("SourceFile", "")
+                    orig_path = norm_lookup.get(os.path.normcase(os.path.abspath(src))) or results.get(src, {}).get("path")
+                    if not orig_path or orig_path not in results:
+                        continue
+                    meta = results[orig_path]
+                    w_raw = item.get("ImageWidth")
+                    h_raw = item.get("ImageHeight")
+                    w = int(w_raw) if isinstance(w_raw, (int, float)) or (isinstance(w_raw, str) and w_raw.isdigit()) else 0
+                    h = int(h_raw) if isinstance(h_raw, (int, float)) or (isinstance(h_raw, str) and h_raw.isdigit()) else 0
+                    if w and h:
+                        meta["width"] = w
+                        meta["height"] = h
+                        meta["megapixels"] = round((w * h) / 1_000_000, 1)
+                    exp = str(item.get("ExposureTime", "") or "").strip()
+                    if exp and exp != "-":
+                        meta["shutter"] = exp if ("s" in exp or "/" in exp) else f"{exp}s"
+                    fnum = str(item.get("FNumber", "") or "").strip()
+                    if fnum and fnum != "-":
+                        meta["aperture"] = f"f/{fnum}" if not fnum.startswith("f/") else fnum
+                    iso_val = str(item.get("ISO", "") or "").strip()
+                    if iso_val and iso_val != "-":
+                        meta["iso"] = f"ISO {iso_val}" if not iso_val.startswith("ISO") else iso_val
+                    fl = str(item.get("FocalLength", "") or "").strip()
+                    if fl and fl != "-":
+                        meta["focal_length"] = fl
+                    model = str(item.get("Model", "") or "").strip()
+                    if model and model != "-":
+                        meta["camera"] = model
+                    lens = str(item.get("LensModel", "") or "").strip()
+                    if lens and lens != "-":
+                        meta["lens"] = lens
+                    dt = str(item.get("DateTimeOriginal", "") or "").strip()
+                    if dt and dt != "-":
+                        meta["date_time"] = dt
         except Exception:
             pass
 
-    return meta
+    for p, meta in results.items():
+        _populate_fallback_geometry(meta, p)
+
+    return results
 
 
 def load_thumbnail(image_path: str, target_w: int, target_h: int) -> Optional[Image.Image]:
@@ -294,12 +385,15 @@ def generate_contact_sheet(
     if not scan_files:
         return {"success": False, "message": f"No scan files found in {session_dir}"}
 
-    # Sort files by frame number or filename
+    # Sort files by frame number or filename without disk I/O or subprocess spawns
     def sort_key(p: str):
-        meta = extract_frame_metadata(p)
-        return (meta["frame_num"] if meta["frame_num"] > 0 else 999999, os.path.basename(p).lower())
+        fnum = _extract_frame_num_from_filename(p)
+        return (fnum if fnum > 0 else 999999, os.path.basename(p).lower())
 
     scan_files.sort(key=sort_key)
+
+    # Pre-fetch metadata for all frames in a single batch exiftool call
+    metadata_by_path = extract_batch_frame_metadata(scan_files)
 
     total_frames = len(scan_files)
 
@@ -443,7 +537,7 @@ def generate_contact_sheet(
             cell_y = grid_top + r * (cell_h + row_gap)
 
             file_path = scan_files[idx]
-            meta = extract_frame_metadata(file_path)
+            meta = metadata_by_path.get(file_path) or extract_frame_metadata(file_path)
 
             frame_num = meta["frame_num"] or (idx + 1)
             frame_label = f"FRAME {frame_num:02d}"

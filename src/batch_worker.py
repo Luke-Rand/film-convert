@@ -75,24 +75,28 @@ def worker_process_positives(input_path, output_dir, clip, gamma, compress_tiff,
 def worker_process_triplet_pipeline(group, composite_filepath, positives_dir, config):
     """
     Runs both composition and inversion sequentially within a single worker process invocation,
-    minimizing process IPC overhead for live scanning session monitor.
+    minimizing process IPC overhead and passing the 16-bit composite array in-memory to
+    eliminate redundant disk reads.
     Returns (success: bool, means: tuple, logs: str)
     """
     capture = io.StringIO()
     try:
         with contextlib.redirect_stdout(capture), contextlib.redirect_stderr(capture):
-            # 1. Composite
-            r_mean, g_mean, b_mean = process_triplet(
+            preserve_meta = config.get("embed_metadata", True)
+            source_meta = (group[1] if len(group) > 1 else group[0]) if (preserve_meta and group) else None
+            # 1. Composite (returns in-memory 16-bit RGB array alongside channel means)
+            (r_mean, g_mean, b_mean), composite_rgb = process_triplet(
                 group=group,
                 output_filepath=composite_filepath,
                 neutralize_base=config.get("neutralize", False),
                 compress_tiff=config.get("compress_tiff", False),
                 align_channels=config.get("align_channels", False),
                 icc_profile=config.get("color_profile", "adobe_rgb"),
-                preserve_metadata=config.get("embed_metadata", True),
-                base_ratios=config.get("base_ratios")
+                preserve_metadata=preserve_meta,
+                base_ratios=config.get("base_ratios"),
+                return_image=True
             )
-            # 2. Invert composite
+            # 2. Invert composite directly from in-memory array without re-reading disk file
             process_positives(
                 input_path=composite_filepath,
                 output_dir=positives_dir,
@@ -108,8 +112,10 @@ def worker_process_triplet_pipeline(group, composite_filepath, positives_dir, co
                 reversal=config.get("reversal", False),
                 convert_to_tiff=config.get("convert_to_tiff", True),
                 icc_profile=config.get("color_profile", "adobe_rgb"),
-                preserve_metadata=config.get("embed_metadata", True),
-                base_ratios=config.get("base_ratios")
+                preserve_metadata=preserve_meta,
+                base_ratios=config.get("base_ratios"),
+                preloaded_image=composite_rgb,
+                source_metadata_path=source_meta
             )
         return (True, (float(r_mean), float(g_mean), float(b_mean)), capture.getvalue())
     except Exception as e:
