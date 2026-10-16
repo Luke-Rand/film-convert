@@ -209,6 +209,77 @@ class TestFilmBaseNeutralizationPicker(unittest.TestCase):
         self.assertEqual(res.returncode, 0)
         self.assertIn("--base-ratios", res.stdout)
 
+    def test_triplet_pipeline_no_double_neutralization(self):
+        """
+        Verify that worker_process_triplet_pipeline does not apply base_ratios a second time
+        in process_positives when neutralize=True already normalized the composite in process_triplet.
+        """
+        from batch_worker import worker_process_triplet_pipeline
+
+        h, w = 80, 80
+        # Film base rebate: R=50000, G=30000, B=15000 -> ratios (1.0, 0.6, 0.3)
+        # Neutral gray midtone patch (50% transmission relative to each channel's film base):
+        # R=25000, G=15000, B=7500 -> should invert to equal R, G, B in positive!
+        r_img = np.full((h, w), 50000, dtype=np.uint16)
+        g_img = np.full((h, w), 30000, dtype=np.uint16)
+        b_img = np.full((h, w), 15000, dtype=np.uint16)
+
+        r_img[25:55, 25:55] = 25000
+        g_img[25:55, 25:55] = 15000
+        b_img[25:55, 25:55] = 7500
+
+        # Add a dark shadow patch (10% transmission relative to film base) to anchor Dmax
+        r_img[15:22, 15:22] = 5000
+        g_img[15:22, 15:22] = 3000
+        b_img[15:22, 15:22] = 1500
+
+        r_path = os.path.join(self.test_dir, "trip_R.tiff")
+        g_path = os.path.join(self.test_dir, "trip_G.tiff")
+        b_path = os.path.join(self.test_dir, "trip_B.tiff")
+        tifffile.imwrite(r_path, r_img)
+        tifffile.imwrite(g_path, g_img)
+        tifffile.imwrite(b_path, b_img)
+
+        comp_path = os.path.join(self.test_dir, "Frame_01_Composite.tiff")
+        pos_dir = os.path.join(self.test_dir, "Positives_Pipeline")
+
+        config = {
+            "neutralize": True,
+            "base_ratios": [1.0, 0.6, 0.3],
+            "clip": 0.0,
+            "gamma": 1.0,
+            "global_levels": True,
+            "margin": 0.05,
+            "scurve": 0.0,
+            "autocrop": False,
+            "monochrome": False,
+            "reversal": False,
+            "convert_to_tiff": True,
+            "embed_metadata": False,
+        }
+
+        success, _, logs = worker_process_triplet_pipeline(
+            group=[r_path, g_path, b_path],
+            composite_filepath=comp_path,
+            positives_dir=pos_dir,
+            config=config,
+        )
+        self.assertTrue(success, msg=logs)
+
+        pos_path = os.path.join(pos_dir, "Frame_01_Positive.tiff")
+        self.assertTrue(os.path.exists(pos_path))
+        pos_img = tifffile.imread(pos_path)
+
+        # Midtone patch [30:50, 30:50] had identical relative optical density across R, G, B.
+        # Without double-neutralization, R, G, B in the positive must remain neutral (equal).
+        mid_r = float(np.mean(pos_img[30:50, 30:50, 0]))
+        mid_g = float(np.mean(pos_img[30:50, 30:50, 1]))
+        mid_b = float(np.mean(pos_img[30:50, 30:50, 2]))
+
+        self.assertAlmostEqual(mid_r, mid_g, delta=500)
+        self.assertAlmostEqual(mid_g, mid_b, delta=500)
+
 
 if __name__ == '__main__':
     unittest.main()
+

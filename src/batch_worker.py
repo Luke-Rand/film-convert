@@ -83,20 +83,24 @@ def worker_process_triplet_pipeline(group, composite_filepath, positives_dir, co
     try:
         with contextlib.redirect_stdout(capture), contextlib.redirect_stderr(capture):
             preserve_meta = config.get("embed_metadata", True)
+            neutralize_base = config.get("neutralize", False)
+            base_ratios = config.get("base_ratios")
             source_meta = (group[1] if len(group) > 1 else group[0]) if (preserve_meta and group) else None
             # 1. Composite (returns in-memory 16-bit RGB array alongside channel means)
             (r_mean, g_mean, b_mean), composite_rgb = process_triplet(
                 group=group,
                 output_filepath=composite_filepath,
-                neutralize_base=config.get("neutralize", False),
+                neutralize_base=neutralize_base,
                 compress_tiff=config.get("compress_tiff", False),
                 align_channels=config.get("align_channels", False),
                 icc_profile=config.get("color_profile", "adobe_rgb"),
                 preserve_metadata=preserve_meta,
-                base_ratios=config.get("base_ratios"),
+                base_ratios=base_ratios,
                 return_image=True
             )
-            # 2. Invert composite directly from in-memory array without re-reading disk file
+            # 2. Invert composite directly from in-memory array without re-reading disk file.
+            # If neutralize_base ran in process_triplet, the composite channels are already
+            # normalized by base_ratios; do not apply base_ratios a second time in process_positives.
             process_positives(
                 input_path=composite_filepath,
                 output_dir=positives_dir,
@@ -113,7 +117,7 @@ def worker_process_triplet_pipeline(group, composite_filepath, positives_dir, co
                 convert_to_tiff=config.get("convert_to_tiff", True),
                 icc_profile=config.get("color_profile", "adobe_rgb"),
                 preserve_metadata=preserve_meta,
-                base_ratios=config.get("base_ratios"),
+                base_ratios=None if neutralize_base else base_ratios,
                 preloaded_image=composite_rgb,
                 source_metadata_path=source_meta
             )

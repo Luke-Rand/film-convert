@@ -163,5 +163,39 @@ class TestPerfConcurrency(unittest.TestCase):
         expected_pos = os.path.join(out_positives, "Frame_01_Positive.tiff")
         self.assertTrue(os.path.exists(expected_pos))
 
+    def test_frontend_es_modules_and_no_duplicate_functions(self):
+        """Verify ES module split (app.js, liveview.js, histogram.js, gallery.js, shortcuts.js) and single updateSliderVal."""
+        from web_ui import app
+
+        client = app.test_client()
+        index_res = client.get("/")
+        self.assertEqual(index_res.status_code, 200)
+        self.assertIn(b'type="module" src="/static/js/app.js"', index_res.data)
+
+        for mod in ["app.js", "liveview.js", "histogram.js", "gallery.js", "shortcuts.js"]:
+            res = client.get(f"/static/js/{mod}")
+            self.assertEqual(res.status_code, 200, f"Module {mod} failed to load")
+            text = res.data.decode("utf-8")
+            self.assertGreater(len(text), 100)
+            if mod == "app.js":
+                self.assertEqual(text.count("function updateSliderVal("), 1)
+            res.close()
+
+    def test_waitress_production_server_configuration(self):
+        """Verify run_production_server delegates to waitress.serve with thread pool sizing."""
+        from unittest.mock import patch
+        from web_ui import app, run_production_server
+
+        with patch("waitress.serve") as mock_serve:
+            run_production_server(host="127.0.0.1", port=5099, threads=24)
+            mock_serve.assert_called_once()
+            args, kwargs = mock_serve.call_args
+            self.assertIs(args[0], app)
+            self.assertEqual(kwargs["host"], "127.0.0.1")
+            self.assertEqual(kwargs["port"], 5099)
+            self.assertEqual(kwargs["threads"], 24)
+            self.assertEqual(kwargs["channel_timeout"], 300)
+
 if __name__ == '__main__':
     unittest.main()
+

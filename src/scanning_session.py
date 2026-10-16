@@ -123,10 +123,11 @@ def run_triplet_pipeline(dirs, is_mono, mono_chan, is_reversal=False, convert_to
                 
                 try:
                     source_meta = group[1] if len(group) > 1 else group[0]
+                    neutralize_base = (base_ratios is not None)
                     _, composite_rgb = process_triplet(
                         group=group, 
                         output_filepath=composite_filepath, 
-                        neutralize_base=(base_ratios is not None), 
+                        neutralize_base=neutralize_base, 
                         compress_tiff=False,
                         icc_profile=color_profile,
                         preserve_metadata=True,
@@ -150,7 +151,7 @@ def run_triplet_pipeline(dirs, is_mono, mono_chan, is_reversal=False, convert_to
                         convert_to_tiff=convert_to_tiff,
                         icc_profile=color_profile,
                         preserve_metadata=True,
-                        base_ratios=base_ratios,
+                        base_ratios=None if neutralize_base else base_ratios,
                         preloaded_image=composite_rgb,
                         source_metadata_path=source_meta
                     )
