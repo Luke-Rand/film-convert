@@ -1317,16 +1317,40 @@ def browse_directory():
             "folders": []
         }), 400
 
+def run_production_server(host: str = "127.0.0.1", port: int = 5001, threads: int = 16):
+    """
+    Runs the Flask application using the production Waitress WSGI server with an explicit
+    thread pool (`threads=16`) so long-lived SSE (`/api/stream`) and Live View requests
+    never starve concurrent API control requests. Falls back to threaded Werkzeug if Waitress
+    is unavailable.
+    """
+    import logging
+    try:
+        from waitress import serve
+        logging.getLogger('waitress').setLevel(logging.WARNING)
+        logging.getLogger('waitress.queue').setLevel(logging.ERROR)
+        serve(
+            app,
+            host=host,
+            port=port,
+            threads=threads,
+            channel_timeout=300,
+            recv_bytes=65536,
+            send_bytes=65536,
+        )
+    except ImportError:
+        logging.getLogger('werkzeug').setLevel(logging.WARNING)
+        app.run(host=host, port=port, debug=False, threaded=True)
+
+
 if __name__ == "__main__":
     multiprocessing.freeze_support()
-    # Start local Flask server
     host = os.environ.get("HOST", "127.0.0.1")
     port = int(os.environ.get("PORT", 5001))
+    threads = int(os.environ.get("WEB_THREADS", 16))
     print("\n" + "="*60)
     print("STARTING FILM-CONVERT WEB UI")
     print(f"Open http://{host}:{port} in your browser.")
     print("="*60 + "\n")
-    # Suppress per-request access log noise from Werkzeug (e.g. every /api/camera/frame line)
-    import logging
-    logging.getLogger('werkzeug').setLevel(logging.WARNING)
-    app.run(host=host, port=port, debug=False)
+    run_production_server(host=host, port=port, threads=threads)
+

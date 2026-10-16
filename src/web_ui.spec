@@ -76,7 +76,9 @@ a = Analysis(
         'camera_backends',
         'camera_backends.base',
         'camera_backends.simulated',
-        'camera_backends.windows_bridge'
+        'camera_backends.windows_bridge',
+        'camera_backends.gphoto2_backend',
+        'waitress'
     ],
     hookspath=[],
     hooksconfig={},

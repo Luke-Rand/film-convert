@@ -181,12 +181,13 @@ def reprocess_roll(roll_dir, args):
             start_t = time.time()
             try:
                 preserve_meta = not args.no_metadata
+                neutralize_base = args.neutralize or (args.base_ratios is not None)
                 source_meta = (group_full_paths[1] if len(group_full_paths) > 1 else group_full_paths[0]) if preserve_meta else None
                 # 1. Composite triplet with sub-pixel alignment & grain-safe demosaicing (in-memory handoff)
                 _, composite_rgb = process_triplet(
                     group=group_full_paths,
                     output_filepath=comp_path,
-                    neutralize_base=args.neutralize or (args.base_ratios is not None),
+                    neutralize_base=neutralize_base,
                     compress_tiff=args.compress,
                     align_channels=not args.no_align,
                     icc_profile=args.icc_profile,
@@ -212,7 +213,7 @@ def reprocess_roll(roll_dir, args):
                     convert_to_tiff=True,
                     icc_profile=args.icc_profile,
                     preserve_metadata=preserve_meta,
-                    base_ratios=args.base_ratios,
+                    base_ratios=None if neutralize_base else args.base_ratios,
                     preloaded_image=composite_rgb,
                     source_metadata_path=source_meta
                 )
