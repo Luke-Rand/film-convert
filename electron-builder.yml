@@ -34,3 +34,8 @@ mac:
 win:
   target: nsis
   icon: assets/icon.png
+linux:
+  target:
+    - AppImage
+  category: Graphics
+  icon: assets/icon.png
