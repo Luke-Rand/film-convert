@@ -1,3 +1,4 @@
+import os
 import io
 import time
 from typing import Dict, Any, Optional
@@ -9,8 +10,9 @@ from .base import BaseCameraBackend
 class SimulatedCameraBackend(BaseCameraBackend):
     """Simulated camera backend that generates synthetic frames and mock captures."""
 
-    def __init__(self, log_callback=None):
+    def __init__(self, log_callback=None, session_manager=None):
         super().__init__(log_callback=log_callback)
+        self.session_manager = session_manager
         self.camera_connected = True
         self.connection_state = "simulated"
         self.model_name = "Simulated Camera"
@@ -22,8 +24,10 @@ class SimulatedCameraBackend(BaseCameraBackend):
         self.camera_choices = {
             "iso": ["100", "200", "400", "800", "1600", "3200", "6400"],
             "aperture": ["f/2.8", "f/4.0", "f/5.6", "f/8.0", "f/11", "f/16", "f/22"],
-            "shutterspeed": ["1/250", "1/125", "1/60", "1/30", "1/15", "1/8", "1/4", "1/2", "1s", "2s"]
+            "shutterspeed": ["1/250", "1/125", "1/60", "1/30", "1/15", "1/8", "f/1/4", "1/4", "1/2", "1s", "2s"]
         }
+        # Normalize shutter choices
+        self.camera_choices["shutterspeed"] = ["1/250", "1/125", "1/60", "1/30", "1/15", "1/8", "1/4", "1/2", "1s", "2s"]
         self.mock_leds = {"red": 255, "green": 255, "blue": 255}
         self.is_monochrome = False
 
@@ -43,6 +47,9 @@ class SimulatedCameraBackend(BaseCameraBackend):
         self.is_monochrome = mono
 
     def grab_preview_frame(self) -> Optional[bytes]:
+        is_mono = self.is_monochrome
+        if self.session_manager and hasattr(self.session_manager, "config"):
+            is_mono = self.session_manager.config.get("monochrome", is_mono)
         return self._generate_simulated_frame(
             iso=self.camera_settings.get("iso", "400"),
             aperture=self.camera_settings.get("aperture", "f/8.0"),
@@ -50,14 +57,49 @@ class SimulatedCameraBackend(BaseCameraBackend):
             r_led=self.mock_leds.get("red", 255),
             g_led=self.mock_leds.get("green", 255),
             b_led=self.mock_leds.get("blue", 255),
-            is_monochrome=self.is_monochrome
+            is_monochrome=is_mono
         )
 
     def capture_image(self, autofocus: bool = True) -> Optional[str]:
-        # Simulated capture creates a mock raw/tif test file if needed or returns synthetic path
-        self.log("Executing simulated capture...")
-        time.sleep(0.5)
-        return None
+        self.log("Simulating capture...")
+        time.sleep(0.8)  # simulate shutter release sound/lag
+        return self._simulate_raw_capture()
+
+    def _simulate_raw_capture(self) -> str:
+        target_dir = None
+        if self.session_manager and getattr(self.session_manager, 'dirs', None):
+            target_dir = self.session_manager.dirs.get("negatives")
+
+        if not target_dir or not os.path.exists(target_dir):
+            target_dir = os.path.abspath("./negatives_download")
+            os.makedirs(target_dir, exist_ok=True)
+
+        frame_num = 1
+        if self.session_manager and hasattr(self.session_manager, 'get_next_frame_number'):
+            frame_num = self.session_manager.get_next_frame_number(target_dir)
+
+        color_suffix = "white"
+        r, g, b = self.mock_leds["red"], self.mock_leds["green"], self.mock_leds["blue"]
+        if r > g and r > b:
+            color_suffix = "red"
+        elif g > r and g > b:
+            color_suffix = "green"
+        elif b > r and b > g:
+            color_suffix = "blue"
+
+        local_name = f"Frame_{frame_num:02d}_Capture_{color_suffix}.cr3"
+        local_path = os.path.join(target_dir, local_name)
+
+        with open(local_path, "w") as f:
+            f.write("MOCK RAW CAPTURE DATA\n")
+            f.write(f"Frame: {frame_num}\n")
+            f.write(f"Color: {color_suffix}\n")
+            f.write(f"ISO: {self.camera_settings['iso']}\n")
+            f.write(f"Aperture: {self.camera_settings['aperture']}\n")
+            f.write(f"Shutter: {self.camera_settings['shutterspeed']}\n")
+
+        self.log(f"Simulated capture saved: {local_name}")
+        return local_path
 
     def step_focus(self, direction: str, coarse: bool = False) -> bool:
         self.log(f"Simulated focus stepped: {direction} (coarse={coarse})")

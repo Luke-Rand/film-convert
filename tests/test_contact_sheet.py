@@ -170,3 +170,58 @@ def test_contact_sheet_flask_api(client, sample_session_dir):
     dl_resp = client.get(f'/api/contact_sheet/download?path={pdf_item["path"]}&download=1')
     assert dl_resp.status_code == 200
     assert dl_resp.headers["Content-Type"] == "application/pdf"
+
+
+def test_batch_metadata_single_exiftool_invocation(sample_session_dir, monkeypatch):
+    import subprocess
+    import json
+    import contact_sheet
+
+    calls = []
+
+    def fake_find_exiftool():
+        return "/usr/bin/exiftool"
+
+    def fake_run(cmd, *args, **kwargs):
+        calls.append(cmd)
+        files = [arg for arg in cmd[1:] if not arg.startswith("-")]
+        payload = [
+            {
+                "SourceFile": f,
+                "ImageWidth": 600,
+                "ImageHeight": 400,
+                "ExposureTime": "1/125",
+                "FNumber": 8.0,
+                "ISO": 200,
+                "FocalLength": "90.0 mm",
+                "Model": "Canon EOS R5",
+                "LensModel": "RF 100mm F2.8 L",
+                "DateTimeOriginal": "2026:10:16 10:00:00"
+            }
+            for f in files
+        ]
+
+        class DummyResult:
+            returncode = 0
+            stdout = json.dumps(payload)
+            stderr = ""
+
+        return DummyResult()
+
+    monkeypatch.setattr(contact_sheet, "find_exiftool", fake_find_exiftool)
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    res = generate_contact_sheet(
+        session_dir=sample_session_dir,
+        session_name="BatchTest-135-01",
+        columns=6,
+        export_pdf=False,
+        export_jpeg=True
+    )
+
+    assert res["success"] is True
+    assert res["frame_count"] == 6
+    # Should invoke exiftool exactly ONCE in batch mode (-j) across all 6 frames, not 2*6=12 times
+    assert len(calls) == 1
+    assert "-j" in calls[0]
+
