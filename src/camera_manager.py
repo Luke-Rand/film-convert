@@ -12,13 +12,14 @@ def _configure_gphoto2_env():
     if 'CAMLIBS' not in os.environ or 'IOLIBS' not in os.environ:
         search_roots = []
         if hasattr(sys, '_MEIPASS'):
+            search_roots.append(os.path.join(sys._MEIPASS, 'gphoto2', 'libgphoto2'))
             search_roots.append(os.path.join(sys._MEIPASS, 'gphoto2'))
             search_roots.append(sys._MEIPASS)
 
         repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         search_roots.append(os.path.join(repo_root, 'src', 'vendor', 'gphoto2_mac'))
         search_roots.append(os.path.join(repo_root, 'vendor', 'gphoto2_mac'))
-        search_roots.extend(['/opt/homebrew/lib', '/usr/local/lib', '/usr/lib'])
+        search_roots.extend(['/opt/homebrew/lib', '/usr/local/lib', '/usr/lib64', '/usr/lib'])
 
         for root in search_roots:
             if not os.path.exists(root):
@@ -38,7 +39,11 @@ def _configure_gphoto2_env():
                 if os.path.isdir(direct_io) and (os.path.exists(os.path.join(direct_io, 'usb1.so')) or os.path.exists(os.path.join(direct_io, 'disk.so'))):
                     os.environ['IOLIBS'] = direct_io
                 else:
-                    matches = glob.glob(os.path.join(root, 'libgphoto2_port', '*')) + glob.glob(os.path.join(root, 'iolibs', '*'))
+                    matches = (
+                        glob.glob(os.path.join(root, 'libgphoto2_port', '*'))
+                        + glob.glob(os.path.join(root, 'libgphoto2', 'iolibs'))
+                        + glob.glob(os.path.join(root, 'iolibs', '*'))
+                    )
                     for m in sorted(matches, reverse=True):
                         if os.path.isdir(m) and (os.path.exists(os.path.join(m, 'usb1.so')) or os.path.exists(os.path.join(m, 'disk.so'))):
                             os.environ['IOLIBS'] = m
@@ -510,6 +515,12 @@ class CameraManager:
                             subprocess.run(["killall", "-9", "ptpcamerad"], capture_output=True)
                             time.sleep(0.15)
                             subprocess.run(["killall", "-STOP", "ptpcamerad"], capture_output=True)
+                        elif sys.platform.startswith('linux'):
+                            try:
+                                subprocess.run(["gio", "mount", "-s", "gphoto2"], capture_output=True, timeout=2)
+                                subprocess.run(["killall", "-9", "gvfsd-gphoto2", "gvfs-gphoto2-volume-monitor"], capture_output=True, timeout=2)
+                            except Exception:
+                                pass
                         time.sleep(0.3)
                 if camera:
                     break
