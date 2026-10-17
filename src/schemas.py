@@ -169,3 +169,33 @@ class CameraMockLedsSchema(BaseModel):
     red: int = Field(default=255, ge=0, le=255, description="Red LED brightness (0-255)")
     green: int = Field(default=255, ge=0, le=255, description="Green LED brightness (0-255)")
     blue: int = Field(default=255, ge=0, le=255, description="Blue LED brightness (0-255)")
+
+
+class LoadSessionSchema(BaseModel):
+    """Payload schema for loading/resuming an existing scanning session directory."""
+    session_dir: str = Field(..., min_length=1, description="Path to an existing session directory")
+
+    model_config = {
+        "extra": "ignore"
+    }
+
+
+class SessionManifestSchema(BaseModel):
+    """Schema for session.json sidecar manifest stored inside each roll directory."""
+    version: str = Field(default="1.0", description="Manifest schema version")
+    session_name: str = Field(..., description="Session folder name")
+    stock: str = Field(default="FilmStock", description="Film stock identifier")
+    format: str = Field(default="135", description="Film format (135, 120, etc.)")
+    roll: str = Field(default="01", description="Roll index string")
+    mode: Literal["triplet", "single"] = Field(default="triplet", description="Scanning pipeline mode")
+    created_at: str = Field(..., description="ISO-8601 creation timestamp")
+    updated_at: str = Field(..., description="ISO-8601 last update timestamp")
+    frame_count: int = Field(default=0, ge=0, description="Number of processed positive frames")
+    config: SessionConfigSchema = Field(default_factory=SessionConfigSchema, description="Full session processing configuration")
+    sampled_rgb: Optional[List[int]] = Field(default=None, description="Last sampled film base rebate RGB (0-255)")
+    last_triplet_means: Optional[dict] = Field(default=None, description="Last processed triplet channel means")
+
+    model_config = {
+        "extra": "ignore"
+    }
+

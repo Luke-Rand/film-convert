@@ -397,7 +397,29 @@ def generate_contact_sheet(
 
     total_frames = len(scan_files)
 
-    # Determine roll identifiers
+    # Determine roll identifiers and config from session.json manifest if available
+    manifest_data = None
+    try:
+        try:
+            from session_manifest import read_session_manifest
+        except ImportError:
+            from src.session_manifest import read_session_manifest
+        manifest_data = read_session_manifest(session_dir)
+    except Exception:
+        manifest_data = None
+
+    if manifest_data:
+        if not session_name:
+            session_name = manifest_data.get("session_name", "")
+        if not film_stock:
+            film_stock = manifest_data.get("stock", "")
+        if not film_format:
+            film_format = manifest_data.get("format", "")
+        if not roll_number:
+            roll_number = manifest_data.get("roll", "")
+        if config is None and isinstance(manifest_data.get("config"), dict):
+            config = manifest_data["config"]
+
     if not session_name:
         session_name = os.path.basename(session_dir)
 

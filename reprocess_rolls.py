@@ -20,6 +20,7 @@ from compositor import process_triplet
 from inverter import process_positives
 from contact_sheet import generate_contact_sheet
 from batch_worker import worker_process_triplet_pipeline
+from session_manifest import read_session_manifest, write_session_manifest
 
 SUPPORTED_EXTS = {'.cr3', '.raf', '.nef', '.arw', '.rw2', '.nrw', '.dcr'}
 
@@ -84,6 +85,59 @@ def discover_rolls(target_path):
 
     return discovered
 
+def _resolve_effective_config(roll_dir, args):
+    """Merges session.json manifest config (if present) with any explicit CLI arguments."""
+    manifest = read_session_manifest(roll_dir)
+    manifest_cfg = (manifest.get("config") or {}) if manifest else {}
+    explicit = getattr(args, "_explicit", set())
+
+    def pick(arg_name, cfg_key, default_val):
+        if arg_name in explicit:
+            return getattr(args, arg_name, default_val)
+        if cfg_key in manifest_cfg and manifest_cfg[cfg_key] is not None:
+            return manifest_cfg[cfg_key]
+        return getattr(args, arg_name, default_val)
+
+    base_ratios = args.base_ratios if ("base_ratios" in explicit or args.base_ratios is not None) else manifest_cfg.get("base_ratios")
+    neutralize = (args.neutralize if "neutralize" in explicit else manifest_cfg.get("neutralize", args.neutralize)) or (base_ratios is not None)
+    compress = pick("compress", "compress_tiff", False)
+    align_channels = (not args.no_align) if "no_align" in explicit else manifest_cfg.get("align_channels", not args.no_align)
+    icc_profile = pick("icc_profile", "color_profile", "adobe_rgb")
+    preserve_metadata = (not args.no_metadata) if "no_metadata" in explicit else manifest_cfg.get("embed_metadata", not args.no_metadata)
+    clip = pick("clip", "clip", 0.1)
+    gamma = pick("gamma", "gamma", 2.2)
+    global_levels = pick("global_levels", "global_levels", False)
+    margin = pick("margin", "margin", 0.03)
+    scurve = pick("scurve", "scurve", 0.0)
+    autocrop = pick("autocrop", "autocrop", False)
+    monochrome = pick("monochrome", "monochrome", False)
+    monochrome_channel = pick("monochrome_channel", "monochrome_channel", "luminance")
+    reversal = pick("reversal", "reversal", False)
+    contact_sheet_columns = pick("contact_sheet_columns", "contact_sheet_columns", 6)
+    contact_sheet_theme = manifest_cfg.get("contact_sheet_theme", "dark")
+
+    return manifest, {
+        "neutralize": bool(neutralize),
+        "base_ratios": list(base_ratios) if base_ratios is not None else None,
+        "compress_tiff": bool(compress),
+        "align_channels": bool(align_channels),
+        "color_profile": str(icc_profile),
+        "embed_metadata": bool(preserve_metadata),
+        "clip": float(clip),
+        "gamma": float(gamma),
+        "global_levels": bool(global_levels),
+        "margin": float(margin),
+        "scurve": float(scurve),
+        "autocrop": bool(autocrop),
+        "monochrome": bool(monochrome),
+        "monochrome_channel": str(monochrome_channel),
+        "reversal": bool(reversal),
+        "convert_to_tiff": True,
+        "auto_contact_sheet": bool(getattr(args, "contact_sheet", True)),
+        "contact_sheet_columns": int(contact_sheet_columns),
+        "contact_sheet_theme": str(contact_sheet_theme)
+    }
+
 def reprocess_roll(roll_dir, args):
     roll_name = os.path.basename(roll_dir)
     print(f"\n{'='*70}")
@@ -96,12 +150,16 @@ def reprocess_roll(roll_dir, args):
         print(f"  -> No RAW files found in {roll_dir}. Skipping.\n")
         return 0
 
+    manifest, eff = _resolve_effective_config(roll_dir, args)
+    if manifest:
+        print(f"  📋 Loaded session manifest (session.json) for '{manifest.get('session_name', roll_name)}'")
+
     positives_dir = os.path.join(roll_dir, 'positives')
     os.makedirs(positives_dir, exist_ok=True)
     
-    # Collect all RAW files
+    # Collect all RAW files and sort by (frame_number, filename)
     raw_files = [f for f in os.listdir(raw_source_dir) if os.path.splitext(f)[1].lower() in SUPPORTED_EXTS]
-    raw_files.sort(key=extract_frame_num)
+    raw_files.sort(key=lambda f: (extract_frame_num(f), f.lower()))
     
     total_raws = len(raw_files)
     num_frames = total_raws // 3
@@ -113,24 +171,6 @@ def reprocess_roll(roll_dir, args):
     
     successful_frames = 0
     max_workers = getattr(args, "workers", None) or min(4, max(1, (os.cpu_count() or 2) - 1))
-    pipeline_config = {
-        "neutralize": args.neutralize or (args.base_ratios is not None),
-        "compress_tiff": args.compress,
-        "align_channels": not args.no_align,
-        "color_profile": args.icc_profile,
-        "embed_metadata": not args.no_metadata,
-        "base_ratios": args.base_ratios,
-        "clip": args.clip,
-        "gamma": args.gamma,
-        "global_levels": args.global_levels,
-        "margin": args.margin,
-        "scurve": args.scurve,
-        "autocrop": args.autocrop,
-        "monochrome": args.monochrome,
-        "monochrome_channel": args.monochrome_channel,
-        "reversal": args.reversal,
-        "convert_to_tiff": True,
-    }
 
     if max_workers > 1 and num_frames > 1:
         ctx = multiprocessing.get_context("spawn")
@@ -139,60 +179,58 @@ def reprocess_roll(roll_dir, args):
             for i in range(0, total_raws - 2, 3):
                 group_files = raw_files[i:i+3]
                 frame_idx = (i // 3) + 1
-                next_num = extract_frame_num(group_files[-1]) + 1
-                comp_name = f"Frame_{next_num:02d}_Composite.dng"
+                comp_name = f"Frame_{frame_idx:02d}_Composite.dng"
                 comp_path = os.path.join(raw_source_dir, comp_name)
                 group_full_paths = [os.path.join(raw_source_dir, f) for f in group_files]
-                print(f"[{frame_idx:02d}/{num_frames:02d}] Queueing Frame {next_num:02d} ({', '.join(group_files)})...")
+                print(f"[{frame_idx:02d}/{num_frames:02d}] Queueing Frame {frame_idx:02d} ({', '.join(group_files)})...")
                 fut = executor.submit(
                     worker_process_triplet_pipeline,
                     group=group_full_paths,
                     composite_filepath=comp_path,
                     positives_dir=positives_dir,
-                    config=pipeline_config,
+                    config=eff,
                 )
-                futures[fut] = (frame_idx, next_num)
+                futures[fut] = frame_idx
 
             for fut in as_completed(futures):
-                frame_idx, next_num = futures[fut]
+                frame_idx = futures[fut]
                 try:
                     success, result, worker_logs = fut.result()
                     if worker_logs:
                         print(worker_logs.strip())
                     if success:
-                        print(f"  -> [{frame_idx:02d}/{num_frames:02d}] Frame {next_num:02d} converted successfully\n")
+                        print(f"  -> [{frame_idx:02d}/{num_frames:02d}] Frame {frame_idx:02d} converted successfully\n")
                         successful_frames += 1
                     else:
-                        print(f"  -> ERROR processing Frame {next_num:02d}: {result}\n")
+                        print(f"  -> ERROR processing Frame {frame_idx:02d}: {result}\n")
                 except Exception as e:
-                    print(f"  -> ERROR processing Frame {next_num:02d}: {e}\n")
+                    print(f"  -> ERROR processing Frame {frame_idx:02d}: {e}\n")
     else:
         for i in range(0, total_raws - 2, 3):
             group_files = raw_files[i:i+3]
             frame_idx = (i // 3) + 1
             
-            next_num = extract_frame_num(group_files[-1]) + 1
-            comp_name = f"Frame_{next_num:02d}_Composite.dng"
+            comp_name = f"Frame_{frame_idx:02d}_Composite.dng"
             comp_path = os.path.join(raw_source_dir, comp_name)
             
-            print(f"[{frame_idx:02d}/{num_frames:02d}] Processing Frame {next_num:02d} ({', '.join(group_files)})...")
+            print(f"[{frame_idx:02d}/{num_frames:02d}] Processing Frame {frame_idx:02d} ({', '.join(group_files)})...")
             group_full_paths = [os.path.join(raw_source_dir, f) for f in group_files]
             
             start_t = time.time()
             try:
-                preserve_meta = not args.no_metadata
-                neutralize_base = args.neutralize or (args.base_ratios is not None)
+                preserve_meta = eff["embed_metadata"]
+                neutralize_base = eff["neutralize"]
                 source_meta = (group_full_paths[1] if len(group_full_paths) > 1 else group_full_paths[0]) if preserve_meta else None
                 # 1. Composite triplet with sub-pixel alignment & grain-safe demosaicing (in-memory handoff)
                 _, composite_rgb = process_triplet(
                     group=group_full_paths,
                     output_filepath=comp_path,
                     neutralize_base=neutralize_base,
-                    compress_tiff=args.compress,
-                    align_channels=not args.no_align,
-                    icc_profile=args.icc_profile,
+                    compress_tiff=eff["compress_tiff"],
+                    align_channels=eff["align_channels"],
+                    icc_profile=eff["color_profile"],
                     preserve_metadata=preserve_meta,
-                    base_ratios=args.base_ratios,
+                    base_ratios=eff["base_ratios"],
                     return_image=True
                 )
                 
@@ -200,20 +238,20 @@ def reprocess_roll(roll_dir, args):
                 process_positives(
                     input_path=comp_path,
                     output_dir=positives_dir,
-                    clip=args.clip,
-                    gamma=args.gamma,
-                    compress_tiff=args.compress,
-                    global_levels=args.global_levels,
-                    ignore_margin=args.margin,
-                    scurve=args.scurve,
-                    autocrop=args.autocrop,
-                    monochrome=args.monochrome,
-                    monochrome_channel=args.monochrome_channel,
-                    reversal=args.reversal,
+                    clip=eff["clip"],
+                    gamma=eff["gamma"],
+                    compress_tiff=eff["compress_tiff"],
+                    global_levels=eff["global_levels"],
+                    ignore_margin=eff["margin"],
+                    scurve=eff["scurve"],
+                    autocrop=eff["autocrop"],
+                    monochrome=eff["monochrome"],
+                    monochrome_channel=eff["monochrome_channel"],
+                    reversal=eff["reversal"],
                     convert_to_tiff=True,
-                    icc_profile=args.icc_profile,
+                    icc_profile=eff["color_profile"],
                     preserve_metadata=preserve_meta,
-                    base_ratios=None if neutralize_base else args.base_ratios,
+                    base_ratios=None if neutralize_base else eff["base_ratios"],
                     preloaded_image=composite_rgb,
                     source_metadata_path=source_meta
                 )
@@ -222,22 +260,27 @@ def reprocess_roll(roll_dir, args):
                 successful_frames += 1
                 
             except Exception as e:
-                print(f"  -> ERROR processing Frame {next_num:02d}: {e}\n")
+                print(f"  -> ERROR processing Frame {frame_idx:02d}: {e}\n")
 
-    if successful_frames > 0 and getattr(args, "contact_sheet", True):
+    # Persist updated session manifest
+    write_session_manifest(
+        session_dir=roll_dir,
+        session_name=(manifest.get("session_name") if manifest else None) or roll_name,
+        stock=manifest.get("stock") if manifest else None,
+        film_format=manifest.get("format") if manifest else None,
+        roll=manifest.get("roll") if manifest else None,
+        mode=(manifest.get("mode") if manifest else None) or "triplet",
+        config=eff
+    )
+
+    if successful_frames > 0 and eff["auto_contact_sheet"]:
         print(f"  -> Generating archival roll contact sheet...")
         try:
             cs_res = generate_contact_sheet(
                 session_dir=roll_dir,
-                columns=getattr(args, "contact_sheet_columns", 6),
-                theme="dark",
-                config={
-                    "gamma": args.gamma,
-                    "clip": args.clip,
-                    "scurve": args.scurve,
-                    "neutralize": args.neutralize,
-                    "color_profile": args.icc_profile
-                }
+                columns=eff["contact_sheet_columns"],
+                theme=eff["contact_sheet_theme"],
+                config=eff
             )
             if cs_res.get("success"):
                 print(f"  ✅ Contact sheet created: {cs_res.get('message')}")
@@ -285,6 +328,14 @@ def main():
     parser.set_defaults(contact_sheet=True)
     
     args = parser.parse_args()
+
+    # Track which CLI flags were explicitly provided by the user
+    explicit_dests = set()
+    for action in parser._actions:
+        for opt in action.option_strings:
+            if any(arg == opt or arg.startswith(opt + "=") for arg in sys.argv[1:]):
+                explicit_dests.add(action.dest)
+    args._explicit = explicit_dests
     
     rolls = discover_rolls(args.directory)
     if not rolls:

@@ -527,6 +527,32 @@ export function updateStatusUI(data) {
         }
         disableInputs(false);
 
+        // Sync inputs from server configuration if not active
+        if (document.activeElement.tagName !== 'INPUT') {
+            if (data.root_folder) {
+                const rootEl = document.getElementById('scanner-root-dir');
+                if (rootEl) rootEl.value = data.root_folder;
+            }
+            if (data.stock) {
+                const stockEl = document.getElementById('scanner-stock');
+                if (stockEl) stockEl.value = data.stock;
+            }
+            if (data.format) {
+                const fmtEl = document.getElementById('scanner-format');
+                if (fmtEl) fmtEl.value = data.format;
+            }
+            if (data.roll) {
+                const rollEl = document.getElementById('scanner-roll');
+                if (rollEl) rollEl.value = data.roll;
+            }
+            if (data.mode) {
+                const modeEl = document.getElementById('scanner-mode');
+                if (modeEl) modeEl.value = data.mode;
+            }
+        }
+        if (data.sampled_rgb !== undefined) {
+            window.activeFilmBaseRGB = data.sampled_rgb;
+        }
         if (data.config) {
             syncConfigToUI(data.config);
         }
@@ -556,6 +582,8 @@ export function disableInputs(disabled) {
     document.getElementById('scanner-roll').disabled = disabled;
     const scannerModeEl = document.getElementById('scanner-mode');
     if (scannerModeEl) scannerModeEl.disabled = disabled;
+    const loadSessionBtn = document.getElementById('btn-load-session');
+    if (loadSessionBtn) loadSessionBtn.disabled = disabled;
 
     document.getElementById('config-gamma').disabled = disabled;
     document.getElementById('config-clip').disabled = disabled;

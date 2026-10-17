@@ -1,10 +1,23 @@
 import os
+import re
 from pathlib import Path
 import numpy as np
 import tifffile
 import argparse
 import rawpy
 from tiff_writer import write_16bit_tiff
+
+def _format_positive_filename(filename: str, out_ext: str) -> str:
+    """Produces a clean positive filename, stripping any raw _Capture_<timestamp/color> suffix."""
+    base_name = os.path.splitext(filename)[0]
+    if "_Composite" in base_name:
+        return re.sub(r'_Composite.*$', '_Positive', base_name, flags=re.IGNORECASE) + out_ext
+    elif "_Capture" in base_name or "_capture" in base_name:
+        return re.sub(r'_Capture.*$', '_Positive', base_name, flags=re.IGNORECASE) + out_ext
+    elif base_name.startswith("Positive_"):
+        return base_name + out_ext
+    else:
+        return f"Positive_{base_name}" + out_ext
 
 def process_positives(input_path, output_dir=None, clip=0.1, gamma=2.2, compress_tiff=False, global_levels=False, ignore_margin=0.15, scurve=0.0, autocrop=False, monochrome=False, monochrome_channel="luminance", reversal=False, convert_to_tiff=True, icc_profile="adobe_rgb", preserve_metadata=True, base_ratios=None, preloaded_image=None, source_metadata_path=None):
     """
@@ -51,16 +64,7 @@ def process_positives(input_path, output_dir=None, clip=0.1, gamma=2.2, compress
             ext = os.path.splitext(filename)[1].lower()
 
             if not convert_to_tiff:
-                base_name = os.path.splitext(filename)[0]
-                if "_Composite" in base_name:
-                    out_filename = base_name.replace("_Composite", "_Positive") + ext
-                elif "_Capture" in base_name:
-                    out_filename = base_name.replace("_Capture", "_Positive") + ext
-                elif base_name.startswith("Positive_"):
-                    out_filename = base_name + ext
-                else:
-                    out_filename = f"Positive_{base_name}" + ext
-                    
+                out_filename = _format_positive_filename(filename, ext)
                 output_filepath = os.path.join(output_dir, out_filename)
                 import shutil
                 shutil.copy2(filepath, output_filepath)
@@ -139,16 +143,7 @@ def process_positives(input_path, output_dir=None, clip=0.1, gamma=2.2, compress
                 analysis_region = img_float[h_margin:h-h_margin, w_margin:w-w_margin]
 
             # Generate output filename (16-bit TIFF)
-            base_name = os.path.splitext(filename)[0]
-            if "_Composite" in base_name:
-                out_filename = base_name.replace("_Composite", "_Positive") + ".tiff"
-            elif "_Capture" in base_name:
-                out_filename = base_name.replace("_Capture", "_Positive") + ".tiff"
-            elif base_name.startswith("Positive_"):
-                out_filename = base_name + ".tiff"
-            else:
-                out_filename = f"Positive_{base_name}.tiff"
-                
+            out_filename = _format_positive_filename(filename, ".tiff")
             output_filepath = os.path.join(output_dir, out_filename)
 
             # --- STEP 2: FILM SENSITOMETRIC PROCESSING ---

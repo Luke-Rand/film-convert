@@ -8,6 +8,10 @@ import sys
 from compositor import process_triplet
 from inverter import process_positives
 from contact_sheet import generate_contact_sheet
+try:
+    from session_manifest import write_session_manifest
+except ImportError:
+    from src.session_manifest import write_session_manifest
 
 def setup_session():
     """Interactively gather session details and create necessary folders."""
@@ -66,12 +70,28 @@ def setup_session():
     
     for d in dirs.values():
         os.makedirs(d, exist_ok=True)
+
+    write_session_manifest(
+        session_dir=session_dir,
+        session_name=folder_name,
+        stock=stock,
+        film_format=fmt,
+        roll=roll,
+        mode=mode,
+        config={
+            "monochrome": is_monochrome,
+            "monochrome_channel": monochrome_channel,
+            "reversal": is_reversal,
+            "convert_to_tiff": convert_to_tiff,
+            "color_profile": color_profile
+        }
+    )
         
     print(f"\n✅ Session initialized at: {session_dir}")
     return dirs, mode, is_mono if 'is_mono' in locals() else is_monochrome, monochrome_channel, is_reversal, convert_to_tiff, color_profile
 
 def get_next_frame_number(dirs):
-    """Figures out the next available frame number by looking at existing files."""
+    """Figures out the next available frame number by looking at existing completed files (ignoring raw _Capture files)."""
     search_dirs = []
     for key in ['negatives', 'processed', 'positives']:
         d = dirs.get(key)
@@ -80,8 +100,12 @@ def get_next_frame_number(dirs):
             
     max_num = 0
     for d in search_dirs:
+        if not os.path.exists(d):
+            continue
         for entry in os.listdir(d):
             if entry.startswith("Frame_"):
+                if "_capture" in entry.lower():
+                    continue
                 try:
                     parts = entry.split('_')
                     if len(parts) > 1:
