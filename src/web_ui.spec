@@ -48,36 +48,53 @@ win_vendor_bridge = os.path.abspath('src/vendor/camera_bridge_win')
 if os.path.isdir(win_vendor_bridge):
     datas.append((win_vendor_bridge, 'camera_bridge'))
 
+hiddenimports = [
+    'flask',
+    'numpy',
+    'scipy',
+    'scipy.fft',
+    'rawpy',
+    'tifffile',
+    'piexif',
+    'PIL',
+    'PIL.Image',
+    'PIL.ImageDraw',
+    'PIL.ImageFont',
+    'PIL.PdfImagePlugin',
+    'multiprocessing',
+    'concurrent.futures',
+    'batch_worker',
+    'contact_sheet',
+    'pydantic',
+    'pydantic_core',
+    'schemas',
+    'camera_backends',
+    'camera_backends.base',
+    'camera_backends.simulated',
+    'camera_backends.windows_bridge'
+]
+
+# 3. Package python-gphoto2 bindings and bundled libgphoto2 drivers (Linux / macOS)
+try:
+    import gphoto2 as _gp
+    from PyInstaller.utils.hooks import collect_submodules
+    hiddenimports.extend(collect_submodules('gphoto2'))
+    gp_pkg_dir = os.path.dirname(_gp.__file__)
+    gp_lib_dir = os.path.join(gp_pkg_dir, 'libgphoto2')
+    if os.path.isdir(gp_lib_dir):
+        datas.append((gp_lib_dir, os.path.join('gphoto2', 'libgphoto2')))
+    gp_libs_sibling = os.path.join(os.path.dirname(gp_pkg_dir), 'gphoto2.libs')
+    if os.path.isdir(gp_libs_sibling):
+        datas.append((gp_libs_sibling, 'gphoto2.libs'))
+except ImportError:
+    pass
+
 a = Analysis(
     ['web_ui.py'],
     pathex=['src'],
     binaries=binaries,
     datas=datas,
-    hiddenimports=[
-        'flask',
-        'numpy',
-        'scipy',
-        'scipy.fft',
-        'rawpy',
-        'tifffile',
-        'piexif',
-        'PIL',
-        'PIL.Image',
-        'PIL.ImageDraw',
-        'PIL.ImageFont',
-        'PIL.PdfImagePlugin',
-        'multiprocessing',
-        'concurrent.futures',
-        'batch_worker',
-        'contact_sheet',
-        'pydantic',
-        'pydantic_core',
-        'schemas',
-        'camera_backends',
-        'camera_backends.base',
-        'camera_backends.simulated',
-        'camera_backends.windows_bridge'
-    ],
+    hiddenimports=hiddenimports,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
