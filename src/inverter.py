@@ -6,16 +6,17 @@ import argparse
 import rawpy
 from tiff_writer import write_16bit_tiff
 
-def process_positives(input_path, output_dir=None, clip=0.1, gamma=2.2, compress_tiff=False, global_levels=False, ignore_margin=0.15, scurve=0.0, autocrop=False, monochrome=False, monochrome_channel="luminance", reversal=False, convert_to_tiff=True, icc_profile="adobe_rgb", preserve_metadata=True, base_ratios=None):
+def process_positives(input_path, output_dir=None, clip=0.1, gamma=2.2, compress_tiff=False, global_levels=False, ignore_margin=0.15, scurve=0.0, autocrop=False, monochrome=False, monochrome_channel="luminance", reversal=False, convert_to_tiff=True, icc_profile="adobe_rgb", preserve_metadata=True, base_ratios=None, preloaded_image=None, source_metadata_path=None):
     """
     Processes 16-bit TIFF/DNG files: inverts (or normalizes positive reversal film scans), applies gamma/scurve, crops, and saves as 16-bit TIFF or True DNG with ICC profile and preserved metadata.
     If convert_to_tiff is False, the input RAW/image files are added directly to the positives folder without converting to TIFF.
+    If preloaded_image is provided for a single input_path, uses the in-memory 16-bit array directly without re-reading from disk.
     """
     # Find supported image files
     supported_exts = {'.tiff', '.tif', '.dng', '.cr3', '.raf', '.nef', '.arw', '.rw2', '.nrw', '.dcr'}
     image_files = []
     
-    if os.path.isfile(input_path):
+    if os.path.isfile(input_path) or (preloaded_image is not None and not os.path.isdir(input_path)):
         if os.path.splitext(input_path)[1].lower() in supported_exts:
             image_files.append(input_path)
         base_dir = os.path.dirname(input_path) or "."
@@ -66,10 +67,10 @@ def process_positives(input_path, output_dir=None, clip=0.1, gamma=2.2, compress
                 print(f"  -> Added RAW positive file directly to: {out_filename}\n")
                 continue
 
-            # Read file: use tifffile for Linear DNGs/TIFFs to avoid double-demosaicing grid artifacts,
-            # and rawpy with DHT demosaicing for camera RAW files to prevent AHD maze grid artifacts on grain.
-            img = None
-            if ext in ['.dng', '.tiff', '.tif']:
+            # Use in-memory preloaded image if available to eliminate redundant disk I/O;
+            # otherwise use tifffile for Linear DNGs/TIFFs and rawpy with DHT demosaicing for camera RAWs.
+            img = preloaded_image if (preloaded_image is not None and len(image_files) == 1) else None
+            if img is None and ext in ['.dng', '.tiff', '.tif']:
                 try:
                     with tifffile.TiffFile(filepath) as tif:
                         page = tif.pages[0]
@@ -320,7 +321,7 @@ def process_positives(input_path, output_dir=None, clip=0.1, gamma=2.2, compress
             final_img = img_float.astype(np.uint16)
             final_img = np.ascontiguousarray(final_img)
             
-            source_meta = filepath if preserve_metadata else None
+            source_meta = (source_metadata_path or filepath) if preserve_metadata else None
             write_16bit_tiff(
                 output_filepath,
                 final_img,

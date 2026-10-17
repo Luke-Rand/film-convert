@@ -129,7 +129,7 @@ def align_channel(ref, mov, channel_name=""):
     # Apply corrective sub-pixel Fourier phase shift (sub_dy, sub_dx)
     return fourier_shift_2d(mov, sub_dy, sub_dx)
 
-def process_triplet(group, output_filepath, neutralize_base=False, compress_tiff=False, align_channels=False, icc_profile="adobe_rgb", preserve_metadata=True, base_ratios=None):
+def process_triplet(group, output_filepath, neutralize_base=False, compress_tiff=False, align_channels=False, icc_profile="adobe_rgb", preserve_metadata=True, base_ratios=None, return_image=False):
     """Processes exactly 3 RAW files into a single 16-bit TIFF or True DNG composite with ICC profile and preserved metadata."""
     channels_data = {'red': None, 'green': None, 'blue': None}
     
@@ -276,18 +276,21 @@ def process_triplet(group, output_filepath, neutralize_base=False, compress_tiff
     composite_rgb = np.ascontiguousarray(composite_rgb)
     
     # Save composite using write_16bit_tiff (with ICC profile & metadata preservation)
-    source_meta = (group[1] if len(group) > 1 else group[0]) if preserve_metadata else None
-    write_16bit_tiff(
-        output_filepath,
-        composite_rgb,
-        is_monochrome=False,
-        compress=compress_tiff,
-        icc_profile=icc_profile,
-        source_metadata_path=source_meta
-    )
-    
-    print(f"  -> Saved composite to: {os.path.basename(output_filepath)}\n")
-    return float(r_mean), float(g_mean), float(b_mean)
+    if output_filepath:
+        source_meta = (group[1] if len(group) > 1 else group[0]) if preserve_metadata else None
+        write_16bit_tiff(
+            output_filepath,
+            composite_rgb,
+            is_monochrome=False,
+            compress=compress_tiff,
+            icc_profile=icc_profile,
+            source_metadata_path=source_meta
+        )
+        print(f"  -> Saved composite to: {os.path.basename(output_filepath)}\n")
+    means = (float(r_mean), float(g_mean), float(b_mean))
+    if return_image:
+        return means, composite_rgb
+    return means
 
 def get_next_frame_number(directory):
     """Finds the next frame number based on existing files."""

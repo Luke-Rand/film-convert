@@ -71,7 +71,9 @@ hiddenimports = [
     'camera_backends',
     'camera_backends.base',
     'camera_backends.simulated',
-    'camera_backends.windows_bridge'
+    'camera_backends.windows_bridge',
+    'camera_backends.gphoto2_backend',
+    'waitress'
 ]
 
 # 3. Package python-gphoto2 bindings and bundled libgphoto2 drivers (Linux / macOS)

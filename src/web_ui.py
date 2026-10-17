@@ -16,7 +16,7 @@ import numpy as np
 import tifffile
 from PIL import Image
 import multiprocessing
-from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures import ProcessPoolExecutor, as_completed
 
 from typing import Optional, Dict, Any, List, Tuple
 from pydantic import ValidationError
@@ -514,10 +514,11 @@ class SessionManager:
                     
                     os.makedirs(out_dir, exist_ok=True)
                     
+                    futures = {}
                     frame_number = 1
                     for i in range(0, total_files - 2, 3):
                         group = raw_files[i:i+3]
-                        self.log(f"Processing Frame {frame_number:02d} ({[os.path.basename(f) for f in group]}) in background worker...")
+                        self.log(f"Queueing Frame {frame_number:02d} ({[os.path.basename(f) for f in group]}) for parallel worker execution...")
                         output_filepath = os.path.join(out_dir, f"Frame_{frame_number:02d}_Composite.dng")
                         
                         future = executor.submit(
@@ -531,46 +532,71 @@ class SessionManager:
                             preserve_metadata=self.config.get("embed_metadata", True),
                             base_ratios=self.config.get("base_ratios")
                         )
+                        futures[future] = frame_number
+                        frame_number += 1
+                    
+                    for future in as_completed(futures):
+                        f_num = futures[future]
                         success, result, worker_logs = future.result()
                         if worker_logs:
                             for line in worker_logs.strip().splitlines():
                                 if line.strip():
                                     self.log(line)
                         if not success:
-                            raise Exception(f"Batch worker error: {result}")
-                        frame_number += 1
+                            raise Exception(f"Batch worker error on Frame {f_num:02d}: {result}")
                     
                     self.log("Batch compositing complete!")
                     
                 elif task_type == 'invert':
-                    # Invert composite images in background process
-                    self.log(f"Processing positive inversions for: {in_path} in background worker...")
-                    future = executor.submit(
-                        worker_process_positives,
-                        input_path=in_path,
-                        output_dir=None,  # let it auto-create subfolder Positives
-                        clip=self.config["clip"],
-                        gamma=self.config["gamma"],
-                        compress_tiff=self.config["compress_tiff"],
-                        global_levels=self.config["global_levels"],
-                        ignore_margin=self.config["margin"],
-                        scurve=self.config["scurve"],
-                        autocrop=self.config["autocrop"],
-                        monochrome=self.config.get("monochrome", False),
-                        monochrome_channel=self.config.get("monochrome_channel", "luminance"),
-                        reversal=self.config.get("reversal", False),
-                        convert_to_tiff=self.config.get("convert_to_tiff", True),
-                        icc_profile=self.config.get("color_profile", "adobe_rgb"),
-                        preserve_metadata=self.config.get("embed_metadata", True),
-                        base_ratios=self.config.get("base_ratios")
-                    )
-                    success, result, worker_logs = future.result()
-                    if worker_logs:
-                        for line in worker_logs.strip().splitlines():
-                            if line.strip():
-                                self.log(line)
-                    if not success:
-                        raise Exception(f"Batch worker error: {result}")
+                    # Invert composite images in background process pool
+                    self.log(f"Processing positive inversions for: {in_path} in background workers...")
+                    supported_invert_exts = {'.tiff', '.tif', '.dng', '.cr3', '.raf', '.nef', '.arw', '.rw2', '.nrw', '.dcr'}
+                    if os.path.isdir(in_path):
+                        image_files = sorted([
+                            os.path.join(in_path, f) for f in os.listdir(in_path)
+                            if os.path.isfile(os.path.join(in_path, f)) and os.path.splitext(f)[1].lower() in supported_invert_exts
+                        ])
+                        if os.path.basename(in_path).lower() == "negatives":
+                            out_dir = os.path.join(os.path.dirname(in_path), "Positives")
+                        else:
+                            out_dir = os.path.join(in_path, "Positives")
+                        os.makedirs(out_dir, exist_ok=True)
+                    else:
+                        image_files = [in_path]
+                        out_dir = None
+
+                    futures = {}
+                    for fpath in image_files:
+                        future = executor.submit(
+                            worker_process_positives,
+                            input_path=fpath,
+                            output_dir=out_dir,
+                            clip=self.config["clip"],
+                            gamma=self.config["gamma"],
+                            compress_tiff=self.config["compress_tiff"],
+                            global_levels=self.config["global_levels"],
+                            ignore_margin=self.config["margin"],
+                            scurve=self.config["scurve"],
+                            autocrop=self.config["autocrop"],
+                            monochrome=self.config.get("monochrome", False),
+                            monochrome_channel=self.config.get("monochrome_channel", "luminance"),
+                            reversal=self.config.get("reversal", False),
+                            convert_to_tiff=self.config.get("convert_to_tiff", True),
+                            icc_profile=self.config.get("color_profile", "adobe_rgb"),
+                            preserve_metadata=self.config.get("embed_metadata", True),
+                            base_ratios=self.config.get("base_ratios")
+                        )
+                        futures[future] = os.path.basename(fpath)
+
+                    for future in as_completed(futures):
+                        fname = futures[future]
+                        success, result, worker_logs = future.result()
+                        if worker_logs:
+                            for line in worker_logs.strip().splitlines():
+                                if line.strip():
+                                    self.log(line)
+                        if not success:
+                            raise Exception(f"Batch worker error on {fname}: {result}")
                     self.log("Batch inversion complete!")
                     
             except Exception as e:
@@ -1291,16 +1317,40 @@ def browse_directory():
             "folders": []
         }), 400
 
+def run_production_server(host: str = "127.0.0.1", port: int = 5001, threads: int = 16):
+    """
+    Runs the Flask application using the production Waitress WSGI server with an explicit
+    thread pool (`threads=16`) so long-lived SSE (`/api/stream`) and Live View requests
+    never starve concurrent API control requests. Falls back to threaded Werkzeug if Waitress
+    is unavailable.
+    """
+    import logging
+    try:
+        from waitress import serve
+        logging.getLogger('waitress').setLevel(logging.WARNING)
+        logging.getLogger('waitress.queue').setLevel(logging.ERROR)
+        serve(
+            app,
+            host=host,
+            port=port,
+            threads=threads,
+            channel_timeout=300,
+            recv_bytes=65536,
+            send_bytes=65536,
+        )
+    except ImportError:
+        logging.getLogger('werkzeug').setLevel(logging.WARNING)
+        app.run(host=host, port=port, debug=False, threaded=True)
+
+
 if __name__ == "__main__":
     multiprocessing.freeze_support()
-    # Start local Flask server
     host = os.environ.get("HOST", "127.0.0.1")
     port = int(os.environ.get("PORT", 5001))
+    threads = int(os.environ.get("WEB_THREADS", 16))
     print("\n" + "="*60)
     print("STARTING FILM-CONVERT WEB UI")
     print(f"Open http://{host}:{port} in your browser.")
     print("="*60 + "\n")
-    # Suppress per-request access log noise from Werkzeug (e.g. every /api/camera/frame line)
-    import logging
-    logging.getLogger('werkzeug').setLevel(logging.WARNING)
-    app.run(host=host, port=port, debug=False)
+    run_production_server(host=host, port=port, threads=threads)
+
