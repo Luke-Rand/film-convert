@@ -44,12 +44,12 @@ def worker_process_triplet(group, output_filepath, neutralize_base, compress_tif
 def worker_process_positives(input_path, output_dir, clip, gamma, compress_tiff, global_levels, ignore_margin, scurve, autocrop, monochrome, monochrome_channel, reversal, convert_to_tiff, icc_profile, preserve_metadata, base_ratios):
     """
     Executes process_positives in a background worker process.
-    Returns (success: bool, result: None, logs: str)
+    Returns (success: bool, result: Optional[str], logs: str)
     """
     capture = io.StringIO()
     try:
         with contextlib.redirect_stdout(capture), contextlib.redirect_stderr(capture):
-            process_positives(
+            out_paths = process_positives(
                 input_path=input_path,
                 output_dir=output_dir,
                 clip=clip,
@@ -67,7 +67,8 @@ def worker_process_positives(input_path, output_dir, clip, gamma, compress_tiff,
                 preserve_metadata=preserve_metadata,
                 base_ratios=base_ratios
             )
-        return (True, None, capture.getvalue())
+        saved_path = out_paths[0] if out_paths else None
+        return (True, saved_path, capture.getvalue())
     except Exception as e:
         capture.write(f"\nWorker Exception: {str(e)}\n{traceback.format_exc()}\n")
         return (False, str(e), capture.getvalue())

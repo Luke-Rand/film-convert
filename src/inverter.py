@@ -56,6 +56,7 @@ def process_positives(input_path, output_dir=None, clip=0.1, gamma=2.2, compress
     os.makedirs(output_dir, exist_ok=True)
 
     # Process files
+    output_filepaths = []
     for filepath in image_files:
         filename = Path(filepath).name
         print(f"Processing {filename}...")
@@ -68,6 +69,7 @@ def process_positives(input_path, output_dir=None, clip=0.1, gamma=2.2, compress
                 output_filepath = os.path.join(output_dir, out_filename)
                 import shutil
                 shutil.copy2(filepath, output_filepath)
+                output_filepaths.append(output_filepath)
                 print(f"  -> Added RAW positive file directly to: {out_filename}\n")
                 continue
 
@@ -325,6 +327,7 @@ def process_positives(input_path, output_dir=None, clip=0.1, gamma=2.2, compress
                 icc_profile=icc_profile,
                 source_metadata_path=source_meta
             )
+            output_filepaths.append(output_filepath)
             
             print(f"  -> Saved positive to: {out_filename}\n")
             
@@ -332,6 +335,7 @@ def process_positives(input_path, output_dir=None, clip=0.1, gamma=2.2, compress
             print(f"  -> ERROR processing {filename}: {e}\n")
             
     print("Inversion and normalization complete!")
+    return output_filepaths
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Invert, Normalize, and Gamma Correct 16-bit linear TIFF film scans.")

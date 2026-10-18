@@ -9,6 +9,7 @@ import {
 
 import {
     refreshFiles,
+    openLightbox,
 } from './gallery.js';
 
 import {
@@ -29,6 +30,8 @@ let systemStatus = 'idle';
 window.systemStatus = 'idle';
 let activeSessionDirs = {};
 let eventSource = null;
+let lastFrameData = null;
+let lastFrameViewMode = 'positive'; // 'positive' | 'negative'
 
 // ============================================================
 // TOOLTIP ENGINE
@@ -274,6 +277,18 @@ export function connectSSE() {
             }
         } catch (err) {
             console.error("Error parsing triplet_means SSE data:", err);
+        }
+    });
+
+    eventSource.addEventListener('frame_processed', (event) => {
+        try {
+            const data = JSON.parse(event.data);
+            updateLastFrameCard(data, true);
+            if (currentTab === 'gallery') {
+                refreshFiles();
+            }
+        } catch (err) {
+            console.error("Error parsing frame_processed SSE data:", err);
         }
     });
 
@@ -587,7 +602,100 @@ export function updateStatusUI(data) {
         }
     }
 
+    if (data.last_frame !== undefined) {
+        updateLastFrameCard(data.last_frame, false);
+    }
+
     syncMiniScanlightUI();
+}
+
+export function updateLastFrameCard(frameInfo, flash = false) {
+    lastFrameData = frameInfo || null;
+    window.lastFrameData = lastFrameData;
+
+    const card = document.getElementById('card-last-frame');
+    const badge = document.getElementById('last-frame-badge');
+    const toggleGroup = document.getElementById('last-frame-mode-toggle');
+    const btnPos = document.getElementById('btn-lf-positive');
+    const btnNeg = document.getElementById('btn-lf-negative');
+    const imgEl = document.getElementById('last-frame-img');
+    const emptyEl = document.getElementById('last-frame-empty');
+    const footerEl = document.getElementById('last-frame-footer');
+    const filenameEl = document.getElementById('last-frame-filename');
+
+    if (!card || !imgEl || !emptyEl) return;
+
+    if (!lastFrameData || !lastFrameData.positive_path) {
+        if (badge) {
+            badge.textContent = 'No frames yet';
+            badge.classList.remove('active');
+        }
+        if (toggleGroup) toggleGroup.style.display = 'none';
+        imgEl.style.display = 'none';
+        imgEl.src = '';
+        emptyEl.style.display = 'flex';
+        if (footerEl) footerEl.style.display = 'none';
+        return;
+    }
+
+    const frameNumStr = String(lastFrameData.frame_number || 1).padStart(2, '0');
+    const totalCount = lastFrameData.frame_count || lastFrameData.frame_number || 1;
+    if (badge) {
+        badge.textContent = `Frame #${frameNumStr} (${totalCount} total)`;
+        badge.classList.add('active');
+    }
+
+    const hasNegative = Boolean(lastFrameData.negative_path);
+    if (toggleGroup) {
+        toggleGroup.style.display = hasNegative ? 'flex' : 'none';
+    }
+    if (!hasNegative && lastFrameViewMode === 'negative') {
+        lastFrameViewMode = 'positive';
+    }
+
+    if (btnPos) btnPos.classList.toggle('active', lastFrameViewMode === 'positive');
+    if (btnNeg) btnNeg.classList.toggle('active', lastFrameViewMode === 'negative');
+
+    const activePath = (lastFrameViewMode === 'negative' && hasNegative)
+        ? lastFrameData.negative_path
+        : lastFrameData.positive_path;
+    const activeName = (lastFrameViewMode === 'negative' && hasNegative)
+        ? (lastFrameData.negative_name || 'Negative')
+        : (lastFrameData.positive_name || 'Positive');
+
+    const cacheBuster = lastFrameData.mtime ? `&t=${Math.floor(lastFrameData.mtime * 1000)}` : '';
+    imgEl.src = `/api/preview?path=${encodeURIComponent(activePath)}&w=600${cacheBuster}`;
+    imgEl.style.display = 'block';
+    emptyEl.style.display = 'none';
+
+    if (footerEl) footerEl.style.display = 'flex';
+    if (filenameEl) {
+        filenameEl.textContent = activeName;
+        filenameEl.title = activePath;
+    }
+
+    if (flash) {
+        card.classList.remove('frame-flash');
+        void card.offsetWidth;
+        card.classList.add('frame-flash');
+        setTimeout(() => card.classList.remove('frame-flash'), 1200);
+    }
+}
+
+export function setLastFrameViewMode(mode) {
+    if (mode !== 'positive' && mode !== 'negative') return;
+    lastFrameViewMode = mode;
+    updateLastFrameCard(lastFrameData, false);
+}
+
+export function openLastFrameInLightbox() {
+    if (!lastFrameData || !lastFrameData.positive_path) return;
+    const hasNegative = Boolean(lastFrameData.negative_path);
+    const useNeg = (lastFrameViewMode === 'negative' && hasNegative);
+    const path = useNeg ? lastFrameData.negative_path : lastFrameData.positive_path;
+    const name = useNeg ? (lastFrameData.negative_name || 'Negative') : (lastFrameData.positive_name || 'Positive');
+    const size = useNeg ? (lastFrameData.negative_size || 0) : (lastFrameData.positive_size || 0);
+    openLightbox(name, path, size);
 }
 
 export function disableInputs(disabled) {
@@ -932,6 +1040,9 @@ Object.assign(window, {
     toggleUiSection,
     toggleSidebar,
     updateStatusUI,
+    updateLastFrameCard,
+    setLastFrameViewMode,
+    openLastFrameInLightbox,
     disableInputs,
     syncConfigToUI,
     toggleMonitor,

@@ -89,6 +89,13 @@ class TestSessionManifest(unittest.TestCase):
         self.assertTrue(data["success"])
         self.assertEqual(data["manifest"]["stock"], "IlfordHP5")
 
+        os.makedirs(os.path.join(roll_dir, "positives"), exist_ok=True)
+        os.makedirs(os.path.join(roll_dir, "processed_raws"), exist_ok=True)
+        pos_file = os.path.join(roll_dir, "positives", "Frame_01_Positive.tiff")
+        neg_file = os.path.join(roll_dir, "processed_raws", "Frame_01_Composite.dng")
+        open(pos_file, "w").close()
+        open(neg_file, "w").close()
+
         # POST /api/session/load
         res_load = client.post("/api/session/load", json={"session_dir": roll_dir})
         self.assertEqual(res_load.status_code, 200)
@@ -96,6 +103,10 @@ class TestSessionManifest(unittest.TestCase):
         self.assertTrue(load_data["success"])
         self.assertEqual(load_data["manifest"]["root_dir"], os.path.abspath(self.test_dir))
         self.assertEqual(load_data["status_data"]["status"], "idle")
+        self.assertIsNotNone(load_data["status_data"]["last_frame"])
+        self.assertEqual(load_data["status_data"]["last_frame"]["frame_number"], 1)
+        self.assertEqual(load_data["status_data"]["last_frame"]["positive_name"], "Frame_01_Positive.tiff")
+        self.assertEqual(load_data["status_data"]["last_frame"]["negative_name"], "Frame_01_Composite.dng")
         self.assertEqual(global_session.session_name, "IlfordHP5-120-05")
         self.assertEqual(global_session.stock, "IlfordHP5")
         self.assertEqual(global_session.format, "120")

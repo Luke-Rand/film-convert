@@ -322,6 +322,9 @@ export function loadSessionFromPath(sessionPath) {
             if (m.config && typeof window.syncConfigToUI === 'function') {
                 window.syncConfigToUI(m.config);
             }
+            if (typeof window.updateLastFrameCard === 'function') {
+                window.updateLastFrameCard(m.last_frame || (data.status_data && data.status_data.last_frame) || null, false);
+            }
         }
         window.appendLogLine?.(`[Client] ${data.message}`);
         refreshFiles();
