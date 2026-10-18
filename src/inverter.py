@@ -6,6 +6,7 @@ import tifffile
 import argparse
 import rawpy
 from tiff_writer import write_16bit_tiff
+from metadata_preservation import resolve_fast_read_path, cache_camera_matrix_from_raw
 
 def _format_positive_filename(filename: str, out_ext: str) -> str:
     """Produces a clean positive filename, stripping any raw _Capture_<timestamp/color> suffix."""
@@ -36,7 +37,8 @@ def process_positives(input_path, output_dir=None, clip=0.1, gamma=2.2, compress
     elif os.path.isdir(input_path):
         image_files = [
             os.path.join(input_path, f) for f in os.listdir(input_path)
-            if os.path.isfile(os.path.join(input_path, f)) and os.path.splitext(f)[1].lower() in supported_exts
+            if not f.startswith('.') and not f.endswith('.part')
+            and os.path.isfile(os.path.join(input_path, f)) and os.path.splitext(f)[1].lower() in supported_exts
         ]
         base_dir = input_path
     else:
@@ -63,12 +65,13 @@ def process_positives(input_path, output_dir=None, clip=0.1, gamma=2.2, compress
         
         try:
             ext = os.path.splitext(filename)[1].lower()
+            fast_filepath = resolve_fast_read_path(filepath)
 
             if not convert_to_tiff:
                 out_filename = _format_positive_filename(filename, ext)
                 output_filepath = os.path.join(output_dir, out_filename)
                 import shutil
-                shutil.copy2(filepath, output_filepath)
+                shutil.copy2(fast_filepath, output_filepath)
                 output_filepaths.append(output_filepath)
                 print(f"  -> Added RAW positive file directly to: {out_filename}\n")
                 continue
@@ -78,18 +81,20 @@ def process_positives(input_path, output_dir=None, clip=0.1, gamma=2.2, compress
             img = preloaded_image if (preloaded_image is not None and len(image_files) == 1) else None
             if img is None and ext in ['.dng', '.tiff', '.tif']:
                 try:
-                    with tifffile.TiffFile(filepath) as tif:
+                    with tifffile.TiffFile(fast_filepath) as tif:
                         page = tif.pages[0]
                         # Photometric 32803 indicates CFA raw sensor data needing rawpy demosaicing
                         is_cfa = getattr(page, 'photometric', None) == 32803
                     if not is_cfa:
-                        img = tifffile.imread(filepath)
+                        img = tifffile.imread(fast_filepath)
                 except Exception:
                     pass
 
             if img is None:
                 demosaic_alg = getattr(rawpy.DemosaicAlgorithm, 'DHT', rawpy.DemosaicAlgorithm.AHD)
-                with rawpy.imread(filepath) as raw:
+                with rawpy.imread(fast_filepath) as raw:
+                    if preserve_metadata:
+                        cache_camera_matrix_from_raw(filepath, getattr(raw, "rgb_xyz_matrix", None))
                     img = raw.postprocess(
                         gamma=(1, 1),
                         no_auto_bright=True,

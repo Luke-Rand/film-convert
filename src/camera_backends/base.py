@@ -43,14 +43,17 @@ class BaseCameraBackend(ABC):
         raw_exts = {'.cr3', '.raf', '.nef', '.arw', '.rw2', '.nrw', '.dcr', '.dng', '.tif', '.tiff', '.jpg', '.jpeg'}
         if target_dir and os.path.exists(target_dir):
             try:
-                for entry in os.listdir(target_dir):
-                    full_p = os.path.join(target_dir, entry)
-                    if not os.path.isfile(full_p):
-                        continue
-                    ext_l = os.path.splitext(entry)[1].lower()
-                    name_l = entry.lower()
-                    if ext_l in raw_exts and "_composite" not in name_l and "_positive" not in name_l:
-                        pending_captures += 1
+                with os.scandir(target_dir) as it:
+                    for entry in it:
+                        fname = entry.name
+                        if fname.startswith('.') or fname.endswith('.part'):
+                            continue
+                        if not entry.is_file():
+                            continue
+                        ext_l = os.path.splitext(fname)[1].lower()
+                        name_l = fname.lower()
+                        if ext_l in raw_exts and "_composite" not in name_l and "_positive" not in name_l:
+                            pending_captures += 1
             except OSError:
                 pass
 

@@ -70,6 +70,10 @@ from batch_worker import (
     worker_process_positives,
     worker_process_triplet_pipeline
 )
+from metadata_preservation import (
+    get_preview_cache_key,
+    resolve_fast_read_path
+)
 
 if hasattr(sys, '_MEIPASS'):
     # Bundled path for PyInstaller
@@ -173,31 +177,31 @@ class SessionManager:
             return None
 
         valid_exts = {'.tif', '.tiff', '.dng', '.cr3', '.raf', '.nef', '.arw', '.rw2', '.nrw', '.dcr', '.jpg', '.jpeg', '.png'}
+        pos_entries = []
         try:
-            pos_files = [
-                os.path.join(positives_dir, f) for f in os.listdir(positives_dir)
-                if os.path.isfile(os.path.join(positives_dir, f))
-                and os.path.splitext(f)[1].lower() in valid_exts
-                and "_contact_sheet" not in f.lower()
-            ]
+            with os.scandir(positives_dir) as it:
+                for entry in it:
+                    name = entry.name
+                    if name.startswith(".") or name.endswith(".part") or "_contact_sheet" in name.lower():
+                        continue
+                    if os.path.splitext(name)[1].lower() not in valid_exts:
+                        continue
+                    try:
+                        if entry.is_file():
+                            st = entry.stat()
+                            pos_entries.append((st.st_mtime, name, entry.path, st.st_size))
+                    except OSError:
+                        pass
         except OSError:
             return None
 
-        if not pos_files:
+        if not pos_entries:
             return None
 
-        pos_files.sort(key=lambda x: (os.path.getmtime(x), os.path.basename(x)))
-        latest_pos = pos_files[-1]
-        pos_name = os.path.basename(latest_pos)
-        try:
-            pos_stat = os.stat(latest_pos)
-            pos_size = pos_stat.st_size
-            pos_mtime = pos_stat.st_mtime
-        except OSError:
-            pos_size = 0
-            pos_mtime = time.time()
+        pos_entries.sort(key=lambda x: (x[0], x[1]))
+        pos_mtime, pos_name, latest_pos, pos_size = pos_entries[-1]
 
-        frame_num = len(pos_files)
+        frame_num = len(pos_entries)
         if pos_name.startswith("Frame_"):
             try:
                 parts = pos_name.split("_")
@@ -217,28 +221,39 @@ class SessionManager:
             elif os.path.isfile(candidate_comp_tif):
                 neg_path = candidate_comp_tif
             else:
+                proc_entries = []
                 try:
-                    proc_files = [
-                        os.path.join(processed_dir, f) for f in os.listdir(processed_dir)
-                        if os.path.isfile(os.path.join(processed_dir, f))
-                        and os.path.splitext(f)[1].lower() in valid_exts
-                    ]
-                    if proc_files:
-                        proc_files.sort(key=lambda x: os.path.getmtime(x))
-                        neg_path = proc_files[-1]
+                    with os.scandir(processed_dir) as it:
+                        for entry in it:
+                            name = entry.name
+                            if name.startswith(".") or name.endswith(".part"):
+                                continue
+                            if os.path.splitext(name)[1].lower() not in valid_exts:
+                                continue
+                            try:
+                                if entry.is_file():
+                                    st = entry.stat()
+                                    proc_entries.append((st.st_mtime, entry.path, st.st_size))
+                            except OSError:
+                                pass
+                    if proc_entries:
+                        proc_entries.sort(key=lambda x: x[0])
+                        neg_path = proc_entries[-1][1]
+                        neg_size = proc_entries[-1][2]
                 except OSError:
                     pass
 
         if neg_path and os.path.isfile(neg_path):
             neg_name = os.path.basename(neg_path)
-            try:
-                neg_size = os.path.getsize(neg_path)
-            except OSError:
-                neg_size = 0
+            if not neg_size:
+                try:
+                    neg_size = os.path.getsize(neg_path)
+                except OSError:
+                    neg_size = 0
 
         return {
             "frame_number": frame_num,
-            "frame_count": len(pos_files),
+            "frame_count": len(pos_entries),
             "positive_path": latest_pos,
             "positive_name": pos_name,
             "positive_size": pos_size,
@@ -535,19 +550,26 @@ class SessionManager:
         
         max_num = 0
         for d in search_dirs:
-            for entry in os.listdir(d):
-                if entry.startswith("Frame_"):
-                    # Ignore raw _Capture files when computing the next completed frame number
-                    if "_capture" in entry.lower():
-                        continue
-                    try:
-                        parts = entry.split('_')
-                        if len(parts) > 1:
-                            num = int(parts[1])
-                            if num > max_num:
-                                max_num = num
-                    except (ValueError, IndexError):
-                        pass
+            try:
+                with os.scandir(d) as it:
+                    for dir_entry in it:
+                        entry = dir_entry.name
+                        if entry.startswith(".") or entry.endswith(".part"):
+                            continue
+                        if entry.startswith("Frame_"):
+                            # Ignore raw _Capture files when computing the next completed frame number
+                            if "_capture" in entry.lower():
+                                continue
+                            try:
+                                parts = entry.split('_')
+                                if len(parts) > 1:
+                                    num = int(parts[1])
+                                    if num > max_num:
+                                        max_num = num
+                            except (ValueError, IndexError):
+                                pass
+            except OSError:
+                pass
         return max_num + 1
 
     def _monitor_loop(self) -> None:
@@ -567,141 +589,168 @@ class SessionManager:
                     continue
 
                 if self.mode == 'triplet':
-                    # Find RAW triplet files
-                    raw_files = [
-                        os.path.join(neg_dir, f) for f in os.listdir(neg_dir)
-                        if os.path.isfile(os.path.join(neg_dir, f)) and os.path.splitext(f)[1].lower() in supported_triplet_exts
-                    ]
-                    raw_files.sort(key=lambda x: os.path.getmtime(x))
+                    # Find RAW triplet files using os.scandir to avoid per-file SMB stat storms
+                    raw_entries = []
+                    with os.scandir(neg_dir) as it:
+                        for entry in it:
+                            name = entry.name
+                            if name.startswith(".") or name.endswith(".part"):
+                                continue
+                            if os.path.splitext(name)[1].lower() in supported_triplet_exts:
+                                try:
+                                    if entry.is_file():
+                                        raw_entries.append((entry.stat().st_mtime, name, entry.path))
+                                except OSError:
+                                    pass
+                    raw_entries.sort(key=lambda x: (x[0], x[1]))
                     
-                    if len(raw_files) >= 3:
-                        group = raw_files[:3]
+                    if len(raw_entries) < 3:
+                        self.stop_event.wait(0.25)
+                        continue
+
+                    selected = raw_entries[:3]
+                    group = [item[2] for item in selected]
+                    last_mtime, last_name, last_path = selected[-1]
+                    is_atomic_capture = ("_capture" in last_name.lower()) or (resolve_fast_read_path(last_path) != last_path)
+
+                    # Wait for OS to finish writing external non-atomic file drops
+                    if not is_atomic_capture and (time.time() - last_mtime < 2.0):
+                        self.stop_event.wait(0.5)
+                        continue
                         
-                        # Wait for OS to finish writing
-                        if time.time() - os.path.getmtime(group[-1]) < 2:
-                            self.stop_event.wait(0.5)
-                            continue
-                            
-                        frame_number = self.get_next_frame_number(neg_dir)
-                        self.log(f"Triplet detected! Processing Frame {frame_number:02d} in background worker...")
+                    frame_number = self.get_next_frame_number(neg_dir)
+                    self.log(f"Triplet detected! Processing Frame {frame_number:02d} in background worker...")
+                    
+                    composite_filename = f"Frame_{frame_number:02d}_Composite.dng"
+                    composite_filepath = os.path.join(neg_dir, composite_filename)
+                    
+                    try:
+                        executor = self._get_executor()
+                        future = executor.submit(
+                            worker_process_triplet_pipeline,
+                            group=group,
+                            composite_filepath=composite_filepath,
+                            positives_dir=self.dirs['positives'],
+                            config=dict(self.config)
+                        )
+                        success, result, worker_logs = future.result()
+                        if worker_logs:
+                            for line in worker_logs.strip().splitlines():
+                                if line.strip():
+                                    self.log(line)
                         
-                        composite_filename = f"Frame_{frame_number:02d}_Composite.dng"
-                        composite_filepath = os.path.join(neg_dir, composite_filename)
+                        if not success:
+                            raise Exception(f"Worker failure: {result}")
                         
-                        try:
-                            executor = self._get_executor()
-                            future = executor.submit(
-                                worker_process_triplet_pipeline,
-                                group=group,
-                                composite_filepath=composite_filepath,
-                                positives_dir=self.dirs['positives'],
-                                config=dict(self.config)
-                            )
-                            success, result, worker_logs = future.result()
-                            if worker_logs:
-                                for line in worker_logs.strip().splitlines():
-                                    if line.strip():
-                                        self.log(line)
-                            
-                            if not success:
-                                raise Exception(f"Worker failure: {result}")
-                            
-                            r_mean, g_mean, b_mean = result
-                            means_dict = {
-                                "r_mean": float(r_mean),
-                                "g_mean": float(g_mean),
-                                "b_mean": float(b_mean)
-                            }
-                            with self.lock:
-                                self.last_triplet_means = means_dict
-                            self.broadcast("triplet_means", means_dict)
-                            
-                            # Move files
-                            for f in group:
-                                shutil.move(f, os.path.join(self.dirs['processed'], os.path.basename(f)))
-                            shutil.move(composite_filepath, os.path.join(self.dirs['processed'], composite_filename))
-                            
-                            with self.lock:
-                                self.last_frame = self._discover_last_frame()
-                                latest_frame_data = dict(self.last_frame) if self.last_frame else None
-                            if latest_frame_data:
-                                self.broadcast("frame_processed", latest_frame_data)
-                            self.save_manifest()
-                            self.log(f"SUCCESS: Frame {frame_number:02d} processed and saved.")
-                            
-                        except Exception as e:
-                            self.log(f"ERROR processing Frame {frame_number:02d}: {str(e)}")
-                            for f in group:
-                                try:
-                                    shutil.move(f, os.path.join(self.dirs['errors'], os.path.basename(f)))
-                                
-                                except Exception: pass
-                            if os.path.exists(composite_filepath):
-                                try:
-                                    shutil.move(composite_filepath, os.path.join(self.dirs['errors'], composite_filename))
-                                except Exception: pass
+                        r_mean, g_mean, b_mean = result
+                        means_dict = {
+                            "r_mean": float(r_mean),
+                            "g_mean": float(g_mean),
+                            "b_mean": float(b_mean)
+                        }
+                        with self.lock:
+                            self.last_triplet_means = means_dict
+                        self.broadcast("triplet_means", means_dict)
+                        
+                        # Move files
+                        for f in group:
+                            shutil.move(f, os.path.join(self.dirs['processed'], os.path.basename(f)))
+                        shutil.move(composite_filepath, os.path.join(self.dirs['processed'], composite_filename))
+                        
+                        with self.lock:
+                            self.last_frame = self._discover_last_frame()
+                            latest_frame_data = dict(self.last_frame) if self.last_frame else None
+                        if latest_frame_data:
+                            self.broadcast("frame_processed", latest_frame_data)
+                        self.save_manifest()
+                        self.log(f"SUCCESS: Frame {frame_number:02d} processed and saved.")
+                        
+                    except Exception as e:
+                        self.log(f"ERROR processing Frame {frame_number:02d}: {str(e)}")
+                        for f in group:
+                            try:
+                                shutil.move(f, os.path.join(self.dirs['errors'], os.path.basename(f)))
+                            except Exception:
+                                pass
+                        if os.path.exists(composite_filepath):
+                            try:
+                                shutil.move(composite_filepath, os.path.join(self.dirs['errors'], composite_filename))
+                            except Exception:
+                                pass
 
                 elif self.mode == 'single':
-                    neg_files = [
-                        os.path.join(neg_dir, f) for f in os.listdir(neg_dir)
-                        if os.path.isfile(os.path.join(neg_dir, f)) and os.path.splitext(f)[1].lower() in supported_single_exts
-                    ]
-                    neg_files.sort(key=lambda x: os.path.getmtime(x))
+                    neg_entries = []
+                    with os.scandir(neg_dir) as it:
+                        for entry in it:
+                            name = entry.name
+                            if name.startswith(".") or name.endswith(".part"):
+                                continue
+                            if os.path.splitext(name)[1].lower() in supported_single_exts:
+                                try:
+                                    if entry.is_file():
+                                        neg_entries.append((entry.stat().st_mtime, name, entry.path))
+                                except OSError:
+                                    pass
+                    neg_entries.sort(key=lambda x: (x[0], x[1]))
                     
-                    if neg_files:
-                        filepath = neg_files[0]
-                        filename = os.path.basename(filepath)
-                        
-                        if time.time() - os.path.getmtime(filepath) < 2:
-                            self.stop_event.wait(0.5)
-                            continue
-                            
-                        self.log(f"Negative detected! Processing {filename} in background worker...")
-                        
-                        try:
-                            executor = self._get_executor()
-                            future = executor.submit(
-                                worker_process_positives,
-                                input_path=filepath,
-                                output_dir=self.dirs['positives'],
-                                clip=self.config["clip"],
-                                gamma=self.config["gamma"],
-                                compress_tiff=self.config["compress_tiff"],
-                                global_levels=self.config["global_levels"],
-                                ignore_margin=self.config["margin"],
-                                scurve=self.config["scurve"],
-                                autocrop=self.config["autocrop"],
-                                monochrome=self.config.get("monochrome", False),
-                                monochrome_channel=self.config.get("monochrome_channel", "luminance"),
-                                reversal=self.config.get("reversal", False),
-                                convert_to_tiff=self.config.get("convert_to_tiff", True),
-                                icc_profile=self.config.get("color_profile", "adobe_rgb"),
-                                preserve_metadata=self.config.get("embed_metadata", True),
-                                base_ratios=self.config.get("base_ratios")
-                            )
-                            success, result, worker_logs = future.result()
-                            if worker_logs:
-                                for line in worker_logs.strip().splitlines():
-                                    if line.strip():
-                                        self.log(line)
+                    if not neg_entries:
+                        self.stop_event.wait(0.25)
+                        continue
 
-                            if not success:
-                                raise Exception(f"Worker failure: {result}")
-                            
-                            shutil.move(filepath, os.path.join(self.dirs['processed'], filename))
-                            with self.lock:
-                                self.last_frame = self._discover_last_frame()
-                                latest_frame_data = dict(self.last_frame) if self.last_frame else None
-                            if latest_frame_data:
-                                self.broadcast("frame_processed", latest_frame_data)
-                            self.save_manifest()
-                            self.log(f"SUCCESS: {filename} processed and saved.")
-                            
-                        except Exception as e:
-                            self.log(f"ERROR processing {filename}: {str(e)}")
-                            try:
-                                shutil.move(filepath, os.path.join(self.dirs['errors'], filename))
-                            except Exception: pass
+                    file_mtime, filename, filepath = neg_entries[0]
+                    is_atomic_capture = ("_capture" in filename.lower()) or (resolve_fast_read_path(filepath) != filepath)
+                    
+                    if not is_atomic_capture and (time.time() - file_mtime < 2.0):
+                        self.stop_event.wait(0.5)
+                        continue
+                        
+                    self.log(f"Negative detected! Processing {filename} in background worker...")
+                    
+                    try:
+                        executor = self._get_executor()
+                        future = executor.submit(
+                            worker_process_positives,
+                            input_path=filepath,
+                            output_dir=self.dirs['positives'],
+                            clip=self.config["clip"],
+                            gamma=self.config["gamma"],
+                            compress_tiff=self.config["compress_tiff"],
+                            global_levels=self.config["global_levels"],
+                            ignore_margin=self.config["margin"],
+                            scurve=self.config["scurve"],
+                            autocrop=self.config["autocrop"],
+                            monochrome=self.config.get("monochrome", False),
+                            monochrome_channel=self.config.get("monochrome_channel", "luminance"),
+                            reversal=self.config.get("reversal", False),
+                            convert_to_tiff=self.config.get("convert_to_tiff", True),
+                            icc_profile=self.config.get("color_profile", "adobe_rgb"),
+                            preserve_metadata=self.config.get("embed_metadata", True),
+                            base_ratios=self.config.get("base_ratios")
+                        )
+                        success, result, worker_logs = future.result()
+                        if worker_logs:
+                            for line in worker_logs.strip().splitlines():
+                                if line.strip():
+                                    self.log(line)
+
+                        if not success:
+                            raise Exception(f"Worker failure: {result}")
+                        
+                        shutil.move(filepath, os.path.join(self.dirs['processed'], filename))
+                        with self.lock:
+                            self.last_frame = self._discover_last_frame()
+                            latest_frame_data = dict(self.last_frame) if self.last_frame else None
+                        if latest_frame_data:
+                            self.broadcast("frame_processed", latest_frame_data)
+                        self.save_manifest()
+                        self.log(f"SUCCESS: {filename} processed and saved.")
+                        
+                    except Exception as e:
+                        self.log(f"ERROR processing {filename}: {str(e)}")
+                        try:
+                            shutil.move(filepath, os.path.join(self.dirs['errors'], filename))
+                        except Exception:
+                            pass
                 
             except PermissionError as pe:
                 self.log(f"Permission denied accessing session directories: {pe}. Please grant FilmConvert 'Full Disk Access' or 'Files and Folders' (Network Volumes) in macOS System Settings.")
@@ -1177,69 +1226,104 @@ def get_files():
         positives = []
         if positives_dir and os.path.exists(positives_dir):
             valid_exts = {'.tif', '.tiff', '.dng', '.cr3', '.raf', '.nef', '.arw', '.rw2', '.nrw', '.dcr', '.jpg', '.jpeg', '.png'}
-            files = [
-                os.path.join(positives_dir, f) for f in os.listdir(positives_dir)
-                if os.path.isfile(os.path.join(positives_dir, f)) and os.path.splitext(f)[1].lower() in valid_exts
-            ]
-            files.sort()
-            for f in files:
-                stat = os.stat(f)
-                positives.append({
-                    "name": os.path.basename(f),
-                    "path": f,
-                    "size": stat.st_size,
-                    "mtime": stat.st_mtime
-                })
+            try:
+                with os.scandir(positives_dir) as it:
+                    for entry in it:
+                        name = entry.name
+                        if name.startswith(".") or name.endswith(".part"):
+                            continue
+                        if os.path.splitext(name)[1].lower() in valid_exts:
+                            try:
+                                if entry.is_file():
+                                    stat = entry.stat()
+                                    positives.append({
+                                        "name": name,
+                                        "path": entry.path,
+                                        "size": stat.st_size,
+                                        "mtime": stat.st_mtime
+                                    })
+                            except OSError:
+                                pass
+                positives.sort(key=lambda x: x["name"])
+            except OSError:
+                pass
                 
         processed = []
         if processed_dir and os.path.exists(processed_dir):
-            files = os.listdir(processed_dir)
-            files.sort()
-            for f in files:
-                p = os.path.join(processed_dir, f)
-                if os.path.isfile(p):
-                    stat = os.stat(p)
-                    processed.append({
-                        "name": f,
-                        "path": p,
-                        "size": stat.st_size,
-                        "mtime": stat.st_mtime
-                    })
+            try:
+                with os.scandir(processed_dir) as it:
+                    for entry in it:
+                        name = entry.name
+                        if name.startswith(".") or name.endswith(".part"):
+                            continue
+                        try:
+                            if entry.is_file():
+                                stat = entry.stat()
+                                processed.append({
+                                    "name": name,
+                                    "path": entry.path,
+                                    "size": stat.st_size,
+                                    "mtime": stat.st_mtime
+                                })
+                        except OSError:
+                            pass
+                processed.sort(key=lambda x: x["name"])
+            except OSError:
+                pass
                     
         negatives = []
         if negatives_dir and os.path.exists(negatives_dir):
-            files = os.listdir(negatives_dir)
-            files.sort()
-            for f in files:
-                p = os.path.join(negatives_dir, f)
-                if os.path.isfile(p):
-                    stat = os.stat(p)
-                    negatives.append({
-                        "name": f,
-                        "path": p,
-                        "size": stat.st_size,
-                        "mtime": stat.st_mtime
-                    })
+            try:
+                with os.scandir(negatives_dir) as it:
+                    for entry in it:
+                        name = entry.name
+                        if name.startswith(".") or name.endswith(".part"):
+                            continue
+                        try:
+                            if entry.is_file():
+                                stat = entry.stat()
+                                negatives.append({
+                                    "name": name,
+                                    "path": entry.path,
+                                    "size": stat.st_size,
+                                    "mtime": stat.st_mtime
+                                })
+                        except OSError:
+                            pass
+                negatives.sort(key=lambda x: x["name"])
+            except OSError:
+                pass
 
         contact_sheets = []
         session_folder = os.path.join(session.root_folder, session.session_name) if session.session_name else None
         search_cs_dirs = [d for d in [session_folder, positives_dir] if d and os.path.isdir(d)]
         seen_cs = set()
         for csd in search_cs_dirs:
-            for fname in os.listdir(csd):
-                fl = fname.lower()
-                if "_contact_sheet" in fl and (fl.endswith(".pdf") or fl.endswith(".jpg") or fl.endswith(".jpeg") or fl.endswith(".png")):
-                    fp = os.path.join(csd, fname)
-                    if fp not in seen_cs and os.path.isfile(fp):
-                        seen_cs.add(fp)
-                        stat = os.stat(fp)
-                        contact_sheets.append({
-                            "name": fname,
-                            "path": fp,
-                            "type": "pdf" if fl.endswith(".pdf") else "jpeg",
-                            "size": stat.st_size,
-                            "mtime": stat.st_mtime
-                        })
+            try:
+                with os.scandir(csd) as it:
+                    for entry in it:
+                        fname = entry.name
+                        if fname.startswith(".") or fname.endswith(".part"):
+                            continue
+                        fl = fname.lower()
+                        if "_contact_sheet" in fl and (fl.endswith(".pdf") or fl.endswith(".jpg") or fl.endswith(".jpeg") or fl.endswith(".png")):
+                            fp = entry.path
+                            if fp not in seen_cs:
+                                try:
+                                    if entry.is_file():
+                                        seen_cs.add(fp)
+                                        stat = entry.stat()
+                                        contact_sheets.append({
+                                            "name": fname,
+                                            "path": fp,
+                                            "type": "pdf" if fl.endswith(".pdf") else "jpeg",
+                                            "size": stat.st_size,
+                                            "mtime": stat.st_mtime
+                                        })
+                                except OSError:
+                                    pass
+            except OSError:
+                pass
         contact_sheets.sort(key=lambda x: (0 if x["type"] == "pdf" else 1, x["name"]))
 
         return jsonify({
@@ -1321,32 +1405,63 @@ def get_preview():
         return jsonify({"error": "File not found"}), 404
         
     try:
-        # Load TIFF or other format using tifffile
+        width = request.args.get('w', type=int)
+
+        # Fast-path: check local SSD preview cache first to avoid reading 190MB TIFF/DNG over SMB
+        cache_path = get_preview_cache_key(img_path)
+        if os.path.isfile(cache_path) and os.path.getsize(cache_path) > 0:
+            try:
+                if os.path.getmtime(cache_path) >= os.path.getmtime(img_path) - 5.0:
+                    if not width or width <= 0:
+                        return send_file(cache_path, mimetype='image/jpeg')
+                    pil_cached = Image.open(cache_path)
+                    if width < pil_cached.size[0]:
+                        w_percent = width / float(pil_cached.size[0])
+                        h_size = max(1, int(float(pil_cached.size[1]) * w_percent))
+                        pil_cached = pil_cached.resize((width, h_size), Image.Resampling.LANCZOS)
+                    img_io = io.BytesIO()
+                    pil_cached.save(img_io, 'JPEG', quality=85)
+                    img_io.seek(0)
+                    return send_file(img_io, mimetype='image/jpeg')
+            except Exception:
+                pass
+
+        read_path = resolve_fast_read_path(img_path)
         ext = os.path.splitext(img_path)[1].lower()
         if ext in ['.tiff', '.tif', '.dng']:
-            img = tifffile.imread(img_path)
+            img = tifffile.imread(read_path)
             
             # Remove transparency or alpha channel if present
             if img.ndim == 3 and img.shape[2] > 3:
                 img = img[:, :, :3]
+
+            # Strided downsample before float32/gamma conversion to minimize CPU/memory work
+            h_orig, w_orig = img.shape[:2]
+            step = max(1, max(w_orig, h_orig) // 1800)
+            img_sub = img[::step, ::step]
                 
             # If 16-bit, scale to 8-bit for web viewer
-            if img.dtype == np.uint16:
+            if img_sub.dtype == np.uint16:
                 if ext == '.dng':
                     # Apply a standard 2.2 gamma curve to linear DNG data for web display
-                    img_float = img.astype(np.float32) / 65535.0
+                    img_float = img_sub.astype(np.float32) / 65535.0
                     img_gamma = np.clip(img_float ** (1.0 / 2.2) * 255.0, 0, 255)
                     img_8bit = img_gamma.astype(np.uint8)
                 else:
-                    img_8bit = (img >> 8).astype(np.uint8)
+                    img_8bit = (img_sub >> 8).astype(np.uint8)
             else:
-                img_8bit = img.astype(np.uint8)
+                img_8bit = img_sub.astype(np.uint8)
                 
             pil_img = Image.fromarray(img_8bit)
+            # Persist to local SSD preview cache so subsequent requests are instant
+            try:
+                pil_img.save(cache_path, 'JPEG', quality=88)
+            except Exception:
+                pass
         elif ext in ['.cr3', '.raf', '.nef', '.arw', '.rw2', '.nrw', '.dcr']:
             try:
                 import rawpy
-                with rawpy.imread(img_path) as raw:
+                with rawpy.imread(read_path) as raw:
                     try:
                         thumb = raw.extract_thumb()
                         if thumb.format == rawpy.ThumbFormat.JPEG:
@@ -1360,18 +1475,16 @@ def get_preview():
                         rgb = raw.postprocess(half_size=True)
                         pil_img = Image.fromarray(rgb)
             except Exception:
-                pil_img = Image.open(img_path)
+                pil_img = Image.open(read_path)
         else:
             # Fallback for standard files like JPG/PNG
-            pil_img = Image.open(img_path)
+            pil_img = Image.open(read_path)
 
         # Handle thumbnail width request
-        width = request.args.get('w', type=int)
         if width and width > 0:
             w_percent = (width / float(pil_img.size[0]))
-            h_size = int((float(pil_img.size[1]) * float(w_percent)))
+            h_size = max(1, int((float(pil_img.size[1]) * float(w_percent))))
             pil_img = pil_img.resize((width, h_size), Image.Resampling.LANCZOS)
-            
             
         img_io = io.BytesIO()
         # Serve as high-quality JPEG

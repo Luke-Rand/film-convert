@@ -197,6 +197,107 @@ class TestPerfConcurrency(unittest.TestCase):
             self.assertEqual(kwargs["channel_timeout"], 300)
             self.assertEqual(kwargs["send_bytes"], 1)
 
+    def test_local_preview_cache_avoids_network_tiff_reread(self):
+        """Verify write_16bit_image pre-populates local SSD preview cache and /api/preview serves it without tifffile.imread."""
+        from unittest.mock import patch
+        from tiff_writer import write_16bit_image
+        from metadata_preservation import get_preview_cache_key
+        from web_ui import app, session
+
+        session_dir = os.path.join(self.test_dir, "TestRoll-135-01")
+        neg_dir = os.path.join(session_dir, "negatives")
+        proc_dir = os.path.join(session_dir, "processed_raws")
+        pos_dir = os.path.join(session_dir, "positives")
+        os.makedirs(neg_dir, exist_ok=True)
+        os.makedirs(proc_dir, exist_ok=True)
+        os.makedirs(pos_dir, exist_ok=True)
+
+        comp_neg_path = os.path.join(neg_dir, "Frame_01_Composite.dng")
+        comp_proc_path = os.path.join(proc_dir, "Frame_01_Composite.dng")
+        pos_path = os.path.join(pos_dir, "Frame_01_Positive.tiff")
+
+        # Preview cache key must remain identical when Composite.dng moves from negatives/ to processed_raws/
+        self.assertEqual(get_preview_cache_key(comp_neg_path), get_preview_cache_key(comp_proc_path))
+
+        img_16 = np.full((128, 192, 3), 32000, dtype=np.uint16)
+        write_16bit_image(comp_neg_path, img_16, compress=False)
+        shutil.move(comp_neg_path, comp_proc_path)
+        write_16bit_image(pos_path, img_16, compress=False)
+
+        self.assertTrue(os.path.isfile(get_preview_cache_key(comp_proc_path)))
+        self.assertTrue(os.path.isfile(get_preview_cache_key(pos_path)))
+
+        with session.lock:
+            saved_root = session.root_folder
+            session.root_folder = self.test_dir
+        try:
+            client = app.test_client()
+            with patch("web_ui.tifffile.imread", side_effect=AssertionError("Should serve from local preview cache without reading 16-bit TIFF/DNG!")):
+                res_pos = client.get(f"/api/preview?path={pos_path}&w=400")
+                self.assertEqual(res_pos.status_code, 200)
+                self.assertEqual(res_pos.mimetype, "image/jpeg")
+                res_pos.close()
+
+                res_neg = client.get(f"/api/preview?path={comp_proc_path}&w=400")
+                self.assertEqual(res_neg.status_code, 200)
+                self.assertEqual(res_neg.mimetype, "image/jpeg")
+                res_neg.close()
+        finally:
+            with session.lock:
+                session.root_folder = saved_root
+
+    def test_gphoto2_drain_preserves_file_added_and_stages_raw_locally(self):
+        """Verify GPhoto2CameraBackend never drops GP_EVENT_FILE_ADDED during event drains and stages RAW files locally."""
+        from unittest.mock import MagicMock, patch
+        import camera_backends.gphoto2_backend as gp_mod
+        from metadata_preservation import resolve_fast_read_path, cleanup_staged_raw
+
+        backend = gp_mod.GPhoto2CameraBackend()
+        mock_cam = MagicMock()
+        backend.camera = mock_cam
+
+        fake_gp = MagicMock()
+        fake_gp.GP_EVENT_FILE_ADDED = 101
+        fake_gp.GP_EVENT_TIMEOUT = 102
+        fake_gp.GP_FILE_TYPE_NORMAL = 1
+
+        evt_obj = MagicMock()
+        evt_obj.folder = "//"
+        evt_obj.name = "capt0000.cr3"
+        mock_cam.wait_for_event.side_effect = [
+            (fake_gp.GP_EVENT_FILE_ADDED, evt_obj),
+            (fake_gp.GP_EVENT_TIMEOUT, None)
+        ]
+
+        def save_mock(dest_path):
+            with open(dest_path, "wb") as fp:
+                fp.write(b"RAW_CAMERA_BYTES")
+
+        mock_cam_file = MagicMock()
+        mock_cam_file.save.side_effect = save_mock
+        mock_cam.file_get.return_value = mock_cam_file
+
+        mock_session = MagicMock()
+        mock_session.dirs = {"negatives": self.test_dir}
+        mock_session.mode = "triplet"
+        mock_session.get_next_frame_number.return_value = 1
+        backend.session_manager = mock_session
+
+        with patch.object(gp_mod, "GPHOTO2_AVAILABLE", True), patch.object(gp_mod, "gp", fake_gp):
+            with backend.lock:
+                backend._drain_events_locked(max_events=3, timeout_ms=10)
+            self.assertEqual(backend._pending_file_events, [("//", "capt0000.cr3")])
+
+            local_path = backend._download_camera_file("//", "capt0000.cr3")
+            try:
+                self.assertTrue(os.path.isfile(local_path))
+                # Staged copy on local SSD must also exist for fast downstream compositor reading
+                staged_path = resolve_fast_read_path(local_path)
+                self.assertNotEqual(staged_path, local_path)
+                self.assertTrue(os.path.isfile(staged_path))
+            finally:
+                cleanup_staged_raw(local_path)
+
 if __name__ == '__main__':
     unittest.main()
 
