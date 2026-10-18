@@ -74,9 +74,7 @@ class SimulatedCameraBackend(BaseCameraBackend):
             target_dir = os.path.abspath("./negatives_download")
             os.makedirs(target_dir, exist_ok=True)
 
-        frame_num = 1
-        if self.session_manager and hasattr(self.session_manager, 'get_next_frame_number'):
-            frame_num = self.session_manager.get_next_frame_number(target_dir)
+        frame_num, shot_num, is_triplet = self._get_next_capture_naming(target_dir)
 
         color_suffix = "white"
         r, g, b = self.mock_leds["red"], self.mock_leds["green"], self.mock_leds["blue"]
@@ -87,12 +85,16 @@ class SimulatedCameraBackend(BaseCameraBackend):
         elif b > r and b > g:
             color_suffix = "blue"
 
-        local_name = f"Frame_{frame_num:02d}_Capture_{color_suffix}.cr3"
+        if is_triplet:
+            local_name = f"Frame_{frame_num:02d}_Capture_{shot_num:02d}_{color_suffix}.cr3"
+        else:
+            local_name = f"Frame_{frame_num:02d}_Capture_{color_suffix}.cr3"
         local_path = os.path.join(target_dir, local_name)
 
         with open(local_path, "w") as f:
             f.write("MOCK RAW CAPTURE DATA\n")
             f.write(f"Frame: {frame_num}\n")
+            f.write(f"Shot: {shot_num}\n")
             f.write(f"Color: {color_suffix}\n")
             f.write(f"ISO: {self.camera_settings['iso']}\n")
             f.write(f"Aperture: {self.camera_settings['aperture']}\n")

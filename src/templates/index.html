@@ -428,7 +428,14 @@
                     <div class="column">
                         <!-- Session Configuration -->
                         <div class="card">
-                            <h3 class="card-title">Session Parameters</h3>
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
+                                <h3 class="card-title" style="margin: 0;">Session Parameters</h3>
+                                <button class="btn btn-secondary btn-small" type="button" id="btn-load-session"
+                                    onclick="openLoadSessionBrowser()"
+                                    data-tooltip="Load or resume an existing roll session folder — restores stock, format, roll, and processing parameters from session.json">
+                                    📂 Load Session
+                                </button>
+                            </div>
 
                             <div class="form-group">
                                 <label for="scanner-root-dir">Scans Root Folder</label>
@@ -903,6 +910,10 @@
                         <p>Browse positives and archival contact sheets generated during scanning sessions.</p>
                     </div>
                     <div style="display: flex; gap: 0.5rem; align-items: center;">
+                        <button class="btn btn-secondary" onclick="openLoadSessionBrowser()"
+                            data-tooltip="Open an existing session roll folder to browse its frames and restore session.json settings">
+                            📂 Open Session
+                        </button>
                         <button class="btn btn-primary" id="btn-gallery-contact-sheet" onclick="openContactSheetModal()"
                             data-tooltip="Generate an archival PDF and high-resolution JPEG contact sheet index print with exposure metadata">
                             📄 Generate Contact Sheet

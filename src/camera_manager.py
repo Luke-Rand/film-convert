@@ -462,3 +462,13 @@ class CameraManager:
             return None
 
         return self.gphoto2_backend.grab_preview_frame()
+
+    def _get_next_capture_naming(self, target_dir):
+        """
+        Determines (frame_num, shot_num, is_triplet) for a new raw capture in target_dir.
+        In triplet mode, all 3 shots of a triplet share the same film frame_num (e.g. Frame_01_Capture_01..03)
+        so the resulting composite and positive for the first triplet are named Frame_01 instead of Frame_04.
+        """
+        self.gphoto2_backend.session_manager = self.session_manager
+        return self.gphoto2_backend._get_next_capture_naming(target_dir)
+

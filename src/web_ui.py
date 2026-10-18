@@ -26,6 +26,7 @@ try:
         SessionConfigSchema,
         SessionConfigUpdateSchema,
         StartSessionSchema,
+        LoadSessionSchema,
         BatchJobSchema,
         ContactSheetGenerateSchema,
         SampleRebateSchema,
@@ -34,11 +35,17 @@ try:
         CameraToggleLiveviewSchema,
         CameraMockLedsSchema
     )
+    from session_manifest import (
+        read_session_manifest,
+        write_session_manifest,
+        parse_roll_identifiers
+    )
 except ImportError:
     from src.schemas import (
         SessionConfigSchema,
         SessionConfigUpdateSchema,
         StartSessionSchema,
+        LoadSessionSchema,
         BatchJobSchema,
         ContactSheetGenerateSchema,
         SampleRebateSchema,
@@ -46,6 +53,11 @@ except ImportError:
         CameraFocusStepSchema,
         CameraToggleLiveviewSchema,
         CameraMockLedsSchema
+    )
+    from src.session_manifest import (
+        read_session_manifest,
+        write_session_manifest,
+        parse_roll_identifiers
     )
 
 # Import core logic from existing scripts
@@ -100,6 +112,11 @@ class SessionManager:
         self.mode: str = "triplet"  # triplet, single
         self.root_folder: str = os.path.abspath(os.path.expanduser("~/Pictures/Scans"))
         self.session_name: str = ""
+        self.stock: str = "Portra400"
+        self.format: str = "135"
+        self.roll: str = "01"
+        self.sampled_rgb: Optional[List[int]] = None
+        self.last_triplet_means: Optional[Dict[str, float]] = None
         self.dirs: Dict[str, str] = {}
         self.config: Dict[str, Any] = SessionConfigSchema().model_dump()
         self.logs: deque = deque(maxlen=1000)
@@ -154,10 +171,93 @@ class SessionManager:
                 "mode": self.mode,
                 "root_folder": self.root_folder,
                 "session_name": self.session_name,
+                "stock": self.stock,
+                "format": self.format,
+                "roll": self.roll,
+                "sampled_rgb": self.sampled_rgb,
+                "last_triplet_means": self.last_triplet_means,
                 "dirs": self.dirs,
                 "config": self.config
             }
         self.broadcast("status", status_data)
+
+    def save_manifest(self) -> Optional[Dict[str, Any]]:
+        """Persists the current session state and configuration to <session_dir>/session.json."""
+        with self.lock:
+            if not self.session_name or not self.root_folder:
+                return None
+            session_dir = os.path.join(self.root_folder, self.session_name)
+            if not os.path.isdir(session_dir):
+                return None
+            session_name = self.session_name
+            stock = self.stock
+            fmt = self.format
+            roll = self.roll
+            mode = self.mode
+            cfg = dict(self.config)
+            sampled_rgb = list(self.sampled_rgb) if self.sampled_rgb else None
+            last_means = dict(self.last_triplet_means) if self.last_triplet_means else None
+
+        return write_session_manifest(
+            session_dir=session_dir,
+            session_name=session_name,
+            stock=stock,
+            film_format=fmt,
+            roll=roll,
+            mode=mode,
+            config=cfg,
+            sampled_rgb=sampled_rgb,
+            last_triplet_means=last_means
+        )
+
+    def load_session(self, session_dir: str) -> Tuple[bool, str, Optional[Dict[str, Any]]]:
+        """Loads an existing session directory and its session.json manifest into active state (without starting monitoring)."""
+        with self.lock:
+            if self.status != "idle":
+                return False, f"Cannot load session while status is '{self.status}'. Stop active session first.", None
+
+            abs_dir = os.path.abspath(os.path.expanduser(session_dir))
+            if not os.path.isdir(abs_dir):
+                return False, f"Session directory does not exist: {abs_dir}", None
+
+            manifest = read_session_manifest(abs_dir)
+            parent_dir = os.path.dirname(abs_dir)
+            folder_name = os.path.basename(abs_dir)
+
+            self.root_folder = parent_dir
+            self.session_name = (manifest.get("session_name") if manifest else None) or folder_name
+
+            parsed_stock, parsed_fmt, parsed_roll = parse_roll_identifiers(self.session_name)
+            if manifest:
+                self.stock = manifest.get("stock") or parsed_stock or "Portra400"
+                self.format = manifest.get("format") or parsed_fmt or "135"
+                self.roll = manifest.get("roll") or parsed_roll or "01"
+                if manifest.get("mode") in ("triplet", "single"):
+                    self.mode = manifest["mode"]
+                if isinstance(manifest.get("config"), dict):
+                    self.config.update(manifest["config"])
+                self.sampled_rgb = manifest.get("sampled_rgb")
+                self.last_triplet_means = manifest.get("last_triplet_means")
+            else:
+                self.stock = parsed_stock or "Portra400"
+                self.format = parsed_fmt or "135"
+                self.roll = parsed_roll or "01"
+
+            self.dirs = {
+                "negatives": os.path.join(abs_dir, "negatives"),
+                "positives": os.path.join(abs_dir, "positives"),
+                "processed": os.path.join(abs_dir, "processed_raws"),
+                "errors": os.path.join(abs_dir, "error_raws")
+            }
+            for d in self.dirs.values():
+                os.makedirs(d, exist_ok=True)
+
+        saved_manifest = self.save_manifest()
+        self.log(f"Loaded session '{self.session_name}' from {abs_dir}")
+        self.broadcast_status()
+        if self.last_triplet_means:
+            self.broadcast("triplet_means", self.last_triplet_means)
+        return True, f"Loaded session '{self.session_name}'", saved_manifest
 
     def log(self, message: str) -> None:
         timestamp = datetime.now().strftime("%H:%M:%S")
@@ -200,7 +300,16 @@ class SessionManager:
         except Exception:
             return False
 
-    def start_monitoring(self, root_dir: str, session_name: str, mode: str, config: Optional[Dict[str, Any]] = None) -> Tuple[bool, str]:
+    def start_monitoring(
+        self,
+        root_dir: str,
+        session_name: str,
+        mode: str,
+        config: Optional[Dict[str, Any]] = None,
+        stock: Optional[str] = None,
+        film_format: Optional[str] = None,
+        roll: Optional[str] = None
+    ) -> Tuple[bool, str]:
         with self.lock:
             if self.status != "idle":
                 return False, f"Cannot start monitoring, current status is '{self.status}'"
@@ -210,11 +319,27 @@ class SessionManager:
                 os.makedirs(self.root_folder, exist_ok=True)
                 
                 self.session_name = session_name
+                session_dir = os.path.join(self.root_folder, self.session_name)
+
+                # If resuming an existing session folder with session.json, load saved settings first
+                existing_manifest = read_session_manifest(session_dir)
+                if existing_manifest:
+                    if isinstance(existing_manifest.get("config"), dict):
+                        self.config.update(existing_manifest["config"])
+                    if existing_manifest.get("sampled_rgb"):
+                        self.sampled_rgb = existing_manifest["sampled_rgb"]
+                    if existing_manifest.get("last_triplet_means"):
+                        self.last_triplet_means = existing_manifest["last_triplet_means"]
+
+                parsed_stock, parsed_fmt, parsed_roll = parse_roll_identifiers(self.session_name)
+                self.stock = stock or (existing_manifest.get("stock") if existing_manifest else None) or parsed_stock or "Portra400"
+                self.format = film_format or (existing_manifest.get("format") if existing_manifest else None) or parsed_fmt or "135"
+                self.roll = roll or (existing_manifest.get("roll") if existing_manifest else None) or parsed_roll or "01"
+
                 self.mode = mode
                 if config:
                     self.config.update(config)
                 
-                session_dir = os.path.join(self.root_folder, self.session_name)
                 self.dirs = {
                     "negatives": os.path.join(session_dir, "negatives"),
                     "positives": os.path.join(session_dir, "positives"),
@@ -248,6 +373,7 @@ class SessionManager:
                 self.log(f"Error starting monitor: {err_msg}")
                 return False, err_msg
         
+        self.save_manifest()
         self.broadcast_status()
         return True, "Monitoring started successfully"
 
@@ -272,6 +398,7 @@ class SessionManager:
             root_folder_copy = self.root_folder
             cfg_copy = dict(self.config)
 
+        self.save_manifest()
         self.broadcast_status()
 
         # Check if auto contact sheet generation is enabled and positive frames exist
@@ -313,6 +440,9 @@ class SessionManager:
         for d in search_dirs:
             for entry in os.listdir(d):
                 if entry.startswith("Frame_"):
+                    # Ignore raw _Capture files when computing the next completed frame number
+                    if "_capture" in entry.lower():
+                        continue
                     try:
                         parts = entry.split('_')
                         if len(parts) > 1:
@@ -380,17 +510,21 @@ class SessionManager:
                                 raise Exception(f"Worker failure: {result}")
                             
                             r_mean, g_mean, b_mean = result
-                            self.broadcast("triplet_means", {
+                            means_dict = {
                                 "r_mean": float(r_mean),
                                 "g_mean": float(g_mean),
                                 "b_mean": float(b_mean)
-                            })
+                            }
+                            with self.lock:
+                                self.last_triplet_means = means_dict
+                            self.broadcast("triplet_means", means_dict)
                             
                             # Move files
                             for f in group:
                                 shutil.move(f, os.path.join(self.dirs['processed'], os.path.basename(f)))
                             shutil.move(composite_filepath, os.path.join(self.dirs['processed'], composite_filename))
                             
+                            self.save_manifest()
                             self.log(f"SUCCESS: Frame {frame_number:02d} processed and saved.")
                             
                         except Exception as e:
@@ -453,6 +587,7 @@ class SessionManager:
                                 raise Exception(f"Worker failure: {result}")
                             
                             shutil.move(filepath, os.path.join(self.dirs['processed'], filename))
+                            self.save_manifest()
                             self.log(f"SUCCESS: {filename} processed and saved.")
                             
                         except Exception as e:
@@ -799,6 +934,11 @@ def get_status():
             "mode": session.mode,
             "root_folder": session.root_folder,
             "session_name": session.session_name,
+            "stock": session.stock,
+            "format": session.format,
+            "roll": session.roll,
+            "sampled_rgb": session.sampled_rgb,
+            "last_triplet_means": session.last_triplet_means,
             "dirs": session.dirs,
             "config": session.config
         })
@@ -815,6 +955,11 @@ def sse_stream():
                 "mode": session.mode,
                 "root_folder": session.root_folder,
                 "session_name": session.session_name,
+                "stock": session.stock,
+                "format": session.format,
+                "roll": session.roll,
+                "sampled_rgb": session.sampled_rgb,
+                "last_triplet_means": session.last_triplet_means,
                 "dirs": session.dirs,
                 "config": session.config
             }
@@ -857,17 +1002,56 @@ def start_session():
         else:
             config = {}
         
+        stock = str(payload.stock or "FilmStock").strip().replace(" ", "")
+        fmt = str(payload.format or "135").strip().replace(" ", "")
+        roll = str(payload.roll or "01").strip().zfill(2)
         if not session_name:
             # Generate default session name based on film stock etc.
-            stock = str(payload.stock or "FilmStock").strip().replace(" ", "")
-            fmt = str(payload.format or "135").strip().replace(" ", "")
-            roll = str(payload.roll or "01").strip().zfill(2)
             session_name = f"{stock}-{fmt}-{roll}"
 
-        success, msg = session.start_monitoring(root_dir, session_name, mode, config)
+        success, msg = session.start_monitoring(
+            root_dir,
+            session_name,
+            mode,
+            config,
+            stock=stock,
+            film_format=fmt,
+            roll=roll
+        )
         return jsonify({"success": success, "message": msg})
     except Exception as e:
         return jsonify({"success": False, "message": f"Server error: {str(e)}"}), 500
+
+@app.route('/api/session/load', methods=['POST'])
+def api_load_session():
+    try:
+        payload = LoadSessionSchema.model_validate(request.json or {})
+    except ValidationError as e:
+        return jsonify({"success": False, "message": f"Invalid load session payload: {format_validation_error(e)}"}), 400
+
+    success, msg, manifest = session.load_session(payload.session_dir)
+    if not success:
+        return jsonify({"success": False, "message": msg}), 400
+    return jsonify({
+        "success": True,
+        "message": msg,
+        "manifest": manifest
+    })
+
+@app.route('/api/session/manifest', methods=['GET'])
+def api_get_session_manifest():
+    target_dir = request.args.get('path', '').strip()
+    if not target_dir:
+        with session.lock:
+            if session.root_folder and session.session_name:
+                target_dir = os.path.join(session.root_folder, session.session_name)
+    if not target_dir:
+        return jsonify({"success": False, "message": "No session directory specified or active"}), 400
+
+    manifest = read_session_manifest(target_dir)
+    if not manifest:
+        return jsonify({"success": False, "message": "No session.json found in directory"}), 404
+    return jsonify({"success": True, "manifest": manifest})
 
 @app.route('/api/stop', methods=['POST'])
 def stop_session():
@@ -1113,7 +1297,10 @@ def manage_config():
         updates = payload.model_dump(exclude_unset=True)
         with session.lock:
             session.config.update(updates)
+            if "base_ratios" in updates and updates["base_ratios"] is None:
+                session.sampled_rgb = None
             cfg = dict(session.config)
+        session.save_manifest()
         session.broadcast("config_update", cfg)
         return jsonify({"success": True, "config": cfg})
     else:
@@ -1219,8 +1406,10 @@ def sample_rebate():
         with session.lock:
             session.config["base_ratios"] = [r_ratio, g_ratio, b_ratio]
             session.config["neutralize"] = True
+            session.sampled_rgb = sampled_rgb
             cfg = dict(session.config)
             
+        session.save_manifest()
         session.log(f"Sampled film base rebate: R={r_ratio:.3f}, G={g_ratio:.3f}, B={b_ratio:.3f} (RGB: {sampled_rgb})")
         session.broadcast("config_update", cfg)
         
@@ -1286,9 +1475,11 @@ def browse_directory():
         for item in abs_path.iterdir():
             try:
                 if item.is_dir() and not item.name.startswith('.'):
+                    item_abs = str(item.absolute())
                     folders.append({
                         "name": item.name,
-                        "path": str(item.absolute())
+                        "path": item_abs,
+                        "has_manifest": os.path.isfile(os.path.join(item_abs, "session.json"))
                     })
             except (PermissionError, FileNotFoundError):
                 pass
@@ -1306,7 +1497,8 @@ def browse_directory():
             "current": str(abs_path),
             "parent": parent,
             "drives": [],
-            "folders": folders
+            "folders": folders,
+            "has_manifest": os.path.isfile(os.path.join(str(abs_path), "session.json"))
         })
     except Exception as e:
         return jsonify({

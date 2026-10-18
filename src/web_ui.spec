@@ -68,6 +68,7 @@ hiddenimports = [
     'pydantic',
     'pydantic_core',
     'schemas',
+    'session_manifest',
     'camera_backends',
     'camera_backends.base',
     'camera_backends.simulated',

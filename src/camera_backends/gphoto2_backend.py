@@ -784,11 +784,12 @@ class GPhoto2CameraBackend(BaseCameraBackend):
             os.makedirs(target_dir, exist_ok=True)
 
         ext = os.path.splitext(name)[1].lower()
-        frame_num = 1
-        if self.session_manager and hasattr(self.session_manager, 'get_next_frame_number'):
-            frame_num = self.session_manager.get_next_frame_number(target_dir)
+        frame_num, shot_num, is_triplet = self._get_next_capture_naming(target_dir)
 
-        local_name = f"Frame_{frame_num:02d}_Capture_{int(time.time())}{ext}"
+        if is_triplet:
+            local_name = f"Frame_{frame_num:02d}_Capture_{shot_num:02d}_{int(time.time())}{ext}"
+        else:
+            local_name = f"Frame_{frame_num:02d}_Capture_{int(time.time())}{ext}"
         local_path = os.path.join(target_dir, local_name)
 
         if not quiet:

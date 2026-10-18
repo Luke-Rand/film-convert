@@ -262,6 +262,76 @@ export function closeLightbox() {
     if (box) box.classList.remove('active');
 }
 
+export function openLoadSessionBrowser() {
+    if (window.systemStatus && window.systemStatus !== 'idle') {
+        alert("Please stop the active scanning session before loading another session.");
+        return;
+    }
+    browserActiveInputId = '__load_session__';
+    const currentRoot = document.getElementById('scanner-root-dir')?.value.trim() || '';
+    browserSelectedPath = '';
+    const filterInput = document.getElementById('browser-filter-input');
+    if (filterInput) filterInput.value = '';
+    const modal = document.getElementById('folder-browser-modal');
+    if (modal) modal.classList.add('active');
+    loadDirectory(currentRoot);
+}
+
+export function loadSessionFromPath(sessionPath) {
+    if (!sessionPath) return;
+    fetch('/api/session/load', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ session_dir: sessionPath })
+    })
+    .then(async res => {
+        const data = await res.json().catch(() => null);
+        if (!res.ok || !data || !data.success) {
+            const err = (data && data.message) || `Failed to load session (${res.status})`;
+            throw new Error(err);
+        }
+        return data;
+    })
+    .then(data => {
+        const m = data.manifest;
+        if (m) {
+            if (m.root_dir) {
+                const rootEl = document.getElementById('scanner-root-dir');
+                if (rootEl) rootEl.value = m.root_dir;
+            }
+            if (m.stock) {
+                const stockEl = document.getElementById('scanner-stock');
+                if (stockEl) stockEl.value = m.stock;
+            }
+            if (m.format) {
+                const fmtEl = document.getElementById('scanner-format');
+                if (fmtEl) fmtEl.value = m.format;
+            }
+            if (m.roll) {
+                const rollEl = document.getElementById('scanner-roll');
+                if (rollEl) rollEl.value = m.roll;
+            }
+            if (m.mode) {
+                const modeEl = document.getElementById('scanner-mode');
+                if (modeEl) modeEl.value = m.mode;
+                if (typeof window.updateScannerModeUI === 'function') {
+                    window.updateScannerModeUI(m.mode);
+                }
+            }
+            window.activeFilmBaseRGB = m.sampled_rgb || null;
+            if (m.config && typeof window.syncConfigToUI === 'function') {
+                window.syncConfigToUI(m.config);
+            }
+        }
+        window.appendLogLine?.(`[Client] ${data.message}`);
+        refreshFiles();
+    })
+    .catch(err => {
+        window.appendLogLine?.(`[Client Error] Could not load session: ${err.message || err}`);
+        alert(`Error loading session: ${err.message || err}`);
+    });
+}
+
 export function openFolderBrowser(inputId) {
     browserActiveInputId = inputId;
     const currentVal = document.getElementById(inputId).value.trim();
@@ -380,9 +450,14 @@ export function renderFolderListItems(folders) {
         item.onclick = () => selectFolderItem(item, folder.path);
         item.ondblclick = () => traverseToFolder(folder.path);
 
+        const badgeHtml = folder.has_manifest
+            ? `<span style="margin-left: auto; font-size: 0.7rem; padding: 0.1rem 0.45rem; border-radius: 4px; background: rgba(14, 165, 233, 0.15); color: var(--accent-blue); border: 1px solid rgba(14, 165, 233, 0.3);">🎞️ Session</span>`
+            : '';
+
         item.innerHTML = `
-            <span class="browser-folder-icon">📁</span>
+            <span class="browser-folder-icon">${folder.has_manifest ? '🎞️' : '📁'}</span>
             <span class="browser-folder-name">${folder.name}</span>
+            ${badgeHtml}
         `;
         listContainer.appendChild(item);
     });
@@ -499,10 +574,30 @@ export function confirmFolderSelection() {
         return;
     }
 
+    if (browserActiveInputId === '__load_session__') {
+        const chosen = browserSelectedPath;
+        closeFolderBrowser();
+        loadSessionFromPath(chosen);
+        return;
+    }
+
     const input = document.getElementById(browserActiveInputId);
     if (input) {
         input.value = browserSelectedPath;
         input.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+    if (browserActiveInputId === 'cs-session-folder') {
+        fetch(`/api/session/manifest?path=${encodeURIComponent(browserSelectedPath)}`)
+            .then(res => res.ok ? res.json() : null)
+            .then(data => {
+                if (data && data.success && data.manifest) {
+                    const m = data.manifest;
+                    if (m.stock && document.getElementById('cs-stock-input')) document.getElementById('cs-stock-input').value = m.stock;
+                    if (m.format && document.getElementById('cs-format-input')) document.getElementById('cs-format-input').value = m.format;
+                    if (m.roll && document.getElementById('cs-roll-input')) document.getElementById('cs-roll-input').value = m.roll;
+                }
+            })
+            .catch(() => {});
     }
     closeFolderBrowser();
 }
@@ -516,6 +611,8 @@ Object.assign(window, {
     submitContactSheetGeneration,
     openLightbox,
     closeLightbox,
+    openLoadSessionBrowser,
+    loadSessionFromPath,
     openFolderBrowser,
     closeFolderBrowser,
     loadDirectory,
