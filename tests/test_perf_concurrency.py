@@ -195,6 +195,7 @@ class TestPerfConcurrency(unittest.TestCase):
             self.assertEqual(kwargs["port"], 5099)
             self.assertEqual(kwargs["threads"], 24)
             self.assertEqual(kwargs["channel_timeout"], 300)
+            self.assertEqual(kwargs["send_bytes"], 1)
 
 if __name__ == '__main__':
     unittest.main()

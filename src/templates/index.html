@@ -584,6 +584,48 @@
                             </button>
                         </div>
 
+                        <!-- Last Processed Frame Live Preview Card -->
+                        <div class="card last-frame-card" id="card-last-frame">
+                            <div class="last-frame-header">
+                                <div class="last-frame-title-group">
+                                    <h3 class="card-title" style="margin: 0;">Last Processed Frame</h3>
+                                    <span class="last-frame-badge" id="last-frame-badge">No frames yet</span>
+                                </div>
+                                <div class="last-frame-mode-toggle" id="last-frame-mode-toggle" style="display: none;">
+                                    <button type="button" class="btn btn-secondary btn-small active" id="btn-lf-positive"
+                                        onclick="setLastFrameViewMode('positive')"
+                                        data-tooltip="View the inverted & color-graded 16-bit Positive image">
+                                        Positive
+                                    </button>
+                                    <button type="button" class="btn btn-secondary btn-small" id="btn-lf-negative"
+                                        onclick="setLastFrameViewMode('negative')"
+                                        data-tooltip="Compare with the stacked RGB Composite / RAW Negative">
+                                        Negative
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div class="last-frame-viewport" id="last-frame-viewport" onclick="openLastFrameInLightbox()"
+                                data-tooltip="Click to inspect full-resolution image in Lightbox (or sample film rebate)">
+                                <img id="last-frame-img" class="last-frame-img" src="" alt="Last Processed Scan" style="display: none;">
+                                <div id="last-frame-empty" class="last-frame-empty">
+                                    <span class="last-frame-empty-icon">🎞️</span>
+                                    <span>Converted frames will appear here automatically as you scan</span>
+                                </div>
+                            </div>
+
+                            <div class="last-frame-footer" id="last-frame-footer" style="display: none;">
+                                <span class="last-frame-filename" id="last-frame-filename">--</span>
+                                <div class="last-frame-actions">
+                                    <button type="button" class="btn btn-secondary btn-small" onclick="openLastFrameInLightbox()"
+                                        style="font-size: 0.7rem; padding: 0.2rem 0.5rem;"
+                                        data-tooltip="Open high-resolution preview in Lightbox">
+                                        🔍 Inspect
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
                         <!-- Mini Gallery Tracker / Session Logs -->
                         <div class="card console-card flex-grow"
                             style="display: flex; flex-direction: column; min-height: 200px;">

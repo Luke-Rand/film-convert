@@ -9,6 +9,7 @@ import {
 
 import {
     refreshFiles,
+    openLightbox,
 } from './gallery.js';
 
 import {
@@ -29,6 +30,8 @@ let systemStatus = 'idle';
 window.systemStatus = 'idle';
 let activeSessionDirs = {};
 let eventSource = null;
+let lastFrameData = null;
+let lastFrameViewMode = 'positive'; // 'positive' | 'negative'
 
 // ============================================================
 // TOOLTIP ENGINE
@@ -178,6 +181,7 @@ function initApp() {
     }
 
     fetchInitialLogs();
+    fetchInitialStatus();
     connectSSE();
     initCameraUI();
 
@@ -276,6 +280,18 @@ export function connectSSE() {
         }
     });
 
+    eventSource.addEventListener('frame_processed', (event) => {
+        try {
+            const data = JSON.parse(event.data);
+            updateLastFrameCard(data, true);
+            if (currentTab === 'gallery') {
+                refreshFiles();
+            }
+        } catch (err) {
+            console.error("Error parsing frame_processed SSE data:", err);
+        }
+    });
+
     eventSource.addEventListener('contact_sheet_generated', (event) => {
         try {
             const data = JSON.parse(event.data);
@@ -291,6 +307,20 @@ export function connectSSE() {
         eventSource.close();
         setTimeout(connectSSE, 5000);
     };
+}
+
+export function fetchInitialStatus() {
+    fetch('/api/status')
+        .then(res => res.json())
+        .then(data => {
+            if (data && data.status) {
+                systemStatus = data.status;
+                window.systemStatus = data.status;
+                activeSessionDirs = data.dirs || {};
+                updateStatusUI(data);
+            }
+        })
+        .catch(err => console.error("Error fetching initial status:", err));
 }
 
 export function fetchInitialLogs() {
@@ -572,7 +602,100 @@ export function updateStatusUI(data) {
         }
     }
 
+    if (data.last_frame !== undefined) {
+        updateLastFrameCard(data.last_frame, false);
+    }
+
     syncMiniScanlightUI();
+}
+
+export function updateLastFrameCard(frameInfo, flash = false) {
+    lastFrameData = frameInfo || null;
+    window.lastFrameData = lastFrameData;
+
+    const card = document.getElementById('card-last-frame');
+    const badge = document.getElementById('last-frame-badge');
+    const toggleGroup = document.getElementById('last-frame-mode-toggle');
+    const btnPos = document.getElementById('btn-lf-positive');
+    const btnNeg = document.getElementById('btn-lf-negative');
+    const imgEl = document.getElementById('last-frame-img');
+    const emptyEl = document.getElementById('last-frame-empty');
+    const footerEl = document.getElementById('last-frame-footer');
+    const filenameEl = document.getElementById('last-frame-filename');
+
+    if (!card || !imgEl || !emptyEl) return;
+
+    if (!lastFrameData || !lastFrameData.positive_path) {
+        if (badge) {
+            badge.textContent = 'No frames yet';
+            badge.classList.remove('active');
+        }
+        if (toggleGroup) toggleGroup.style.display = 'none';
+        imgEl.style.display = 'none';
+        imgEl.src = '';
+        emptyEl.style.display = 'flex';
+        if (footerEl) footerEl.style.display = 'none';
+        return;
+    }
+
+    const frameNumStr = String(lastFrameData.frame_number || 1).padStart(2, '0');
+    const totalCount = lastFrameData.frame_count || lastFrameData.frame_number || 1;
+    if (badge) {
+        badge.textContent = `Frame #${frameNumStr} (${totalCount} total)`;
+        badge.classList.add('active');
+    }
+
+    const hasNegative = Boolean(lastFrameData.negative_path);
+    if (toggleGroup) {
+        toggleGroup.style.display = hasNegative ? 'flex' : 'none';
+    }
+    if (!hasNegative && lastFrameViewMode === 'negative') {
+        lastFrameViewMode = 'positive';
+    }
+
+    if (btnPos) btnPos.classList.toggle('active', lastFrameViewMode === 'positive');
+    if (btnNeg) btnNeg.classList.toggle('active', lastFrameViewMode === 'negative');
+
+    const activePath = (lastFrameViewMode === 'negative' && hasNegative)
+        ? lastFrameData.negative_path
+        : lastFrameData.positive_path;
+    const activeName = (lastFrameViewMode === 'negative' && hasNegative)
+        ? (lastFrameData.negative_name || 'Negative')
+        : (lastFrameData.positive_name || 'Positive');
+
+    const cacheBuster = lastFrameData.mtime ? `&t=${Math.floor(lastFrameData.mtime * 1000)}` : '';
+    imgEl.src = `/api/preview?path=${encodeURIComponent(activePath)}&w=600${cacheBuster}`;
+    imgEl.style.display = 'block';
+    emptyEl.style.display = 'none';
+
+    if (footerEl) footerEl.style.display = 'flex';
+    if (filenameEl) {
+        filenameEl.textContent = activeName;
+        filenameEl.title = activePath;
+    }
+
+    if (flash) {
+        card.classList.remove('frame-flash');
+        void card.offsetWidth;
+        card.classList.add('frame-flash');
+        setTimeout(() => card.classList.remove('frame-flash'), 1200);
+    }
+}
+
+export function setLastFrameViewMode(mode) {
+    if (mode !== 'positive' && mode !== 'negative') return;
+    lastFrameViewMode = mode;
+    updateLastFrameCard(lastFrameData, false);
+}
+
+export function openLastFrameInLightbox() {
+    if (!lastFrameData || !lastFrameData.positive_path) return;
+    const hasNegative = Boolean(lastFrameData.negative_path);
+    const useNeg = (lastFrameViewMode === 'negative' && hasNegative);
+    const path = useNeg ? lastFrameData.negative_path : lastFrameData.positive_path;
+    const name = useNeg ? (lastFrameData.negative_name || 'Negative') : (lastFrameData.positive_name || 'Positive');
+    const size = useNeg ? (lastFrameData.negative_size || 0) : (lastFrameData.positive_size || 0);
+    openLightbox(name, path, size);
 }
 
 export function disableInputs(disabled) {
@@ -659,14 +782,37 @@ export function syncConfigToUI(config) {
     document.getElementById('val-margin').textContent = Math.round(config.margin * 100) + '%';
 }
 
+let isTogglingMonitor = false;
+
 export function toggleMonitor() {
+    if (isTogglingMonitor) return;
+
+    const toggleBtn = document.getElementById('btn-toggle-monitor');
+
     if (systemStatus === 'monitoring') {
+        isTogglingMonitor = true;
+        if (toggleBtn) toggleBtn.disabled = true;
         fetch('/api/stop', { method: 'POST' })
             .then(res => res.json())
             .then(data => {
+                if (data && data.status_data) {
+                    systemStatus = data.status_data.status;
+                    window.systemStatus = data.status_data.status;
+                    activeSessionDirs = data.status_data.dirs || {};
+                    updateStatusUI(data.status_data);
+                } else {
+                    fetchInitialStatus();
+                }
                 appendLogLine(`[Client] Stop request sent: ${data.message}`);
             })
-            .catch(err => appendLogLine(`[Client Error] Failed to stop: ${err}`));
+            .catch(err => {
+                appendLogLine(`[Client Error] Failed to stop: ${err}`);
+                fetchInitialStatus();
+            })
+            .finally(() => {
+                isTogglingMonitor = false;
+                if (toggleBtn) toggleBtn.disabled = false;
+            });
     } else {
         const rootDir = document.getElementById('scanner-root-dir').value.trim();
         const stock = document.getElementById('scanner-stock').value.trim();
@@ -710,6 +856,9 @@ export function toggleMonitor() {
             config: config
         };
 
+        isTogglingMonitor = true;
+        if (toggleBtn) toggleBtn.disabled = true;
+
         fetch('/api/start', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -717,6 +866,14 @@ export function toggleMonitor() {
         })
         .then(async res => {
             const data = await res.json().catch(() => null);
+            if (data && data.status_data) {
+                systemStatus = data.status_data.status;
+                window.systemStatus = data.status_data.status;
+                activeSessionDirs = data.status_data.dirs || {};
+                updateStatusUI(data.status_data);
+            } else {
+                fetchInitialStatus();
+            }
             if (!res.ok) {
                 const msg = (data && data.message) || `Server returned HTTP ${res.status}: ${res.statusText}`;
                 appendLogLine(`[Client Error] Failed to start: ${msg}`);
@@ -731,7 +888,14 @@ export function toggleMonitor() {
                 alert(`Error starting scanner: ${msg}`);
             }
         })
-        .catch(err => appendLogLine(`[Client Error] Failed to start: ${err}`));
+        .catch(err => {
+            appendLogLine(`[Client Error] Failed to start: ${err}`);
+            fetchInitialStatus();
+        })
+        .finally(() => {
+            isTogglingMonitor = false;
+            if (toggleBtn) toggleBtn.disabled = false;
+        });
     }
 }
 
@@ -865,6 +1029,7 @@ export function runBatchJob() {
 Object.assign(window, {
     toggleTooltips,
     connectSSE,
+    fetchInitialStatus,
     fetchInitialLogs,
     switchTab,
     updateSliderVal,
@@ -875,6 +1040,9 @@ Object.assign(window, {
     toggleUiSection,
     toggleSidebar,
     updateStatusUI,
+    updateLastFrameCard,
+    setLastFrameViewMode,
+    openLastFrameInLightbox,
     disableInputs,
     syncConfigToUI,
     toggleMonitor,

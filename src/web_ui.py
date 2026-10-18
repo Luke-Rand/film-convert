@@ -117,6 +117,7 @@ class SessionManager:
         self.roll: str = "01"
         self.sampled_rgb: Optional[List[int]] = None
         self.last_triplet_means: Optional[Dict[str, float]] = None
+        self.last_frame: Optional[Dict[str, Any]] = None
         self.dirs: Dict[str, str] = {}
         self.config: Dict[str, Any] = SessionConfigSchema().model_dump()
         self.logs: deque = deque(maxlen=1000)
@@ -164,9 +165,93 @@ class SessionManager:
             for q in self.subscribers:
                 q.put((event_type, data))
 
-    def broadcast_status(self) -> None:
+    def _discover_last_frame(self) -> Optional[Dict[str, Any]]:
+        """Finds the most recent processed positive and corresponding composite/negative in the current session dirs."""
+        positives_dir = self.dirs.get("positives")
+        processed_dir = self.dirs.get("processed")
+        if not positives_dir or not os.path.isdir(positives_dir):
+            return None
+
+        valid_exts = {'.tif', '.tiff', '.dng', '.cr3', '.raf', '.nef', '.arw', '.rw2', '.nrw', '.dcr', '.jpg', '.jpeg', '.png'}
+        try:
+            pos_files = [
+                os.path.join(positives_dir, f) for f in os.listdir(positives_dir)
+                if os.path.isfile(os.path.join(positives_dir, f))
+                and os.path.splitext(f)[1].lower() in valid_exts
+                and "_contact_sheet" not in f.lower()
+            ]
+        except OSError:
+            return None
+
+        if not pos_files:
+            return None
+
+        pos_files.sort(key=lambda x: (os.path.getmtime(x), os.path.basename(x)))
+        latest_pos = pos_files[-1]
+        pos_name = os.path.basename(latest_pos)
+        try:
+            pos_stat = os.stat(latest_pos)
+            pos_size = pos_stat.st_size
+            pos_mtime = pos_stat.st_mtime
+        except OSError:
+            pos_size = 0
+            pos_mtime = time.time()
+
+        frame_num = len(pos_files)
+        if pos_name.startswith("Frame_"):
+            try:
+                parts = pos_name.split("_")
+                if len(parts) > 1:
+                    frame_num = int(parts[1])
+            except (ValueError, IndexError):
+                pass
+
+        neg_path = None
+        neg_name = None
+        neg_size = 0
+        if processed_dir and os.path.isdir(processed_dir):
+            candidate_comp = os.path.join(processed_dir, f"Frame_{frame_num:02d}_Composite.dng")
+            candidate_comp_tif = os.path.join(processed_dir, f"Frame_{frame_num:02d}_Composite.tiff")
+            if os.path.isfile(candidate_comp):
+                neg_path = candidate_comp
+            elif os.path.isfile(candidate_comp_tif):
+                neg_path = candidate_comp_tif
+            else:
+                try:
+                    proc_files = [
+                        os.path.join(processed_dir, f) for f in os.listdir(processed_dir)
+                        if os.path.isfile(os.path.join(processed_dir, f))
+                        and os.path.splitext(f)[1].lower() in valid_exts
+                    ]
+                    if proc_files:
+                        proc_files.sort(key=lambda x: os.path.getmtime(x))
+                        neg_path = proc_files[-1]
+                except OSError:
+                    pass
+
+        if neg_path and os.path.isfile(neg_path):
+            neg_name = os.path.basename(neg_path)
+            try:
+                neg_size = os.path.getsize(neg_path)
+            except OSError:
+                neg_size = 0
+
+        return {
+            "frame_number": frame_num,
+            "frame_count": len(pos_files),
+            "positive_path": latest_pos,
+            "positive_name": pos_name,
+            "positive_size": pos_size,
+            "negative_path": neg_path,
+            "negative_name": neg_name,
+            "negative_size": neg_size,
+            "mtime": pos_mtime,
+            "mode": self.mode
+        }
+
+    def get_status_dict(self) -> Dict[str, Any]:
         with self.lock:
-            status_data = {
+            return {
                 "status": self.status,
                 "mode": self.mode,
                 "root_folder": self.root_folder,
@@ -176,10 +261,13 @@ class SessionManager:
                 "roll": self.roll,
                 "sampled_rgb": self.sampled_rgb,
                 "last_triplet_means": self.last_triplet_means,
-                "dirs": self.dirs,
-                "config": self.config
+                "last_frame": dict(self.last_frame) if self.last_frame else None,
+                "dirs": dict(self.dirs),
+                "config": dict(self.config)
             }
-        self.broadcast("status", status_data)
+
+    def broadcast_status(self) -> None:
+        self.broadcast("status", self.get_status_dict())
 
     def save_manifest(self) -> Optional[Dict[str, Any]]:
         """Persists the current session state and configuration to <session_dir>/session.json."""
@@ -251,12 +339,18 @@ class SessionManager:
             }
             for d in self.dirs.values():
                 os.makedirs(d, exist_ok=True)
+            self.last_frame = self._discover_last_frame()
 
         saved_manifest = self.save_manifest()
+        if saved_manifest is not None:
+            saved_manifest["root_dir"] = self.root_folder
+            saved_manifest["last_frame"] = self.last_frame
         self.log(f"Loaded session '{self.session_name}' from {abs_dir}")
         self.broadcast_status()
         if self.last_triplet_means:
             self.broadcast("triplet_means", self.last_triplet_means)
+        if self.last_frame:
+            self.broadcast("frame_processed", self.last_frame)
         return True, f"Loaded session '{self.session_name}'", saved_manifest
 
     def log(self, message: str) -> None:
@@ -349,6 +443,7 @@ class SessionManager:
                 
                 for d in self.dirs.values():
                     os.makedirs(d, exist_ok=True)
+                self.last_frame = self._discover_last_frame()
                     
                 self.stop_event.clear()
                 self.status = "monitoring"
@@ -375,6 +470,8 @@ class SessionManager:
         
         self.save_manifest()
         self.broadcast_status()
+        if self.last_frame:
+            self.broadcast("frame_processed", self.last_frame)
         return True, "Monitoring started successfully"
 
     def stop_monitoring(self) -> Tuple[bool, str]:
@@ -524,6 +621,11 @@ class SessionManager:
                                 shutil.move(f, os.path.join(self.dirs['processed'], os.path.basename(f)))
                             shutil.move(composite_filepath, os.path.join(self.dirs['processed'], composite_filename))
                             
+                            with self.lock:
+                                self.last_frame = self._discover_last_frame()
+                                latest_frame_data = dict(self.last_frame) if self.last_frame else None
+                            if latest_frame_data:
+                                self.broadcast("frame_processed", latest_frame_data)
                             self.save_manifest()
                             self.log(f"SUCCESS: Frame {frame_number:02d} processed and saved.")
                             
@@ -587,6 +689,11 @@ class SessionManager:
                                 raise Exception(f"Worker failure: {result}")
                             
                             shutil.move(filepath, os.path.join(self.dirs['processed'], filename))
+                            with self.lock:
+                                self.last_frame = self._discover_last_frame()
+                                latest_frame_data = dict(self.last_frame) if self.last_frame else None
+                            if latest_frame_data:
+                                self.broadcast("frame_processed", latest_frame_data)
                             self.save_manifest()
                             self.log(f"SUCCESS: {filename} processed and saved.")
                             
@@ -928,20 +1035,7 @@ def debug_widgets():
 
 @app.route('/api/status', methods=['GET'])
 def get_status():
-    with session.lock:
-        return jsonify({
-            "status": session.status,
-            "mode": session.mode,
-            "root_folder": session.root_folder,
-            "session_name": session.session_name,
-            "stock": session.stock,
-            "format": session.format,
-            "roll": session.roll,
-            "sampled_rgb": session.sampled_rgb,
-            "last_triplet_means": session.last_triplet_means,
-            "dirs": session.dirs,
-            "config": session.config
-        })
+    return jsonify(session.get_status_dict())
 
 @app.route('/api/stream', methods=['GET'])
 def sse_stream():
@@ -949,20 +1043,7 @@ def sse_stream():
     
     def event_generator():
         # Yield initial status on connect
-        with session.lock:
-            initial_status = {
-                "status": session.status,
-                "mode": session.mode,
-                "root_folder": session.root_folder,
-                "session_name": session.session_name,
-                "stock": session.stock,
-                "format": session.format,
-                "roll": session.roll,
-                "sampled_rgb": session.sampled_rgb,
-                "last_triplet_means": session.last_triplet_means,
-                "dirs": session.dirs,
-                "config": session.config
-            }
+        initial_status = session.get_status_dict()
         import json
         yield f"event: status\ndata: {json.dumps(initial_status)}\n\n"
         
@@ -981,7 +1062,14 @@ def sse_stream():
         finally:
             session.remove_subscriber(q)
             
-    return Response(event_generator(), mimetype='text/event-stream')
+    return Response(
+        event_generator(),
+        mimetype='text/event-stream',
+        headers={
+            'Cache-Control': 'no-cache, no-transform',
+            'X-Accel-Buffering': 'no',
+        }
+    )
 
 @app.route('/api/start', methods=['POST'])
 def start_session():
@@ -1018,7 +1106,11 @@ def start_session():
             film_format=fmt,
             roll=roll
         )
-        return jsonify({"success": success, "message": msg})
+        return jsonify({
+            "success": success,
+            "message": msg,
+            "status_data": session.get_status_dict()
+        })
     except Exception as e:
         return jsonify({"success": False, "message": f"Server error: {str(e)}"}), 500
 
@@ -1035,7 +1127,8 @@ def api_load_session():
     return jsonify({
         "success": True,
         "message": msg,
-        "manifest": manifest
+        "manifest": manifest,
+        "status_data": session.get_status_dict()
     })
 
 @app.route('/api/session/manifest', methods=['GET'])
@@ -1056,7 +1149,11 @@ def api_get_session_manifest():
 @app.route('/api/stop', methods=['POST'])
 def stop_session():
     success, msg = session.stop_monitoring()
-    return jsonify({"success": success, "message": msg})
+    return jsonify({
+        "success": success,
+        "message": msg,
+        "status_data": session.get_status_dict()
+    })
 
 @app.route('/api/logs', methods=['GET'])
 def get_logs():
@@ -1465,10 +1562,18 @@ def browse_directory():
     if not path_str:
         path = Path.home()
     else:
-        path = Path(path_str)
+        path = Path(os.path.expanduser(path_str))
+        # If the default Scans folder doesn't exist yet, create it or fall back cleanly if inside home
+        if not path.exists() and path_str in ("~/Pictures/Scans", os.path.expanduser("~/Pictures/Scans")):
+            try:
+                path.mkdir(parents=True, exist_ok=True)
+            except Exception:
+                pass
 
     try:
-        abs_path = path.resolve()
+        abs_path = path.resolve(strict=True)
+        if not abs_path.is_dir():
+            raise NotADirectoryError(f"Not a directory: {abs_path}")
         
         # List subfolders
         folders = []
@@ -1528,7 +1633,7 @@ def run_production_server(host: str = "127.0.0.1", port: int = 5001, threads: in
             threads=threads,
             channel_timeout=300,
             recv_bytes=65536,
-            send_bytes=65536,
+            send_bytes=1,
         )
     except ImportError:
         logging.getLogger('werkzeug').setLevel(logging.WARNING)

@@ -89,11 +89,24 @@ class TestSessionManifest(unittest.TestCase):
         self.assertTrue(data["success"])
         self.assertEqual(data["manifest"]["stock"], "IlfordHP5")
 
+        os.makedirs(os.path.join(roll_dir, "positives"), exist_ok=True)
+        os.makedirs(os.path.join(roll_dir, "processed_raws"), exist_ok=True)
+        pos_file = os.path.join(roll_dir, "positives", "Frame_01_Positive.tiff")
+        neg_file = os.path.join(roll_dir, "processed_raws", "Frame_01_Composite.dng")
+        open(pos_file, "w").close()
+        open(neg_file, "w").close()
+
         # POST /api/session/load
         res_load = client.post("/api/session/load", json={"session_dir": roll_dir})
         self.assertEqual(res_load.status_code, 200)
         load_data = res_load.get_json()
         self.assertTrue(load_data["success"])
+        self.assertEqual(load_data["manifest"]["root_dir"], os.path.abspath(self.test_dir))
+        self.assertEqual(load_data["status_data"]["status"], "idle")
+        self.assertIsNotNone(load_data["status_data"]["last_frame"])
+        self.assertEqual(load_data["status_data"]["last_frame"]["frame_number"], 1)
+        self.assertEqual(load_data["status_data"]["last_frame"]["positive_name"], "Frame_01_Positive.tiff")
+        self.assertEqual(load_data["status_data"]["last_frame"]["negative_name"], "Frame_01_Composite.dng")
         self.assertEqual(global_session.session_name, "IlfordHP5-120-05")
         self.assertEqual(global_session.stock, "IlfordHP5")
         self.assertEqual(global_session.format, "120")
@@ -101,6 +114,31 @@ class TestSessionManifest(unittest.TestCase):
         self.assertEqual(global_session.mode, "single")
         self.assertTrue(global_session.config["monochrome"])
         self.assertEqual(global_session.config["gamma"], 2.1)
+
+        # POST /api/start and /api/stop return status_data
+        res_start = client.post("/api/start", json={
+            "root_dir": self.test_dir,
+            "stock": "IlfordHP5",
+            "format": "120",
+            "roll": "05",
+            "mode": "single"
+        })
+        self.assertEqual(res_start.status_code, 200)
+        start_data = res_start.get_json()
+        self.assertTrue(start_data["success"])
+        self.assertEqual(start_data["status_data"]["status"], "monitoring")
+
+        res_stop = client.post("/api/stop")
+        self.assertEqual(res_stop.status_code, 200)
+        stop_data = res_stop.get_json()
+        self.assertTrue(stop_data["success"])
+        self.assertEqual(stop_data["status_data"]["status"], "idle")
+
+        # GET /api/browse expands ~
+        res_browse = client.get("/api/browse?path=~")
+        self.assertEqual(res_browse.status_code, 200)
+        browse_data = res_browse.get_json()
+        self.assertEqual(browse_data["current"], str(os.path.realpath(os.path.expanduser("~"))))
 
     def test_reprocess_rolls_uses_manifest_unless_overridden(self):
         roll_dir = os.path.join(self.test_dir, "Cinestill800T-135-01")

@@ -2397,4 +2397,132 @@ kbd {
     flex-wrap: wrap;
 }
 
+/* Last Processed Frame Live Preview Card */
+.last-frame-card {
+    padding: 0.85rem 1rem;
+    transition: border-color 0.35s ease, box-shadow 0.35s ease;
+}
+
+.last-frame-card.frame-flash {
+    border-color: var(--accent-green);
+    box-shadow: 0 0 16px rgba(16, 185, 129, 0.25);
+}
+
+.last-frame-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.6rem;
+    flex-wrap: wrap;
+}
+
+.last-frame-title-group {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.last-frame-badge {
+    font-family: var(--font-mono);
+    font-size: 0.68rem;
+    font-weight: 600;
+    padding: 0.12rem 0.45rem;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--text-muted);
+    border: 1px solid var(--border-color);
+}
+
+.last-frame-badge.active {
+    background: rgba(16, 185, 129, 0.14);
+    color: var(--accent-green);
+    border-color: rgba(16, 185, 129, 0.35);
+}
+
+.last-frame-mode-toggle {
+    display: flex;
+    gap: 0.25rem;
+}
+
+.last-frame-mode-toggle .btn-small {
+    font-size: 0.68rem;
+    padding: 0.15rem 0.45rem;
+    line-height: 1.2;
+}
+
+.last-frame-mode-toggle .btn-small.active {
+    background-color: var(--accent-blue);
+    border-color: var(--accent-blue);
+    color: #fff;
+}
+
+.last-frame-viewport {
+    position: relative;
+    width: 100%;
+    height: 165px;
+    background: #090d16;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: border-color 0.2s ease;
+}
+
+.last-frame-viewport:hover {
+    border-color: rgba(56, 189, 248, 0.45);
+}
+
+.last-frame-img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    display: block;
+}
+
+.last-frame-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.35rem;
+    padding: 1rem;
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 0.75rem;
+    cursor: default;
+}
+
+.last-frame-empty-icon {
+    font-size: 1.4rem;
+    opacity: 0.65;
+}
+
+.last-frame-footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.5rem;
+    margin-top: 0.5rem;
+}
+
+.last-frame-filename {
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    color: var(--text-secondary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.last-frame-actions {
+    display: flex;
+    gap: 0.35rem;
+    flex-shrink: 0;
+}
+
+
 
