@@ -164,9 +164,9 @@ class SessionManager:
             for q in self.subscribers:
                 q.put((event_type, data))
 
-    def broadcast_status(self) -> None:
+    def get_status_dict(self) -> Dict[str, Any]:
         with self.lock:
-            status_data = {
+            return {
                 "status": self.status,
                 "mode": self.mode,
                 "root_folder": self.root_folder,
@@ -176,10 +176,12 @@ class SessionManager:
                 "roll": self.roll,
                 "sampled_rgb": self.sampled_rgb,
                 "last_triplet_means": self.last_triplet_means,
-                "dirs": self.dirs,
-                "config": self.config
+                "dirs": dict(self.dirs),
+                "config": dict(self.config)
             }
-        self.broadcast("status", status_data)
+
+    def broadcast_status(self) -> None:
+        self.broadcast("status", self.get_status_dict())
 
     def save_manifest(self) -> Optional[Dict[str, Any]]:
         """Persists the current session state and configuration to <session_dir>/session.json."""
@@ -253,6 +255,8 @@ class SessionManager:
                 os.makedirs(d, exist_ok=True)
 
         saved_manifest = self.save_manifest()
+        if saved_manifest is not None:
+            saved_manifest["root_dir"] = self.root_folder
         self.log(f"Loaded session '{self.session_name}' from {abs_dir}")
         self.broadcast_status()
         if self.last_triplet_means:
@@ -928,20 +932,7 @@ def debug_widgets():
 
 @app.route('/api/status', methods=['GET'])
 def get_status():
-    with session.lock:
-        return jsonify({
-            "status": session.status,
-            "mode": session.mode,
-            "root_folder": session.root_folder,
-            "session_name": session.session_name,
-            "stock": session.stock,
-            "format": session.format,
-            "roll": session.roll,
-            "sampled_rgb": session.sampled_rgb,
-            "last_triplet_means": session.last_triplet_means,
-            "dirs": session.dirs,
-            "config": session.config
-        })
+    return jsonify(session.get_status_dict())
 
 @app.route('/api/stream', methods=['GET'])
 def sse_stream():
@@ -949,20 +940,7 @@ def sse_stream():
     
     def event_generator():
         # Yield initial status on connect
-        with session.lock:
-            initial_status = {
-                "status": session.status,
-                "mode": session.mode,
-                "root_folder": session.root_folder,
-                "session_name": session.session_name,
-                "stock": session.stock,
-                "format": session.format,
-                "roll": session.roll,
-                "sampled_rgb": session.sampled_rgb,
-                "last_triplet_means": session.last_triplet_means,
-                "dirs": session.dirs,
-                "config": session.config
-            }
+        initial_status = session.get_status_dict()
         import json
         yield f"event: status\ndata: {json.dumps(initial_status)}\n\n"
         
@@ -981,7 +959,14 @@ def sse_stream():
         finally:
             session.remove_subscriber(q)
             
-    return Response(event_generator(), mimetype='text/event-stream')
+    return Response(
+        event_generator(),
+        mimetype='text/event-stream',
+        headers={
+            'Cache-Control': 'no-cache, no-transform',
+            'X-Accel-Buffering': 'no',
+        }
+    )
 
 @app.route('/api/start', methods=['POST'])
 def start_session():
@@ -1018,7 +1003,11 @@ def start_session():
             film_format=fmt,
             roll=roll
         )
-        return jsonify({"success": success, "message": msg})
+        return jsonify({
+            "success": success,
+            "message": msg,
+            "status_data": session.get_status_dict()
+        })
     except Exception as e:
         return jsonify({"success": False, "message": f"Server error: {str(e)}"}), 500
 
@@ -1035,7 +1024,8 @@ def api_load_session():
     return jsonify({
         "success": True,
         "message": msg,
-        "manifest": manifest
+        "manifest": manifest,
+        "status_data": session.get_status_dict()
     })
 
 @app.route('/api/session/manifest', methods=['GET'])
@@ -1056,7 +1046,11 @@ def api_get_session_manifest():
 @app.route('/api/stop', methods=['POST'])
 def stop_session():
     success, msg = session.stop_monitoring()
-    return jsonify({"success": success, "message": msg})
+    return jsonify({
+        "success": success,
+        "message": msg,
+        "status_data": session.get_status_dict()
+    })
 
 @app.route('/api/logs', methods=['GET'])
 def get_logs():
@@ -1465,10 +1459,18 @@ def browse_directory():
     if not path_str:
         path = Path.home()
     else:
-        path = Path(path_str)
+        path = Path(os.path.expanduser(path_str))
+        # If the default Scans folder doesn't exist yet, create it or fall back cleanly if inside home
+        if not path.exists() and path_str in ("~/Pictures/Scans", os.path.expanduser("~/Pictures/Scans")):
+            try:
+                path.mkdir(parents=True, exist_ok=True)
+            except Exception:
+                pass
 
     try:
-        abs_path = path.resolve()
+        abs_path = path.resolve(strict=True)
+        if not abs_path.is_dir():
+            raise NotADirectoryError(f"Not a directory: {abs_path}")
         
         # List subfolders
         folders = []
@@ -1528,7 +1530,7 @@ def run_production_server(host: str = "127.0.0.1", port: int = 5001, threads: in
             threads=threads,
             channel_timeout=300,
             recv_bytes=65536,
-            send_bytes=65536,
+            send_bytes=1,
         )
     except ImportError:
         logging.getLogger('werkzeug').setLevel(logging.WARNING)

@@ -178,6 +178,7 @@ function initApp() {
     }
 
     fetchInitialLogs();
+    fetchInitialStatus();
     connectSSE();
     initCameraUI();
 
@@ -291,6 +292,20 @@ export function connectSSE() {
         eventSource.close();
         setTimeout(connectSSE, 5000);
     };
+}
+
+export function fetchInitialStatus() {
+    fetch('/api/status')
+        .then(res => res.json())
+        .then(data => {
+            if (data && data.status) {
+                systemStatus = data.status;
+                window.systemStatus = data.status;
+                activeSessionDirs = data.dirs || {};
+                updateStatusUI(data);
+            }
+        })
+        .catch(err => console.error("Error fetching initial status:", err));
 }
 
 export function fetchInitialLogs() {
@@ -659,14 +674,37 @@ export function syncConfigToUI(config) {
     document.getElementById('val-margin').textContent = Math.round(config.margin * 100) + '%';
 }
 
+let isTogglingMonitor = false;
+
 export function toggleMonitor() {
+    if (isTogglingMonitor) return;
+
+    const toggleBtn = document.getElementById('btn-toggle-monitor');
+
     if (systemStatus === 'monitoring') {
+        isTogglingMonitor = true;
+        if (toggleBtn) toggleBtn.disabled = true;
         fetch('/api/stop', { method: 'POST' })
             .then(res => res.json())
             .then(data => {
+                if (data && data.status_data) {
+                    systemStatus = data.status_data.status;
+                    window.systemStatus = data.status_data.status;
+                    activeSessionDirs = data.status_data.dirs || {};
+                    updateStatusUI(data.status_data);
+                } else {
+                    fetchInitialStatus();
+                }
                 appendLogLine(`[Client] Stop request sent: ${data.message}`);
             })
-            .catch(err => appendLogLine(`[Client Error] Failed to stop: ${err}`));
+            .catch(err => {
+                appendLogLine(`[Client Error] Failed to stop: ${err}`);
+                fetchInitialStatus();
+            })
+            .finally(() => {
+                isTogglingMonitor = false;
+                if (toggleBtn) toggleBtn.disabled = false;
+            });
     } else {
         const rootDir = document.getElementById('scanner-root-dir').value.trim();
         const stock = document.getElementById('scanner-stock').value.trim();
@@ -710,6 +748,9 @@ export function toggleMonitor() {
             config: config
         };
 
+        isTogglingMonitor = true;
+        if (toggleBtn) toggleBtn.disabled = true;
+
         fetch('/api/start', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -717,6 +758,14 @@ export function toggleMonitor() {
         })
         .then(async res => {
             const data = await res.json().catch(() => null);
+            if (data && data.status_data) {
+                systemStatus = data.status_data.status;
+                window.systemStatus = data.status_data.status;
+                activeSessionDirs = data.status_data.dirs || {};
+                updateStatusUI(data.status_data);
+            } else {
+                fetchInitialStatus();
+            }
             if (!res.ok) {
                 const msg = (data && data.message) || `Server returned HTTP ${res.status}: ${res.statusText}`;
                 appendLogLine(`[Client Error] Failed to start: ${msg}`);
@@ -731,7 +780,14 @@ export function toggleMonitor() {
                 alert(`Error starting scanner: ${msg}`);
             }
         })
-        .catch(err => appendLogLine(`[Client Error] Failed to start: ${err}`));
+        .catch(err => {
+            appendLogLine(`[Client Error] Failed to start: ${err}`);
+            fetchInitialStatus();
+        })
+        .finally(() => {
+            isTogglingMonitor = false;
+            if (toggleBtn) toggleBtn.disabled = false;
+        });
     }
 }
 
@@ -865,6 +921,7 @@ export function runBatchJob() {
 Object.assign(window, {
     toggleTooltips,
     connectSSE,
+    fetchInitialStatus,
     fetchInitialLogs,
     switchTab,
     updateSliderVal,
