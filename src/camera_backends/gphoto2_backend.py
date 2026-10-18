@@ -3,10 +3,12 @@ import re
 import sys
 import glob
 import time
+import shutil
 import threading
 import subprocess
 from typing import Dict, Any, Optional
 from .base import BaseCameraBackend
+from metadata_preservation import get_staged_raw_path
 
 
 def _configure_gphoto2_env():
@@ -91,6 +93,8 @@ class GPhoto2CameraBackend(BaseCameraBackend):
         self._physical_viewfinder_active = False
         self._consecutive_preview_errors = 0
         self._cached_dcim_folder = None
+        self._captures_to_ram = False
+        self._pending_file_events = []
         self._last_settings_poll = 0.0
 
         # Resolved widget names mapping (probed dynamically upon connection)
@@ -107,6 +111,24 @@ class GPhoto2CameraBackend(BaseCameraBackend):
     def log(self, message: str):
         if self.log_callback:
             self.log_callback(message)
+
+    def _drain_events_locked(self, max_events: int = 5, timeout_ms: int = 25):
+        """
+        Drain pending PTP events while holding self.lock.
+        Crucially preserves any GP_EVENT_FILE_ADDED events in self._pending_file_events
+        so shutter release or property updates never accidentally swallow a captured frame.
+        """
+        if not self.camera or not GPHOTO2_AVAILABLE:
+            return
+        try:
+            for _ in range(max_events):
+                evt_type, evt_data = self.camera.wait_for_event(timeout_ms)
+                if evt_type == gp.GP_EVENT_TIMEOUT:
+                    break
+                if evt_type == gp.GP_EVENT_FILE_ADDED and evt_data:
+                    self._pending_file_events.append((evt_data.folder, evt_data.name))
+        except Exception:
+            pass
 
     def connect(self) -> bool:
         if not GPHOTO2_AVAILABLE:
@@ -299,6 +321,8 @@ class GPhoto2CameraBackend(BaseCameraBackend):
         self.camera_connected = False
         self._physical_viewfinder_active = False
         self._cached_dcim_folder = None
+        self._captures_to_ram = False
+        self._pending_file_events.clear()
         self.connection_state = "disconnected"
 
         # Safely resume macOS icdd daemon if suspended
@@ -325,14 +349,8 @@ class GPhoto2CameraBackend(BaseCameraBackend):
             except Exception as e:
                 last_err = e
                 # Drain pending events to unlock USB pipe
-                try:
-                    with self.lock:
-                        for _ in range(3):
-                            evt_type, _ = self.camera.wait_for_event(30)
-                            if evt_type == gp.GP_EVENT_TIMEOUT:
-                                break
-                except Exception:
-                    pass
+                with self.lock:
+                    self._drain_events_locked(max_events=3, timeout_ms=25)
                 time.sleep(0.1)
 
         self._consecutive_preview_errors += 1
@@ -413,13 +431,7 @@ class GPhoto2CameraBackend(BaseCameraBackend):
 
         # 1. Drain residual USB preview packets so bus is idle before setting configs or triggering shutter
         with self.lock:
-            try:
-                for _ in range(6):
-                    evt_type, _ = self.camera.wait_for_event(25)
-                    if evt_type == gp.GP_EVENT_TIMEOUT:
-                        break
-            except Exception:
-                pass
+            self._drain_events_locked(max_events=6, timeout_ms=20)
 
         # 2. Disengage hardware sensor zoom (eoszoom) if active to unlock camera shutter
         if self.resolved_names.get("eoszoom"):
@@ -429,40 +441,42 @@ class GPhoto2CameraBackend(BaseCameraBackend):
                     self.log("Disengaging hardware zoom (eoszoom = 0) prior to capture to unlock shutter...")
                     self._set_camera_property("eoszoom", 0)
                     self.camera_settings["eoszoom"] = "0"
-                    time.sleep(0.2)
+                    time.sleep(0.15)
             except Exception as zoom_err:
                 self.log(f"Notice: Pre-capture eoszoom check: {zoom_err}")
 
-        # 3. Snapshot DCIM directory on camera storage so we can detect new captures
-        # even if capturetarget is Memory card or no FILE_ADDED PTP event is emitted
-        dcim_dir = self._get_dcim_folder()
+        # 3. Snapshot DCIM directory on camera storage ONLY when camera does not capture to SDRAM
+        dcim_dir = None
         initial_dcim_files = set()
         last_dcim_file = None
-        if dcim_dir:
-            try:
-                with self.lock:
-                    f_list = self.camera.folder_list_files(dcim_dir)
-                    f_count = f_list.count()
-                    initial_dcim_files = {f_list.get_name(i) for i in range(f_count)}
-                    if f_count > 0:
-                        last_dcim_file = f_list.get_name(f_count - 1)
-                self.log(f"Pre-capture DCIM snapshot ({dcim_dir}): {len(initial_dcim_files)} files. Last: {last_dcim_file}")
-            except Exception as list_err:
-                self.log(f"Notice: Pre-capture DCIM listing: {list_err}")
-        else:
-            self.log("Notice: DCIM folder not located prior to shutter release.")
-
         predicted_candidates = []
-        if last_dcim_file:
-            pred = self._predict_next_filename(last_dcim_file)
-            if pred:
-                predicted_candidates.append(pred)
-                base_root = os.path.splitext(pred)[0]
-                for alt_ext in [".CR3", ".cr3", ".JPG", ".jpg"]:
-                    cand = f"{base_root}{alt_ext}"
-                    if cand not in predicted_candidates:
-                        predicted_candidates.append(cand)
-            self.log(f"Predicted next capture file candidate(s): {predicted_candidates}")
+
+        if not self._captures_to_ram:
+            dcim_dir = self._get_dcim_folder()
+            if dcim_dir:
+                try:
+                    with self.lock:
+                        f_list = self.camera.folder_list_files(dcim_dir)
+                        f_count = f_list.count()
+                        initial_dcim_files = {f_list.get_name(i) for i in range(f_count)}
+                        if f_count > 0:
+                            last_dcim_file = f_list.get_name(f_count - 1)
+                    self.log(f"Pre-capture DCIM snapshot ({dcim_dir}): {len(initial_dcim_files)} files. Last: {last_dcim_file}")
+                except Exception as list_err:
+                    self.log(f"Notice: Pre-capture DCIM listing: {list_err}")
+            else:
+                self.log("Notice: DCIM folder not located prior to shutter release.")
+
+            if last_dcim_file:
+                pred = self._predict_next_filename(last_dcim_file)
+                if pred:
+                    predicted_candidates.append(pred)
+                    base_root = os.path.splitext(pred)[0]
+                    for alt_ext in [".CR3", ".cr3", ".JPG", ".jpg"]:
+                        cand = f"{base_root}{alt_ext}"
+                        if cand not in predicted_candidates:
+                            predicted_candidates.append(cand)
+                self.log(f"Predicted next capture file candidate(s): {predicted_candidates}")
 
         file_path_info = None
         result_path = None
@@ -471,7 +485,7 @@ class GPhoto2CameraBackend(BaseCameraBackend):
             # Ensure release state is clean
             for rel in ["Release", "Release Full", "Release Half"]:
                 try:
-                    self._set_camera_property("eosremoterelease", rel)
+                    self._set_camera_property("eosremoterelease", rel, drain_events=False)
                     break
                 except Exception:
                     pass
@@ -479,38 +493,60 @@ class GPhoto2CameraBackend(BaseCameraBackend):
             # For scanning film negatives, shutter release MUST NOT activate AF hunting
             # Canon EOS remote release: Press Half MF (metering only) -> Press Full MF (shutter trip)
             self.log("Triggering camera shutter via eosremoterelease (Press Half MF -> Press Full MF)...")
-            self._set_camera_property("eosremoterelease", "Press Half MF")
-            time.sleep(0.15)  # Hold half-press for exposure metering
+            self._set_camera_property("eosremoterelease", "Press Half MF", drain_events=False)
+            time.sleep(0.08)  # Hold half-press briefly
 
-            self._set_camera_property("eosremoterelease", "Press Full MF")
-            time.sleep(0.25)  # Hold full-press to trip shutter mechanism
+            self._set_camera_property("eosremoterelease", "Press Full MF", drain_events=False)
+            time.sleep(0.15)  # Hold full-press to trip shutter mechanism
 
-            # Release shutter switches
+            # Release shutter switches (without draining FILE_ADDED events!)
             for rel in ["Release", "Release Full", "Release Half"]:
                 try:
-                    self._set_camera_property("eosremoterelease", rel)
+                    self._set_camera_property("eosremoterelease", rel, drain_events=False)
                     break
                 except Exception:
                     pass
 
             # Wait for capture event from camera or retrieve newly written file from storage
             t0 = time.time()
+            last_pred_check = t0
             while time.time() - t0 < 10.0:
-                # 1. Check PTP events
+                # 0. Check if any FILE_ADDED event was captured during property retry drains
+                if self._pending_file_events:
+                    ev_folder, ev_name = self._pending_file_events.pop(0)
+                    file_path_info = (ev_folder, ev_name)
+                    if ev_folder in ("/", "//") or ev_name.lower().startswith("capt"):
+                        self._captures_to_ram = True
+                    self.log(f"Capture event detected: {file_path_info[0]}/{file_path_info[1]}")
+                    result_path = self._download_camera_file(ev_folder, ev_name)
+                    break
+
+                # 1. Wait for PTP event (returns immediately on event, or after 120ms timeout)
                 with self.lock:
                     try:
-                        event_type, event_data = self.camera.wait_for_event(80)
+                        event_type, event_data = self.camera.wait_for_event(120)
                     except Exception:
                         event_type, event_data = gp.GP_EVENT_TIMEOUT, None
 
                 if event_type == gp.GP_EVENT_FILE_ADDED and event_data:
                     file_path_info = (event_data.folder, event_data.name)
+                    if event_data.folder in ("/", "//") or event_data.name.lower().startswith("capt"):
+                        self._captures_to_ram = True
                     self.log(f"Capture event detected: {file_path_info[0]}/{file_path_info[1]}")
                     result_path = self._download_camera_file(event_data.folder, event_data.name)
                     break
 
-                # 2. Try direct storage file retrieval using predicted filename
-                if dcim_dir and predicted_candidates:
+                # 2. Fallback: direct storage file retrieval ONLY if camera is not capturing to RAM
+                # and no event has arrived after 2.0s (polled at most once per 1.0s to avoid USB bus contention)
+                now_ts = time.time()
+                if (
+                    not self._captures_to_ram
+                    and dcim_dir
+                    and predicted_candidates
+                    and (now_ts - t0 >= 2.0)
+                    and (now_ts - last_pred_check >= 1.0)
+                ):
+                    last_pred_check = now_ts
                     for cand_name in predicted_candidates:
                         try:
                             result_path = self._download_camera_file(dcim_dir, cand_name, quiet=True)
@@ -522,27 +558,21 @@ class GPhoto2CameraBackend(BaseCameraBackend):
                     if file_path_info:
                         break
 
-                time.sleep(0.15)
-
             if not result_path:
                 raise Exception("Camera shutter release did not produce an image file on storage within timeout.")
         else:
             self.log("Triggering camera capture via camera.capture()...")
             with self.lock:
                 file_path = self.camera.capture(gp.GP_CAPTURE_IMAGE)
+            if file_path.folder in ("/", "//") or file_path.name.lower().startswith("capt"):
+                self._captures_to_ram = True
             self.log(f"Capture successful. File created on camera: {file_path.folder}/{file_path.name}")
             result_path = self._download_camera_file(file_path.folder, file_path.name)
 
         # Post-capture event draining to clear remaining PTP notifications (like CAPTURE_COMPLETE)
-        try:
-            with self.lock:
-                for _ in range(12):
-                    evt_type, _ = self.camera.wait_for_event(30)
-                    if evt_type == gp.GP_EVENT_TIMEOUT:
-                        break
-        except Exception:
-            pass
-        time.sleep(0.2)
+        with self.lock:
+            self._drain_events_locked(max_events=6, timeout_ms=20)
+        time.sleep(0.05)
         return result_path
 
     def step_focus(self, direction: str, coarse: bool = False) -> bool:
@@ -575,14 +605,8 @@ class GPhoto2CameraBackend(BaseCameraBackend):
         else:
             raise Exception("Autofocus is not supported or resolved for this camera model.")
 
-        try:
-            with self.lock:
-                for _ in range(5):
-                    evt_type, _ = self.camera.wait_for_event(50)
-                    if evt_type == gp.GP_EVENT_TIMEOUT:
-                        break
-        except Exception:
-            pass
+        with self.lock:
+            self._drain_events_locked(max_events=5, timeout_ms=40)
         time.sleep(0.1)
         return True
 
@@ -629,13 +653,7 @@ class GPhoto2CameraBackend(BaseCameraBackend):
 
         # Drain any pending PTP events to clear USB bus before updating property
         with self.lock:
-            try:
-                for _ in range(5):
-                    evt_type, _ = self.camera.wait_for_event(30)
-                    if evt_type == gp.GP_EVENT_TIMEOUT:
-                        break
-            except Exception:
-                pass
+            self._drain_events_locked(max_events=5, timeout_ms=25)
         self._set_camera_property(name, value)
         self.camera_settings[name] = value
         return True
@@ -775,6 +793,18 @@ class GPhoto2CameraBackend(BaseCameraBackend):
         return None
 
     def _download_camera_file(self, folder, name, quiet=False):
+        try:
+            with self.lock:
+                camera_file = self.camera.file_get(
+                    folder,
+                    name,
+                    gp.GP_FILE_TYPE_NORMAL
+                )
+        except Exception as e:
+            if not quiet:
+                self.log(f"Failed to download file {name}: {e}")
+            raise e
+
         target_dir = None
         if self.session_manager and getattr(self.session_manager, 'dirs', None):
             target_dir = self.session_manager.dirs.get("negatives")
@@ -796,13 +826,23 @@ class GPhoto2CameraBackend(BaseCameraBackend):
             self.log(f"Downloading {name} to {local_path}...")
 
         try:
+            staged_path = get_staged_raw_path(local_path)
             with self.lock:
-                camera_file = self.camera.file_get(
-                    folder,
-                    name,
-                    gp.GP_FILE_TYPE_NORMAL
-                )
-                camera_file.save(local_path)
+                camera_file.save(staged_path)
+
+            part_path = os.path.join(target_dir, f".{local_name}.part")
+            try:
+                with open(staged_path, "rb") as fsrc, open(part_path, "wb") as fdst:
+                    shutil.copyfileobj(fsrc, fdst, length=4 * 1024 * 1024)
+                os.replace(part_path, local_path)
+            except Exception:
+                if os.path.exists(part_path):
+                    try:
+                        os.remove(part_path)
+                    except OSError:
+                        pass
+                raise
+
             self.log(f"Download complete: {local_name}")
             return local_path
         except Exception as e:
@@ -901,7 +941,7 @@ class GPhoto2CameraBackend(BaseCameraBackend):
         except Exception:
             pass
 
-    def _set_camera_property(self, name, value):
+    def _set_camera_property(self, name, value, drain_events: bool = True):
         if not self.camera:
             return False
 
@@ -918,13 +958,7 @@ class GPhoto2CameraBackend(BaseCameraBackend):
             except Exception as e:
                 if attempt < 3 and ("-110" in str(e) or "I/O in progress" in str(e) or "busy" in str(e).lower()):
                     with self.lock:
-                        try:
-                            for _ in range(5):
-                                evt_type, _ = self.camera.wait_for_event(30)
-                                if evt_type == gp.GP_EVENT_TIMEOUT:
-                                    break
-                        except Exception:
-                            pass
+                        self._drain_events_locked(max_events=5, timeout_ms=25)
                     time.sleep(0.1)
                 else:
                     raise Exception(f"Setting '{name}' (widget '{widget_name}') not supported or found: {e}")
@@ -1011,10 +1045,8 @@ class GPhoto2CameraBackend(BaseCameraBackend):
         for attempt in range(max_retries):
             try:
                 with self.lock:
-                    for _ in range(3):
-                        evt_type, _ = self.camera.wait_for_event(20)
-                        if evt_type == gp.GP_EVENT_TIMEOUT:
-                            break
+                    if drain_events:
+                        self._drain_events_locked(max_events=3, timeout_ms=20)
                     self.camera.set_single_config(widget_name, widget)
                 self.log(f"Setting updated: {name} (widget '{widget_name}') = {matched_choice}")
                 return True
@@ -1038,16 +1070,10 @@ class GPhoto2CameraBackend(BaseCameraBackend):
                     if success:
                         return True
 
-                if ("-110" in err_str or "I/O in progress" in err_str or "busy" in err_str.lower()) and attempt < max_retries - 1:
+                if ("-110" in err_str or "I/O in progress" in str(e if 'e' in locals() else first_err) or "busy" in err_str.lower()) and attempt < max_retries - 1:
                     self.log(f"Setting '{name}' attempt {attempt+1}/{max_retries} encountered I/O in progress. Retrying after event drain...")
                     with self.lock:
-                        try:
-                            for _ in range(5):
-                                evt_type, _ = self.camera.wait_for_event(30)
-                                if evt_type == gp.GP_EVENT_TIMEOUT:
-                                    break
-                        except Exception:
-                            pass
+                        self._drain_events_locked(max_events=5, timeout_ms=25)
                     time.sleep(0.15)
                 else:
                     break

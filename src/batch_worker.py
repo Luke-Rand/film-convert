@@ -17,6 +17,7 @@ if _src_dir not in sys.path:
 
 from compositor import process_triplet
 from inverter import process_positives
+from metadata_preservation import cleanup_staged_raw
 
 def worker_process_triplet(group, output_filepath, neutralize_base, compress_tiff, align_channels, icc_profile, preserve_metadata, base_ratios):
     """
@@ -40,6 +41,9 @@ def worker_process_triplet(group, output_filepath, neutralize_base, compress_tif
     except Exception as e:
         capture.write(f"\nWorker Exception: {str(e)}\n{traceback.format_exc()}\n")
         return (False, str(e), capture.getvalue())
+    finally:
+        for f in (group or []):
+            cleanup_staged_raw(f)
 
 def worker_process_positives(input_path, output_dir, clip, gamma, compress_tiff, global_levels, ignore_margin, scurve, autocrop, monochrome, monochrome_channel, reversal, convert_to_tiff, icc_profile, preserve_metadata, base_ratios):
     """
@@ -72,6 +76,8 @@ def worker_process_positives(input_path, output_dir, clip, gamma, compress_tiff,
     except Exception as e:
         capture.write(f"\nWorker Exception: {str(e)}\n{traceback.format_exc()}\n")
         return (False, str(e), capture.getvalue())
+    finally:
+        cleanup_staged_raw(input_path)
 
 def worker_process_triplet_pipeline(group, composite_filepath, positives_dir, config):
     """
@@ -126,3 +132,7 @@ def worker_process_triplet_pipeline(group, composite_filepath, positives_dir, co
     except Exception as e:
         capture.write(f"\nWorker Exception: {str(e)}\n{traceback.format_exc()}\n")
         return (False, str(e), capture.getvalue())
+    finally:
+        for f in (group or []):
+            cleanup_staged_raw(f)
+        cleanup_staged_raw(composite_filepath)

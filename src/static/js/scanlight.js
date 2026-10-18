@@ -743,7 +743,7 @@ class ScanlightUIController {
     if (wasLiveviewActive && typeof window.toggleCameraLiveview === 'function') {
       this.log("[Scanlight] Temporarily pausing Live View stream during sequence...");
       window.toggleCameraLiveview(false);
-      await new Promise(r => setTimeout(r, 800));
+      await new Promise(r => setTimeout(r, 350));
     }
 
     const seqData = ScanlightConfig[sequence];
@@ -756,8 +756,8 @@ class ScanlightUIController {
         this.log(`[Scanlight] Step ${i + 1}/${seqData.length}: Setting channel mask [${seqData[i]}]`);
         this.setEnabledChannels(seqData[i]);
         
-        // Wait 150ms for LEDs to stabilize before triggering shutter
-        await new Promise(r => setTimeout(r, 150));
+        // Wait 80ms for LEDs to stabilize before triggering shutter
+        await new Promise(r => setTimeout(r, 80));
         
         if (this.triggerMethod === "usb") {
           this.log(`[Scanlight] Step ${i + 1}/${seqData.length}: Triggering camera capture via USB...`);
@@ -772,8 +772,10 @@ class ScanlightUIController {
             this.log(`[Scanlight Error] Shutter trigger via USB failed: ${err.message}`);
             throw err;
           }
-          const delayMs = this.postShutterDelay * 1000;
-          await new Promise(r => setTimeout(r, delayMs));
+          // /api/camera/capture already waits for exposure + file transfer completion
+          if (i < seqData.length - 1) {
+            await new Promise(r => setTimeout(r, 80));
+          }
         } else {
           this.log(`[Scanlight] Step ${i + 1}/${seqData.length}: Triggering camera shutter via Scanlight hardware port...`);
           const pulse10ms = Math.min(Math.max(Math.round(this.shutterPulseLength * 100), 1), 255);
@@ -800,7 +802,7 @@ class ScanlightUIController {
       }
       if (wasLiveviewActive && typeof window.toggleCameraLiveview === 'function') {
         this.log("[Scanlight] Letting camera USB pipeline settle before restoring Live View stream...");
-        await new Promise(r => setTimeout(r, 1200));
+        await new Promise(r => setTimeout(r, 400));
         this.log("[Scanlight] Restoring Live View stream...");
         window.toggleCameraLiveview(true);
       }

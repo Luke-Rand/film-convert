@@ -10,6 +10,7 @@ import shutil
 import sys
 from PIL import Image
 from tiff_writer import write_16bit_tiff
+from metadata_preservation import resolve_fast_read_path, cache_camera_matrix_from_raw
 
 # Multi-threaded SIMD Fourier transform backend (scipy.fft / opencv / numpy fallback)
 try:
@@ -135,9 +136,10 @@ def process_triplet(group, output_filepath, neutralize_base=False, compress_tiff
     
     for filepath in group:
         print(f"    Analyzing {Path(filepath).name}...")
+        fast_filepath = resolve_fast_read_path(filepath)
         is_mock = False
         try:
-            if os.path.exists(filepath) and os.path.getsize(filepath) < 100000:
+            if os.path.exists(fast_filepath) and os.path.getsize(fast_filepath) < 100000:
                 is_mock = True
         except Exception:
             pass
@@ -166,11 +168,11 @@ def process_triplet(group, output_filepath, neutralize_base=False, compress_tiff
             linear_rgb = None
             if ext in ['.dng', '.tiff', '.tif']:
                 try:
-                    with tifffile.TiffFile(filepath) as tif:
+                    with tifffile.TiffFile(fast_filepath) as tif:
                         page = tif.pages[0]
                         is_cfa = getattr(page, 'photometric', None) == 32803
                     if not is_cfa:
-                        linear_rgb = tifffile.imread(filepath)
+                        linear_rgb = tifffile.imread(fast_filepath)
                 except Exception:
                     pass
 
@@ -178,7 +180,9 @@ def process_triplet(group, output_filepath, neutralize_base=False, compress_tiff
                 # Use LINEAR / DHT demosaicing without cross-channel gradient homogeneity switching (AHD)
                 # to prevent maze grid artifacts on monochromatic narrowband triplet shots and preserve natural grain.
                 demosaic_alg = getattr(rawpy.DemosaicAlgorithm, 'LINEAR', rawpy.DemosaicAlgorithm.DHT)
-                with rawpy.imread(filepath) as raw:
+                with rawpy.imread(fast_filepath) as raw:
+                    if preserve_metadata:
+                        cache_camera_matrix_from_raw(filepath, getattr(raw, "rgb_xyz_matrix", None))
                     linear_rgb = raw.postprocess(
                         gamma=(1, 1),
                         no_auto_bright=True,

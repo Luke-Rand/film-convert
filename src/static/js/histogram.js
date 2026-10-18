@@ -455,27 +455,40 @@ export async function autoTuneLEDLevels() {
         blue: parseInt(document.getElementById('mini-sl-blue')?.value || 255, 10)
     };
 
+    const waitForFreshHistogram = async (minSettleMs = 80, maxWaitMs = 320) => {
+        await new Promise(r => setTimeout(r, minSettleMs));
+        const baselineTs = window.lastHistogramStats?.timestamp || 0;
+        const startWait = Date.now();
+        while (Date.now() - startWait < (maxWaitMs - minSettleMs)) {
+            const cur = window.lastHistogramStats;
+            if (cur && cur.timestamp > baselineTs) {
+                return cur;
+            }
+            await new Promise(r => setTimeout(r, 25));
+        }
+        return window.lastHistogramStats;
+    };
+
     try {
         if (isTripletMode) {
             for (const chObj of channelList) {
                 const ch = chObj.name;
                 const statKey = chObj.statKey;
                 const symbol = chObj.symbol;
+                const mutedLabels = ['R', 'G', 'B'].filter(s => s !== symbol).map(s => `${s}=0`).join(', ');
 
                 if (statusEl) {
                     statusEl.textContent = `Tuning isolated ${symbol} channel... (Target: ${targetCeiling})`;
                 }
-                window.appendLogLine?.(`[Auto-Tune] Isolating ${symbol} LED (G=0, B=0) for narrowband ETTR calibration...`);
+                window.appendLogLine?.(`[Auto-Tune] Isolating ${symbol} LED (${mutedLabels}) for narrowband ETTR calibration...`);
 
                 applyMiniScanlightPreset(chObj.mask);
 
                 const maxPasses = 3;
                 for (let pass = 1; pass <= maxPasses; pass++) {
-                    await new Promise(r => setTimeout(r, 130));
-
-                    const stats = window.lastHistogramStats;
+                    const stats = await waitForFreshHistogram(80, 320);
                     if (!stats) {
-                        await new Promise(r => setTimeout(r, 100));
+                        await new Promise(r => setTimeout(r, 80));
                         continue;
                     }
 
@@ -522,10 +535,9 @@ export async function autoTuneLEDLevels() {
             const maxIterations = 4;
 
             for (let iter = 1; iter <= maxIterations; iter++) {
-                await new Promise(r => setTimeout(r, 130));
-                const stats = window.lastHistogramStats;
+                const stats = await waitForFreshHistogram(80, 320);
                 if (!stats) {
-                    await new Promise(r => setTimeout(r, 100));
+                    await new Promise(r => setTimeout(r, 80));
                     continue;
                 }
 
