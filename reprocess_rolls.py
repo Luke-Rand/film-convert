@@ -106,7 +106,7 @@ def _resolve_effective_config(roll_dir, args):
     preserve_metadata = (not args.no_metadata) if "no_metadata" in explicit else manifest_cfg.get("embed_metadata", not args.no_metadata)
     clip = pick("clip", "clip", 0.1)
     gamma = pick("gamma", "gamma", 2.2)
-    global_levels = pick("global_levels", "global_levels", False)
+    global_levels = pick("global_levels", "global_levels", True)
     margin = pick("margin", "margin", 0.03)
     scurve = pick("scurve", "scurve", 0.0)
     autocrop = pick("autocrop", "autocrop", False)
@@ -305,7 +305,8 @@ def main():
     parser.add_argument("-m", "--margin", type=float, default=0.03, help="Fraction of outer edge to ignore (default: 0.03 = 3%%)")
     parser.add_argument("-s", "--scurve", type=float, default=0.0, help="Contrast S-Curve strength (default: 0.0)")
     parser.add_argument("-a", "--autocrop", action="store_true", help="Auto-crop outer margins from final output")
-    parser.add_argument("--global-levels", action="store_true", help="Preserve scene chromaticity with global exposure scaling")
+    parser.add_argument("--global-levels", action=argparse.BooleanOptionalAction, default=True,
+                        help="Use joint global exposure scaling (default: on; preserves color balance). Per-channel levels can introduce a magenta cast on color negatives; pass --no-global-levels for legacy per-channel behavior.")
     parser.add_argument("-n", "--neutralize", action="store_true", help="Neutralize film base during compositing")
     parser.add_argument("--base-ratios", nargs=3, type=float, metavar=('R', 'G', 'B'), default=None,
                         help="Custom film base neutralizer RGB ratios (e.g. 1.0 0.58 0.23) sampled from film rebate")

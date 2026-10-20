@@ -13,7 +13,7 @@ class SessionConfigSchema(BaseModel):
     scurve: float = Field(default=0.0, ge=-1.0, le=1.0, description="Midtone S-curve contrast adjustment")
     margin: float = Field(default=0.03, ge=0.0, le=0.5, description="Border margin fraction to ignore during histogram analysis")
     autocrop: bool = Field(default=False, description="Whether to automatically crop borders")
-    global_levels: bool = Field(default=False, description="Whether to apply joint RGB min/max levels instead of independent channels")
+    global_levels: bool = Field(default=True, description="Whether to apply joint RGB min/max levels instead of independent channels (per-channel levels cause a magenta cast on color negatives)")
     compress_tiff: bool = Field(default=False, description="Whether to apply Deflate compression to output TIFFs")
     neutralize: bool = Field(default=False, description="Whether to apply film base neutralization during compositing")
     base_ratios: Optional[List[float]] = Field(default=None, description="Film base transmission ratios [R, G, B] normalized to max 1.0")

@@ -59,5 +59,44 @@ class TestColorCastPreservation(unittest.TestCase):
         self.assertGreater(mean_g, mean_r * 2.0, f"Green ({mean_g}) should dominate Red ({mean_r})")
         self.assertGreater(mean_g, mean_b * 2.0, f"Green ({mean_g}) should dominate Blue ({mean_b})")
 
+    def test_default_is_global_levels_not_per_channel(self):
+        """
+        Regression guard: the default (global_levels omitted) must behave as global_levels=True
+        (joint exposure scaling), NOT per-channel. Per-channel levels over-amplify the narrow
+        red/blue density channels of a color negative and produce a magenta cast.
+        """
+        h, w = 100, 100
+        # A negative with a modest red/blue channel imbalance (narrower density range in R/B).
+        neg_data = np.full((h, w, 3), 55000, dtype=np.uint16)
+        y, x = np.mgrid[20:80, 20:80]
+        neg_data[20:80, 20:80, 0] = 48000
+        neg_data[20:80, 20:80, 1] = (4000 + (x - 20) * 100).astype(np.uint16)
+        neg_data[20:80, 20:80, 2] = 45000
+
+        input_path = os.path.join(self.test_dir, "test_imbalance.tiff")
+        write_16bit_tiff(input_path, neg_data, is_monochrome=False)
+
+        def run(label, gl_kwarg):
+            d = os.path.join(self.test_dir, label)
+            os.makedirs(d, exist_ok=True)
+            process_positives(input_path, output_dir=d, clip=0.0, gamma=1.0,
+                              ignore_margin=0.0, **gl_kwarg)
+            out = next(f for f in os.listdir(d) if f.lower().endswith(".tiff"))
+            img = tifffile.imread(os.path.join(d, out))
+            return tuple(np.mean(img[25:75, 25:75, c]) for c in range(3))
+
+        default_means = run("default", {})
+        explicit_global = run("explicit_global", {"global_levels": True})
+        legacy_per_channel = run("legacy_per_channel", {"global_levels": False})
+
+        # Default must equal explicit global levels.
+        for c, (a, b) in enumerate(zip(default_means, explicit_global)):
+            self.assertAlmostEqual(a, b, places=4,
+                msg=f"channel {c}: default {a} != global_levels=True {b}")
+
+        # And must NOT equal per-channel (legacy) behavior.
+        self.assertNotEqual(default_means, legacy_per_channel,
+            "default unexpectedly matches per-channel (legacy magenta) behavior")
+
 if __name__ == '__main__':
     unittest.main()

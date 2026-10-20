@@ -114,7 +114,7 @@ def worker_process_triplet_pipeline(group, composite_filepath, positives_dir, co
                 clip=config.get("clip", 0.1),
                 gamma=config.get("gamma", 2.2),
                 compress_tiff=config.get("compress_tiff", False),
-                global_levels=config.get("global_levels", False),
+                global_levels=config.get("global_levels", True),
                 ignore_margin=config.get("margin", 0.15),
                 scurve=config.get("scurve", 0.0),
                 autocrop=config.get("autocrop", False),

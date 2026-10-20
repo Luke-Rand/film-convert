@@ -20,7 +20,7 @@ def _format_positive_filename(filename: str, out_ext: str) -> str:
     else:
         return f"Positive_{base_name}" + out_ext
 
-def process_positives(input_path, output_dir=None, clip=0.1, gamma=2.2, compress_tiff=False, global_levels=False, ignore_margin=0.15, scurve=0.0, autocrop=False, monochrome=False, monochrome_channel="luminance", reversal=False, convert_to_tiff=True, icc_profile="adobe_rgb", preserve_metadata=True, base_ratios=None, preloaded_image=None, source_metadata_path=None):
+def process_positives(input_path, output_dir=None, clip=0.1, gamma=2.2, compress_tiff=False, global_levels=True, ignore_margin=0.15, scurve=0.0, autocrop=False, monochrome=False, monochrome_channel="luminance", reversal=False, convert_to_tiff=True, icc_profile="adobe_rgb", preserve_metadata=True, base_ratios=None, preloaded_image=None, source_metadata_path=None):
     """
     Processes 16-bit TIFF/DNG files: inverts (or normalizes positive reversal film scans), applies gamma/scurve, crops, and saves as 16-bit TIFF or True DNG with ICC profile and preserved metadata.
     If convert_to_tiff is False, the input RAW/image files are added directly to the positives folder without converting to TIFF.
@@ -360,8 +360,8 @@ if __name__ == "__main__":
                         help="Fraction of outer edge to ignore when calculating levels (default: 0.03 = 3%%). Prevents film holders from skewing brightness.")
     parser.add_argument("-a", "--autocrop", action="store_true",
                         help="Physically crop off the outer margins defined by --margin from the final saved image.")
-    parser.add_argument("--global-levels", action="store_true",
-                        help="Stretch levels globally instead of per-channel. Use this if you relied on the compositor's neutralization and want to perfectly maintain that color balance.")
+    parser.add_argument("--global-levels", action=argparse.BooleanOptionalAction, default=True,
+                        help="Stretch levels globally instead of per-channel (default: on). Per-channel levels divide each channel by its own density range, which over-amplifies the narrow red/blue channels of a color negative and produces a magenta cast. Pass --no-global-levels to restore legacy per-channel behavior.")
     parser.add_argument("--monochrome", "--bw", action="store_true",
                         help="Convert output composite to monochrome / black and white positive")
     parser.add_argument("--monochrome-channel", "--bw-channel", type=str, default="luminance",
