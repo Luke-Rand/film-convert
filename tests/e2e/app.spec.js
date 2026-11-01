@@ -141,6 +141,91 @@ test.describe('FilmConvert Web & Electron UI Test Suite', () => {
     }
   });
 
+  test('Auto-tune LEDs converges methodically instead of oscillating', async ({ page }) => {
+    // Simulate a sensor whose metered peak tracks the applied PWM 1:1, but only after a delay.
+    // That latency is exactly what the old fixed-80 ms / ^1.7 loop chased, so this test fails if
+    // that behaviour comes back.
+    await page.evaluate(() => {
+      window.isLiveviewActive = true;
+      window.__ledWrites = [];
+      window.__applied = { red: 200, green: 200, blue: 200 };
+
+      const origFetch = window.fetch.bind(window);
+      window.fetch = (url, opts) => {
+        if (String(url).includes('update_mock_leds') && opts && opts.method === 'POST') {
+          const body = JSON.parse(opts.body);
+          window.__ledWrites.push({ ...body, t: Date.now() });
+          // LED + camera round trip: the sensor keeps reporting the old level briefly.
+          setTimeout(() => {
+            window.__applied = { red: body.red, green: body.green, blue: body.blue };
+          }, 180);
+        }
+        return origFetch(url, opts).catch(() => ({ ok: true, json: async () => ({}) }));
+      };
+
+      if (window.__simTimer) clearInterval(window.__simTimer);
+      window.__simTimer = setInterval(() => {
+        const a = window.__applied;
+        window.lastHistogramStats = {
+          rP99: a.red, gP99: a.green, bP99: a.blue,
+          rMax: a.red, gMax: a.green, bMax: a.blue,
+          clippedCount: 0, clipPct: '0.0', totalPixels: 10000,
+          timestamp: Date.now()
+        };
+      }, 33);
+    });
+
+    // Single-shot keeps all three LEDs on, so one write carries all three channel values.
+    const modeSelect = page.locator('#scanner-mode');
+    if (await modeSelect.count() > 0) {
+      await modeSelect.selectOption('single');
+    }
+    const target = parseInt(await page.locator('#auto-tune-headroom').inputValue(), 10);
+
+    const btn = page.locator('#btn-auto-tune-leds');
+    await btn.click();
+    await expect(btn).toBeEnabled({ timeout: 60000 });
+
+    const result = await page.evaluate(() => ({
+      final: {
+        red: parseInt(document.getElementById('mini-sl-red').value, 10),
+        green: parseInt(document.getElementById('mini-sl-green').value, 10),
+        blue: parseInt(document.getElementById('mini-sl-blue').value, 10)
+      },
+      status: document.getElementById('auto-tune-status')?.textContent || '',
+      writes: window.__ledWrites
+    }));
+
+    // 1. It lands on the metering target.
+    for (const ch of ['red', 'green', 'blue']) {
+      expect(
+        Math.abs(result.final[ch] - target),
+        `${ch} settled at PWM ${result.final[ch]}, target ${target}`
+      ).toBeLessThanOrEqual(4);
+    }
+
+    // 2. It is methodical: each channel takes only a few distinct values, never a hunt.
+    for (const ch of ['red', 'green', 'blue']) {
+      const distinct = [];
+      for (const w of result.writes) {
+        if (w[ch] > 0 && distinct[distinct.length - 1] !== w[ch]) distinct.push(w[ch]);
+      }
+      expect(
+        distinct.length,
+        `${ch} visited ${distinct.length} values: ${JSON.stringify(distinct)}`
+      ).toBeLessThanOrEqual(4);
+
+      // 3. No ping-pong: the sequence runs in one direction.
+      let reversals = 0;
+      for (let i = 2; i < distinct.length; i++) {
+        const prevDir = Math.sign(distinct[i - 1] - distinct[i - 2]);
+        const dir = Math.sign(distinct[i] - distinct[i - 1]);
+        if (dir !== 0 && prevDir !== 0 && dir !== prevDir) reversals++;
+      }
+      expect(reversals, `${ch} reversed direction: ${JSON.stringify(distinct)}`).toBeLessThanOrEqual(1);
+    }
+  });
+
   test('Batch Processor panel has required controls and options', async ({ page }) => {
     await page.click('#nav-batch-btn');
     await expect(page.locator('#panel-batch')).toBeVisible();

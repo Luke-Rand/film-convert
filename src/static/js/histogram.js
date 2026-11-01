@@ -374,7 +374,8 @@ export function applyMiniScanlightPreset(channels) {
         b = window.scanlightController.blue * channels[2];
     }
 
-    fetch('/api/camera/update_mock_leds', {
+    // Returned so the auto-tune can wait for the write to land before metering the next frame.
+    return fetch('/api/camera/update_mock_leds', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ red: r, green: g, blue: b })
@@ -455,147 +456,180 @@ export async function autoTuneLEDLevels() {
         blue: parseInt(document.getElementById('mini-sl-blue')?.value || 255, 10)
     };
 
-    const waitForFreshHistogram = async (minSettleMs = 80, maxWaitMs = 320) => {
-        await new Promise(r => setTimeout(r, minSettleMs));
-        const baselineTs = window.lastHistogramStats?.timestamp || 0;
-        const startWait = Date.now();
-        while (Date.now() - startWait < (maxWaitMs - minSettleMs)) {
+    // Measurement primitives. The previous loop fired a correction every ~80 ms — usually before
+    // the LED write and the camera frame carrying it had landed — so it metered the *previous*
+    // frame and acted on a stale brightness. Each step now waits for the write to resolve, then
+    // for two consecutive frames that agree, so neither a stale nor a noisy frame can move the LEDs.
+    const TUNE = {
+        settleMs: 250,         // LED write -> first trusted frame
+        frameTimeoutMs: 1200,  // give up waiting for a fresh frame after this
+        stableDelta: 2,        // agreement required between consecutive frames
+        maxSteps: 7,           // hard cap on LED writes per channel
+        maxStepFraction: 0.45, // never move more than 45% of the current PWM in one step
+        minGain: 0.25
+    };
+
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+    const waitForFrameAfter = async (sinceTs) => {
+        const deadline = Date.now() + TUNE.frameTimeoutMs;
+        while (Date.now() < deadline) {
             const cur = window.lastHistogramStats;
-            if (cur && cur.timestamp > baselineTs) {
-                return cur;
-            }
-            await new Promise(r => setTimeout(r, 25));
+            if (cur && cur.timestamp > sinceTs) return cur;
+            await sleep(20);
         }
-        return window.lastHistogramStats;
+        return null;
+    };
+
+    /** Waits for two consecutive frames within stableDelta of each other and returns the reading. */
+    const measureSettled = async (statKey, sinceTs) => {
+        const first = await waitForFrameAfter(sinceTs);
+        if (!first) return { peak: null, settled: false, samples: 0 };
+        let prevTs = first.timestamp;
+        let prevPeak = first[statKey];
+        let lastPeak = prevPeak;
+        let samples = 1;
+        for (let i = 0; i < 12; i++) {
+            const cur = await waitForFrameAfter(prevTs);
+            if (!cur) break;
+            samples++;
+            prevTs = cur.timestamp;
+            lastPeak = cur[statKey];
+            if (Math.abs(lastPeak - prevPeak) <= TUNE.stableDelta) {
+                return { peak: lastPeak, settled: true, samples };
+            }
+            prevPeak = lastPeak;
+        }
+        return { peak: lastPeak, settled: false, samples };
+    };
+
+    /**
+     * The metered peak tracks PWM duty on both sides of the system, so the correction is a plain
+     * ratio. The previous exponent of 1.7 overshot every pass, which is what made the levels
+     * ping-pong; the step is clamped and damped instead.
+     */
+    const nextPwm = (currentPwm, peak, target, gain) => {
+        if (!peak || peak <= 0) return currentPwm;
+        const wanted = currentPwm * (target / peak);
+        const lo = Math.max(1, currentPwm * (1 - TUNE.maxStepFraction));
+        const hi = Math.min(255, currentPwm * (1 + TUNE.maxStepFraction));
+        const clamped = Math.min(hi, Math.max(lo, wanted));
+        const stepped = currentPwm + (clamped - currentPwm) * gain;
+        return Math.max(1, Math.min(255, Math.round(stepped)));
+    };
+
+    const achievedPeaks = { red: null, green: null, blue: null };
+
+    const tuneChannel = async (chObj) => {
+        const { name, statKey, symbol, writeMask } = chObj;
+        let pwm = optimalPWM[name];
+        let gain = 1.0;
+        let prevError = null;
+        let prevPeak = null;
+        let confirmations = 0;
+        let stalled = 0;
+
+        for (let step = 1; step <= TUNE.maxSteps; step++) {
+            updateMiniScanlightColor(name, pwm);
+            await applyMiniScanlightPreset(writeMask);
+            // Timestamp taken once the write has landed: every frame before this one is stale
+            // for this step, which is what the old loop got wrong.
+            const writtenAt = Date.now();
+            await sleep(TUNE.settleMs);
+            const { peak, settled, samples } = await measureSettled(statKey, writtenAt);
+
+            if (peak === null) {
+                window.appendLogLine?.(`[Auto-Tune] ${symbol}: no fresh frame within ${TUNE.frameTimeoutMs} ms — locking at PWM ${pwm}.`);
+                break;
+            }
+
+            achievedPeaks[name] = peak;
+            const error = targetCeiling - peak;
+            window.appendLogLine?.(
+                `[Auto-Tune] ${symbol} step ${step}/${TUNE.maxSteps}: PWM ${pwm} -> peak ${peak}` +
+                `${settled ? '' : ' (unsettled)'} (error ${error > 0 ? '+' : ''}${error}, ${samples} frame${samples === 1 ? '' : 's'})`
+            );
+            if (statusEl) {
+                statusEl.textContent = `${symbol}: PWM ${pwm}, peak ${peak} / ${targetCeiling} (step ${step}/${TUNE.maxSteps})`;
+            }
+
+            if (Math.abs(error) <= tolerance) {
+                if (++confirmations >= 2) break;   // a second agreeing frame locks it in
+                prevPeak = peak;
+                prevError = error;
+                continue;
+            }
+            confirmations = 0;
+
+            // A reading that stops responding to a real PWM change means the feedback path is
+            // dead; swinging further is exactly the jumping this replaces.
+            if (prevPeak !== null && Math.abs(peak - prevPeak) <= TUNE.stableDelta) {
+                if (++stalled >= 2) {
+                    window.appendLogLine?.(`[Auto-Tune] ${symbol}: peak is not responding to PWM changes — locking at ${pwm}.`);
+                    break;
+                }
+            } else {
+                stalled = 0;
+            }
+
+            // A sign flip means the last step overshot; halve the gain so the remaining steps
+            // approach the target from one side instead of oscillating around it.
+            if (prevError !== null && Math.sign(error) !== Math.sign(prevError)) {
+                gain = Math.max(TUNE.minGain, gain * 0.5);
+            }
+
+            const next = nextPwm(pwm, peak, targetCeiling, gain);
+            prevPeak = peak;
+            prevError = error;
+            if (next === pwm) break;
+            pwm = next;
+            optimalPWM[name] = pwm;
+        }
+        optimalPWM[name] = pwm;
     };
 
     try {
-        if (isTripletMode) {
-            for (const chObj of channelList) {
-                const ch = chObj.name;
-                const statKey = chObj.statKey;
-                const symbol = chObj.symbol;
-                const mutedLabels = ['R', 'G', 'B'].filter(s => s !== symbol).map(s => `${s}=0`).join(', ');
+        // Both modes tune one channel at a time. Changing all three at once let the camera's own
+        // auto-exposure compete with the correction, which re-introduced the oscillation.
+        const plan = channelList.map((chObj) => ({
+            ...chObj,
+            writeMask: isTripletMode ? chObj.mask : [1, 1, 1, 0, 0]
+        }));
 
-                if (statusEl) {
-                    statusEl.textContent = `Tuning isolated ${symbol} channel... (Target: ${targetCeiling})`;
-                }
-                window.appendLogLine?.(`[Auto-Tune] Isolating ${symbol} LED (${mutedLabels}) for narrowband ETTR calibration...`);
-
-                applyMiniScanlightPreset(chObj.mask);
-
-                const maxPasses = 3;
-                for (let pass = 1; pass <= maxPasses; pass++) {
-                    const stats = await waitForFreshHistogram(80, 320);
-                    if (!stats) {
-                        await new Promise(r => setTimeout(r, 80));
-                        continue;
-                    }
-
-                    const peak = stats[statKey];
-                    const currentVal = optimalPWM[ch];
-                    const error = targetCeiling - peak;
-
-                    window.appendLogLine?.(`[Auto-Tune] ${symbol} Pass ${pass}: Measured peak=${peak}, current PWM=${currentVal}, error=${error}`);
-
-                    if (Math.abs(error) <= tolerance) {
-                        break;
-                    }
-                    if ((currentVal === 255 && error > 0) || (currentVal === 1 && error < 0)) {
-                        break;
-                    }
-
-                    let targetRatio;
-                    if (peak >= 254) {
-                        targetRatio = 0.80;
-                    } else {
-                        targetRatio = Math.pow(targetCeiling / Math.max(peak, 8), 1.7);
-                    }
-
-                    let calculated = Math.round(currentVal * targetRatio);
-                    calculated = Math.max(1, Math.min(255, calculated));
-                    if (calculated === currentVal) {
-                        calculated += (error > 0 ? 1 : -1);
-                        calculated = Math.max(1, Math.min(255, calculated));
-                    }
-
-                    optimalPWM[ch] = calculated;
-                    updateMiniScanlightColor(ch, calculated);
-                    applyMiniScanlightPreset(chObj.mask);
-                }
+        for (const chObj of plan) {
+            if (isTripletMode) {
+                const mutedLabels = ['R', 'G', 'B'].filter(s => s !== chObj.symbol).map(s => `${s}=0`).join(', ');
+                window.appendLogLine?.(`[Auto-Tune] Isolating ${chObj.symbol} LED (${mutedLabels}) for narrowband ETTR calibration...`);
             }
-
-            applyMiniScanlightPreset([1, 1, 1, 0, 0]);
-            updateMiniScanlightColor('red', optimalPWM.red);
-            updateMiniScanlightColor('green', optimalPWM.green);
-            updateMiniScanlightColor('blue', optimalPWM.blue);
-
-        } else {
-            applyMiniScanlightPreset([1, 1, 1, 0, 0]);
-            const maxIterations = 4;
-
-            for (let iter = 1; iter <= maxIterations; iter++) {
-                const stats = await waitForFreshHistogram(80, 320);
-                if (!stats) {
-                    await new Promise(r => setTimeout(r, 80));
-                    continue;
-                }
-
-                const currentPeaks = {
-                    red: stats.rP99,
-                    green: stats.gP99,
-                    blue: stats.bP99
-                };
-
-                window.appendLogLine?.(`[Auto-Tune] Pass ${iter}/${maxIterations}: Measured P99 Peaks -> R:${currentPeaks.red}, G:${currentPeaks.green}, B:${currentPeaks.blue}`);
-                if (statusEl) {
-                    statusEl.textContent = `Pass ${iter}/${maxIterations}: R:${currentPeaks.red} G:${currentPeaks.green} B:${currentPeaks.blue} | Target: ${targetCeiling}`;
-                }
-
-                let allDone = true;
-                for (const chObj of channelList) {
-                    const ch = chObj.name;
-                    const peak = currentPeaks[ch];
-                    const currentVal = optimalPWM[ch];
-                    const error = targetCeiling - peak;
-
-                    if (Math.abs(error) <= tolerance) continue;
-                    if ((currentVal === 255 && error > 0) || (currentVal === 1 && error < 0)) continue;
-
-                    allDone = false;
-                    let targetRatio;
-                    if (peak >= 254) {
-                        targetRatio = 0.80;
-                    } else {
-                        targetRatio = Math.pow(targetCeiling / Math.max(peak, 8), 1.7);
-                    }
-                    let calculated = Math.round(currentVal * targetRatio);
-                    calculated = Math.max(1, Math.min(255, calculated));
-                    if (calculated === currentVal) {
-                        calculated += (error > 0 ? 1 : -1);
-                        calculated = Math.max(1, Math.min(255, calculated));
-                    }
-                    optimalPWM[ch] = calculated;
-                }
-
-                if (allDone) break;
-
-                updateMiniScanlightColor('red', optimalPWM.red);
-                updateMiniScanlightColor('green', optimalPWM.green);
-                updateMiniScanlightColor('blue', optimalPWM.blue);
+            if (statusEl) {
+                statusEl.textContent = `${isTripletMode ? 'Isolated' : 'All-on'} ${chObj.symbol} channel — target ${targetCeiling} / 255`;
             }
+            // Let the isolation itself settle before the first measurement of this channel.
+            await applyMiniScanlightPreset(chObj.writeMask);
+            await sleep(TUNE.settleMs);
+            await tuneChannel(chObj);
         }
+
+        // Present the balanced result: every channel on, at the levels just solved for.
+        await applyMiniScanlightPreset([1, 1, 1, 0, 0]);
+        updateMiniScanlightColor('red', optimalPWM.red);
+        updateMiniScanlightColor('green', optimalPWM.green);
+        updateMiniScanlightColor('blue', optimalPWM.blue);
 
         const rVal = optimalPWM.red;
         const gVal = optimalPWM.green;
         const bVal = optimalPWM.blue;
 
+        const peakText = ['red', 'green', 'blue']
+            .map((name) => (achievedPeaks[name] == null ? '—' : achievedPeaks[name]))
+            .join(' / ');
+
         if (statusEl) {
             statusEl.className = 'auto-tune-status status-success';
             const modeLabel = isTripletMode ? 'Triplet Narrowband' : 'Single-Shot';
-            statusEl.innerHTML = `✓ <strong>Optimal ${modeLabel} ETTR Locked:</strong> R: ${rVal}, G: ${gVal}, B: ${bVal} (Target: ~${Math.round(targetCeiling / 2.55)}%).`;
+            statusEl.innerHTML = `✓ <strong>Optimal ${modeLabel} ETTR Locked:</strong> R: ${rVal}, G: ${gVal}, B: ${bVal} — measured peaks ${peakText} / ${targetCeiling}.`;
         }
-        window.appendLogLine?.(`[Auto-Tune] Successfully calibrated optimal LED levels for ${isTripletMode ? 'Triplet' : 'Single-Shot'} mode: R=${rVal}, G=${gVal}, B=${bVal}`);
+        window.appendLogLine?.(`[Auto-Tune] Locked LED levels for ${isTripletMode ? 'Triplet' : 'Single-Shot'} mode: R=${rVal}, G=${gVal}, B=${bVal}; peaks R=${achievedPeaks.red} G=${achievedPeaks.green} B=${achievedPeaks.blue} (target ${targetCeiling}).`);
 
     } catch (err) {
         console.error("Auto-tune error:", err);

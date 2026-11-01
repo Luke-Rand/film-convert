@@ -31,7 +31,7 @@ Connect cameras, adjust settings, and monitor folder activities from a unified v
 
 ### 💡 Scanlight Controller & Automated LED Auto-Tuning (ETTR)
 * **Scanlight Integration:** Integrated support for **Jackw01 Big Scanlight** and **Scanlight v4** via the WebSerial API.
-* **Automated LED Auto-Tuning (ETTR):** Analyzes sensor live view histograms to calculate optimal LED brightness levels, maximizing dynamic range (Expose To The Right) without highlight clipping.
+* **Automated LED Auto-Tuning (ETTR):** Meters sensor live-view histograms and solves each channel's PWM against a chosen ceiling, maximizing dynamic range (Expose To The Right) without highlight clipping. Each correction waits for the LED write to land and for two agreeing frames before stepping, and the step is clamped and damped, so it converges from one side instead of oscillating between levels.
 * **Sequential Narrowband Triplet Auto-Tune:** Sequences Red, Green, and Blue illuminants to calibrate balanced multi-spectral exposures.
 
 ![Scanlight Control Panel Interface Placeholder](docs/screenshots/scanlight_interface.png)
