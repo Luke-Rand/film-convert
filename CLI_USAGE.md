@@ -22,16 +22,28 @@ python src/scanning_session.py
 3. **Details:** Enter Film Stock name, Format (135, 120), and Roll Number.
 4. **Monochrome Check:** Specify if it's a Black & White scanning session and select a preferred extraction channel.
 5. **Slide / Reversal Film:** Specify if scanning positive transparency film (bypasses negative density inversion).
+6. **Composite Only:** Specify if the session should stop after compositing. FilmConvert then writes one 16-bit linear DNG per frame into `composites/` and skips inversion, so an external converter can do the tone and color work.
 
 The script creates organized directories and runs a hot-folder loop:
 ```
 SessionName/
 ├── negatives/       <-- Capture your images here
 ├── positives/       <-- Completed positive 16-bit TIFFs land here
+├── composites/      <-- Composite-only mode: linear DNGs for external conversion
 ├── processed_raws/  <-- Original RAWs are safely archived here
 ├── error_raws/      <-- Errored shots are moved here to prevent pipeline blocks
 └── SessionName_contact_sheet.pdf  <-- Auto-generated roll summary document
 ```
+
+### Composite-Only Handoff (NegPy or another converter)
+
+Answer `y` to the **Composite Only** prompt. The session then stops after stacking:
+
+* **Triplets:** `composites/Frame_01_Composite.dng` holds the aligned 16-bit linear stack, with no inversion, no gamma and no S-curve applied.
+* **Single-shot:** the negative moves into `composites/` untouched, because one exposure needs no stacking.
+* Source RAWs are still archived in `processed_raws/`, and no contact sheet is generated.
+
+`composites/` contains only the frames of one roll, which is what a converter expects as a single import. FilmConvert's `session.json` sits one level above it and records the film stock, format and roll number for reference. To convert, import that folder as one roll and set the film stock from the manifest.
 
 ---
 
@@ -162,6 +174,8 @@ python reprocess_rolls.py /path/to/scans_archive --gamma 2.2 --scurve 0.2 --neut
 | `--scurve` | `-s` | Contrast S-Curve strength (default: `0.0`). |
 | `--autocrop` | `-a` | Automatically crop outer borders defined by `--margin`. |
 | `--global-levels` | | Preserve scene chromaticity with joint RGB exposure scaling. |
+| `--composite-only` | | Write 16-bit linear negatives to `composites/` and skip inversion. Import that folder as one roll in a converter such as NegPy. |
+| `--no-composite-only` | | Invert into `positives/` even when the roll's `session.json` recorded `composite_only`. |
 | `--neutralize` | `-n` | Neutralize film base mask during compositing. |
 | `--base-ratios` | | Custom film base neutralizer RGB ratios (`R G B`, e.g. `1.0 0.58 0.23`). |
 | `--compress` | `-c` | Enable zlib compression for output TIFFs. |

@@ -27,6 +27,7 @@ class SessionConfigSchema(BaseModel):
     auto_contact_sheet: bool = Field(default=True, description="Whether to automatically generate archival contact sheet on session completion")
     contact_sheet_columns: int = Field(default=6, ge=2, le=8, description="Number of columns in contact sheet grid")
     contact_sheet_theme: str = Field(default="dark", description="Contact sheet theme: 'dark' or 'light'")
+    composite_only: bool = Field(default=False, description="Stop after compositing: write 16-bit linear negatives to composites/ and skip inversion, for handoff to an external conversion tool such as NegPy")
 
     @field_validator("base_ratios")
     @classmethod
@@ -66,6 +67,7 @@ class SessionConfigUpdateSchema(BaseModel):
     auto_contact_sheet: Optional[bool] = None
     contact_sheet_columns: Optional[int] = Field(default=None, ge=2, le=8)
     contact_sheet_theme: Optional[str] = None
+    composite_only: Optional[bool] = None
 
     @field_validator("base_ratios")
     @classmethod

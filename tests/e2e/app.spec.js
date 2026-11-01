@@ -108,6 +108,39 @@ test.describe('FilmConvert Web & Electron UI Test Suite', () => {
     }
   });
 
+  test('Composite-only config toggle persists and re-populates the UI', async ({ page, request }) => {
+    // The session config is global to the server and outlives one test, so capture and restore it.
+    const before = await request.get('/api/config');
+    const priorValue = (await before.json()).config.composite_only;
+
+    try {
+      await request.post('/api/config', { data: { composite_only: false } });
+      await page.reload();
+
+      const accordionHeader = page.locator('#panel-scanner .accordion-header:has-text("Advanced Processing Parameters")');
+      if (await accordionHeader.count() > 0) {
+        await accordionHeader.click();
+      }
+
+      // The native input is visually hidden behind .checkmark, so assert on its container.
+      const toggle = page.locator('#config-composite-only');
+      await expect(page.locator('.checkbox-container:has(#config-composite-only)')).toBeVisible();
+      await expect(toggle).not.toBeChecked();
+
+      // POST /api/config persists state, and a fresh status stream re-populates the UI
+      // (the live `config_update` event is not consumed by the frontend for any field).
+      const enable = await request.post('/api/config', { data: { composite_only: true } });
+      expect(enable.status()).toBe(200);
+      await page.reload();
+      if (await accordionHeader.count() > 0) {
+        await accordionHeader.click();
+      }
+      await expect(page.locator('#config-composite-only')).toBeChecked();
+    } finally {
+      await request.post('/api/config', { data: { composite_only: priorValue } });
+    }
+  });
+
   test('Batch Processor panel has required controls and options', async ({ page }) => {
     await page.click('#nav-batch-btn');
     await expect(page.locator('#panel-batch')).toBeVisible();

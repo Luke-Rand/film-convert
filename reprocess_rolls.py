@@ -107,6 +107,14 @@ def _resolve_effective_config(roll_dir, args):
     clip = pick("clip", "clip", 0.1)
     gamma = pick("gamma", "gamma", 2.2)
     global_levels = pick("global_levels", "global_levels", False)
+    # --no-composite-only must beat the manifest's composite_only, or a handed-off roll could
+    # never be reprocessed back into positives from the CLI.
+    if "composite_only" in explicit:
+        composite_only = True
+    elif "no_composite_only" in explicit:
+        composite_only = False
+    else:
+        composite_only = pick("composite_only", "composite_only", False)
     margin = pick("margin", "margin", 0.03)
     scurve = pick("scurve", "scurve", 0.0)
     autocrop = pick("autocrop", "autocrop", False)
@@ -126,6 +134,7 @@ def _resolve_effective_config(roll_dir, args):
         "clip": float(clip),
         "gamma": float(gamma),
         "global_levels": bool(global_levels),
+        "composite_only": bool(composite_only),
         "margin": float(margin),
         "scurve": float(scurve),
         "autocrop": bool(autocrop),
@@ -154,8 +163,13 @@ def reprocess_roll(roll_dir, args):
     if manifest:
         print(f"  📋 Loaded session manifest (session.json) for '{manifest.get('session_name', roll_name)}'")
 
-    positives_dir = os.path.join(roll_dir, 'positives')
-    os.makedirs(positives_dir, exist_ok=True)
+    # A composite-only roll writes its negatives to the folder an external converter imports.
+    if eff["composite_only"]:
+        out_dir = os.path.join(roll_dir, 'composites')
+        print(f"  📦 Composite-only: writing linear negatives to {out_dir} (inversion skipped)")
+    else:
+        out_dir = os.path.join(roll_dir, 'positives')
+    os.makedirs(out_dir, exist_ok=True)
     
     # Collect all RAW files and sort by (frame_number, filename)
     raw_files = [f for f in os.listdir(raw_source_dir) if os.path.splitext(f)[1].lower() in SUPPORTED_EXTS]
@@ -180,14 +194,15 @@ def reprocess_roll(roll_dir, args):
                 group_files = raw_files[i:i+3]
                 frame_idx = (i // 3) + 1
                 comp_name = f"Frame_{frame_idx:02d}_Composite.dng"
-                comp_path = os.path.join(raw_source_dir, comp_name)
+                comp_dir = out_dir if eff["composite_only"] else raw_source_dir
+                comp_path = os.path.join(comp_dir, comp_name)
                 group_full_paths = [os.path.join(raw_source_dir, f) for f in group_files]
                 print(f"[{frame_idx:02d}/{num_frames:02d}] Queueing Frame {frame_idx:02d} ({', '.join(group_files)})...")
                 fut = executor.submit(
                     worker_process_triplet_pipeline,
                     group=group_full_paths,
                     composite_filepath=comp_path,
-                    positives_dir=positives_dir,
+                    positives_dir=out_dir,
                     config=eff,
                 )
                 futures[fut] = frame_idx
@@ -211,7 +226,8 @@ def reprocess_roll(roll_dir, args):
             frame_idx = (i // 3) + 1
             
             comp_name = f"Frame_{frame_idx:02d}_Composite.dng"
-            comp_path = os.path.join(raw_source_dir, comp_name)
+            comp_dir = out_dir if eff["composite_only"] else raw_source_dir
+            comp_path = os.path.join(comp_dir, comp_name)
             
             print(f"[{frame_idx:02d}/{num_frames:02d}] Processing Frame {frame_idx:02d} ({', '.join(group_files)})...")
             group_full_paths = [os.path.join(raw_source_dir, f) for f in group_files]
@@ -235,26 +251,27 @@ def reprocess_roll(roll_dir, args):
                 )
                 
                 # 2. Sensitometric Inversion directly from in-memory composite_rgb
-                process_positives(
-                    input_path=comp_path,
-                    output_dir=positives_dir,
-                    clip=eff["clip"],
-                    gamma=eff["gamma"],
-                    compress_tiff=eff["compress_tiff"],
-                    global_levels=eff["global_levels"],
-                    ignore_margin=eff["margin"],
-                    scurve=eff["scurve"],
-                    autocrop=eff["autocrop"],
-                    monochrome=eff["monochrome"],
-                    monochrome_channel=eff["monochrome_channel"],
-                    reversal=eff["reversal"],
-                    convert_to_tiff=True,
-                    icc_profile=eff["color_profile"],
-                    preserve_metadata=preserve_meta,
-                    base_ratios=None if neutralize_base else eff["base_ratios"],
-                    preloaded_image=composite_rgb,
-                    source_metadata_path=source_meta
-                )
+                if not eff["composite_only"]:
+                    process_positives(
+                        input_path=comp_path,
+                        output_dir=out_dir,
+                        clip=eff["clip"],
+                        gamma=eff["gamma"],
+                        compress_tiff=eff["compress_tiff"],
+                        global_levels=eff["global_levels"],
+                        ignore_margin=eff["margin"],
+                        scurve=eff["scurve"],
+                        autocrop=eff["autocrop"],
+                        monochrome=eff["monochrome"],
+                        monochrome_channel=eff["monochrome_channel"],
+                        reversal=eff["reversal"],
+                        convert_to_tiff=True,
+                        icc_profile=eff["color_profile"],
+                        preserve_metadata=preserve_meta,
+                        base_ratios=None if neutralize_base else eff["base_ratios"],
+                        preloaded_image=composite_rgb,
+                        source_metadata_path=source_meta
+                    )
                 elapsed = time.time() - start_t
                 print(f"  -> Successfully converted in {elapsed:.1f}s\n")
                 successful_frames += 1
@@ -273,7 +290,25 @@ def reprocess_roll(roll_dir, args):
         config=eff
     )
 
-    if successful_frames > 0 and eff["auto_contact_sheet"]:
+    if eff["composite_only"] and successful_frames > 0:
+        print(f"  📦 {successful_frames} linear negatives ready for conversion: {out_dir}")
+        print(f"     Import that folder as one roll in the conversion tool (NegPy).")
+
+    # A contact sheet is driven by positives actually on disk, not by this run's mode: a roll that
+    # was inverted earlier keeps them even when it is now re-composited for handoff.
+    positives_check_dir = os.path.join(roll_dir, 'positives')
+    positive_exts = {'.tif', '.tiff', '.dng', '.jpg', '.jpeg', '.png'}
+    has_positives = False
+    try:
+        has_positives = os.path.isdir(positives_check_dir) and any(
+            os.path.splitext(f)[1].lower() in positive_exts
+            and os.path.isfile(os.path.join(positives_check_dir, f))
+            for f in os.listdir(positives_check_dir)
+        )
+    except OSError as e:
+        # An unreadable positives/ must not abort a batch that already composited every frame.
+        print(f"  ⚠️  Could not inspect {positives_check_dir} for a contact sheet: {e}")
+    if successful_frames > 0 and eff["auto_contact_sheet"] and has_positives:
         print(f"  -> Generating archival roll contact sheet...")
         try:
             cs_res = generate_contact_sheet(
@@ -306,6 +341,10 @@ def main():
     parser.add_argument("-s", "--scurve", type=float, default=0.0, help="Contrast S-Curve strength (default: 0.0)")
     parser.add_argument("-a", "--autocrop", action="store_true", help="Auto-crop outer margins from final output")
     parser.add_argument("--global-levels", action="store_true", help="Preserve scene chromaticity with global exposure scaling")
+    parser.add_argument("--composite-only", action="store_true",
+                        help="Write 16-bit linear negatives to composites/ and skip inversion, for conversion in an external tool such as NegPy")
+    parser.add_argument("--no-composite-only", action="store_true",
+                        help="Invert into positives even when the roll's session.json recorded composite_only")
     parser.add_argument("-n", "--neutralize", action="store_true", help="Neutralize film base during compositing")
     parser.add_argument("--base-ratios", nargs=3, type=float, metavar=('R', 'G', 'B'), default=None,
                         help="Custom film base neutralizer RGB ratios (e.g. 1.0 0.58 0.23) sampled from film rebate")

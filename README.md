@@ -46,6 +46,11 @@ Connect cameras, adjust settings, and monitor folder activities from a unified v
 * **True DNG & ICC Color Management:** Outputs compliant Digital Negative (DNG 1.4.0.0) files and 16-bit TIFFs tagged with embedded ICC color profiles (Adobe RGB 1998, ProPhoto RGB / ROMM, sRGB).
 * **Lossless Metadata Preservation:** Preserves full camera EXIF and IPTC metadata across all processed composites and positives via `exiftool`.
 
+### 📦 Composite-Only Handoff to an External Converter
+* **Scan and composite only:** Stops after the aligned 16-bit linear composite and skips inversion entirely, leaving one negative per frame in `composites/`.
+* **One folder per roll:** That folder holds nothing but the roll's frames, so a converter imports it as a single roll in one step. `session.json` alongside it records film stock, format and roll number.
+* **Pairs with a dedicated conversion engine:** Use it to keep FilmConvert for capture and hand the tone and color work to a tool such as [NegPy](https://github.com/marcinz606/NegPy). Single-shot sessions are pure pass-through: the negative is already the deliverable.
+
 ### 🎞️ Density Inversion, Curves & Reversal Film
 * **Sensitometric Inversion:** True linear density division preserving shadow and highlight detail.
 * **Auto-Levels & Tone Curves:** Applies configurable black/white clipping, viewing gamma (2.2 or 1.0 linear), and photographic S-curves.
