@@ -48,23 +48,30 @@ def parse_roll_identifiers(
 
 
 def count_session_frames(session_dir: str) -> int:
-    """Counts completed positive frames in <session_dir>/positives (or Positives)."""
+    """
+    Counts completed frames in <session_dir>: positives when the session inverts, else the
+    composites folder a composite-only session hands off. The larger of the two, so a session
+    that switched modes mid-roll reports every frame it holds.
+    """
     if not session_dir or not os.path.isdir(session_dir):
         return 0
 
-    for sub in ("positives", "Positives"):
+    best = 0
+    for sub in ("positives", "Positives", "composites", "Composites"):
         pos_dir = os.path.join(session_dir, sub)
-        if os.path.isdir(pos_dir):
-            try:
-                return sum(
-                    1 for f in os.listdir(pos_dir)
-                    if os.path.isfile(os.path.join(pos_dir, f))
-                    and os.path.splitext(f)[1].lower() in VALID_POSITIVE_EXTS
-                    and "_contact_sheet" not in f.lower()
-                )
-            except OSError:
-                return 0
-    return 0
+        if not os.path.isdir(pos_dir):
+            continue
+        try:
+            count = sum(
+                1 for f in os.listdir(pos_dir)
+                if os.path.isfile(os.path.join(pos_dir, f))
+                and os.path.splitext(f)[1].lower() in VALID_POSITIVE_EXTS
+                and "_contact_sheet" not in f.lower()
+            )
+        except OSError:
+            continue
+        best = max(best, count)
+    return best
 
 
 def read_session_manifest(session_dir: str) -> Optional[Dict[str, Any]]:

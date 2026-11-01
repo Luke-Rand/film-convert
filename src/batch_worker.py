@@ -106,28 +106,33 @@ def worker_process_triplet_pipeline(group, composite_filepath, positives_dir, co
                 return_image=True
             )
             # 2. Invert composite directly from in-memory array without re-reading disk file.
-            # If neutralize_base ran in process_triplet, the composite channels are already
-            # normalized by base_ratios; do not apply base_ratios a second time in process_positives.
-            process_positives(
-                input_path=composite_filepath,
-                output_dir=positives_dir,
-                clip=config.get("clip", 0.1),
-                gamma=config.get("gamma", 2.2),
-                compress_tiff=config.get("compress_tiff", False),
-                global_levels=config.get("global_levels", False),
-                ignore_margin=config.get("margin", 0.15),
-                scurve=config.get("scurve", 0.0),
-                autocrop=config.get("autocrop", False),
-                monochrome=config.get("monochrome", False),
-                monochrome_channel=config.get("monochrome_channel", "luminance"),
-                reversal=config.get("reversal", False),
-                convert_to_tiff=config.get("convert_to_tiff", True),
-                icc_profile=config.get("color_profile", "adobe_rgb"),
-                preserve_metadata=preserve_meta,
-                base_ratios=None if neutralize_base else base_ratios,
-                preloaded_image=composite_rgb,
-                source_metadata_path=source_meta
-            )
+            # A composite-only session stops here: the composite is the deliverable, handed to
+            # an external converter as a 16-bit linear negative.
+            if not config.get("composite_only", False):
+                # If neutralize_base ran in process_triplet, the composite channels are already
+                # normalized by base_ratios; do not apply base_ratios a second time in process_positives.
+                process_positives(
+                    input_path=composite_filepath,
+                    output_dir=positives_dir,
+                    clip=config.get("clip", 0.1),
+                    gamma=config.get("gamma", 2.2),
+                    compress_tiff=config.get("compress_tiff", False),
+                    global_levels=config.get("global_levels", False),
+                    ignore_margin=config.get("margin", 0.15),
+                    scurve=config.get("scurve", 0.0),
+                    autocrop=config.get("autocrop", False),
+                    monochrome=config.get("monochrome", False),
+                    monochrome_channel=config.get("monochrome_channel", "luminance"),
+                    reversal=config.get("reversal", False),
+                    convert_to_tiff=config.get("convert_to_tiff", True),
+                    icc_profile=config.get("color_profile", "adobe_rgb"),
+                    preserve_metadata=preserve_meta,
+                    base_ratios=None if neutralize_base else base_ratios,
+                    preloaded_image=composite_rgb,
+                    source_metadata_path=source_meta
+                )
+            else:
+                print(f"  -> Composite-only mode: wrote linear negative {os.path.basename(composite_filepath)}; inversion skipped.")
         return (True, (float(r_mean), float(g_mean), float(b_mean)), capture.getvalue())
     except Exception as e:
         capture.write(f"\nWorker Exception: {str(e)}\n{traceback.format_exc()}\n")

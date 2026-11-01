@@ -715,6 +715,8 @@ export function disableInputs(disabled) {
 
     document.getElementById('config-autocrop').disabled = disabled;
     document.getElementById('config-global-levels').disabled = disabled;
+    const cfgCompositeOnly = document.getElementById('config-composite-only');
+    if (cfgCompositeOnly) cfgCompositeOnly.disabled = disabled;
     document.getElementById('config-neutralize').disabled = disabled;
     document.getElementById('config-compress').disabled = disabled;
     document.getElementById('config-align-channels').disabled = disabled;
@@ -734,6 +736,8 @@ export function syncConfigToUI(config) {
 
     document.getElementById('config-autocrop').checked = config.autocrop;
     document.getElementById('config-global-levels').checked = config.global_levels;
+    const cfgCompositeOnly = document.getElementById('config-composite-only');
+    if (cfgCompositeOnly) cfgCompositeOnly.checked = config.composite_only || false;
     document.getElementById('config-neutralize').checked = config.neutralize;
     document.getElementById('config-compress').checked = config.compress_tiff;
     document.getElementById('config-align-channels').checked = config.align_channels;
@@ -834,6 +838,7 @@ export function toggleMonitor() {
             margin: parseFloat(document.getElementById('config-margin').value),
             autocrop: document.getElementById('config-autocrop').checked,
             global_levels: document.getElementById('config-global-levels').checked,
+            composite_only: document.getElementById('config-composite-only') ? document.getElementById('config-composite-only').checked : false,
             neutralize: document.getElementById('config-neutralize').checked,
             base_ratios: window.activeFilmBaseRatios,
             compress_tiff: document.getElementById('config-compress').checked,

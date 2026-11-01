@@ -33,14 +33,15 @@ export function refreshFiles() {
         .then(data => {
             if (!data.success) {
                 grid.innerHTML = `<div class="empty-gallery-msg">${data.message || 'No active session. Please start monitoring or run a batch task.'}</div>`;
-                countInfo.textContent = '0 Positive Frames found in session';
+                countInfo.textContent = `0 ${data.composite_only ? 'Composite' : 'Positive'} Frames found in session`;
                 if (csBanner) csBanner.style.display = 'none';
                 return;
             }
 
             const positives = data.positives || [];
             const contactSheets = data.contact_sheets || [];
-            countInfo.textContent = `${positives.length} Positive Frame(s) found in session`;
+            const frameLabel = data.composite_only ? 'Composite' : 'Positive';
+            countInfo.textContent = `${positives.length} ${frameLabel} Frame(s) found in session`;
 
             if (csBanner && csActions) {
                 if (contactSheets.length > 0) {
@@ -87,7 +88,9 @@ export function refreshFiles() {
             }
 
             if (positives.length === 0) {
-                grid.innerHTML = '<div class="empty-gallery-msg">No positive TIFF scans found yet. Triplets will appear here once processed.</div>';
+                grid.innerHTML = data.composite_only
+                    ? '<div class="empty-gallery-msg">No composited linear negatives yet. Frames will appear here once composited.</div>'
+                    : '<div class="empty-gallery-msg">No positive TIFF scans found yet. Triplets will appear here once processed.</div>';
                 return;
             }
 

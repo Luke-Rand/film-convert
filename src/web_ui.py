@@ -170,9 +170,14 @@ class SessionManager:
                 q.put((event_type, data))
 
     def _discover_last_frame(self) -> Optional[Dict[str, Any]]:
-        """Finds the most recent processed positive and corresponding composite/negative in the current session dirs."""
-        positives_dir = self.dirs.get("positives")
-        processed_dir = self.dirs.get("processed")
+        """Finds the most recent processed frame and its negative. A composite-only session keeps
+        its deliverable in composites/, so both lookups point there and the card still resolves."""
+        if self.config.get("composite_only"):
+            positives_dir = self.dirs.get("composites")
+            processed_dir = self.dirs.get("composites")
+        else:
+            positives_dir = self.dirs.get("positives")
+            processed_dir = self.dirs.get("processed")
         if not positives_dir or not os.path.isdir(positives_dir):
             return None
 
@@ -250,6 +255,13 @@ class SessionManager:
                     neg_size = os.path.getsize(neg_path)
                 except OSError:
                     neg_size = 0
+
+        if self.config.get("composite_only"):
+            # The composite is both the frame and its own source; there is no separate pair, so
+            # leave the negative empty rather than report the same file twice.
+            neg_path = None
+            neg_name = None
+            neg_size = 0
 
         return {
             "frame_number": frame_num,
@@ -350,7 +362,8 @@ class SessionManager:
                 "negatives": os.path.join(abs_dir, "negatives"),
                 "positives": os.path.join(abs_dir, "positives"),
                 "processed": os.path.join(abs_dir, "processed_raws"),
-                "errors": os.path.join(abs_dir, "error_raws")
+                "errors": os.path.join(abs_dir, "error_raws"),
+                "composites": os.path.join(abs_dir, "composites")
             }
             for d in self.dirs.values():
                 os.makedirs(d, exist_ok=True)
@@ -453,7 +466,8 @@ class SessionManager:
                     "negatives": os.path.join(session_dir, "negatives"),
                     "positives": os.path.join(session_dir, "positives"),
                     "processed": os.path.join(session_dir, "processed_raws"),
-                    "errors": os.path.join(session_dir, "error_raws")
+                    "errors": os.path.join(session_dir, "error_raws"),
+                    "composites": os.path.join(session_dir, "composites")
                 }
                 
                 for d in self.dirs.values():
@@ -513,7 +527,14 @@ class SessionManager:
         self.save_manifest()
         self.broadcast_status()
 
-        # Check if auto contact sheet generation is enabled and positive frames exist
+        # A composite-only session has no positives of its own; its deliverable is composites/.
+        if cfg_copy.get("composite_only"):
+            composites_dir = session_dirs_copy.get("composites")
+            if composites_dir and os.path.isdir(composites_dir) and os.listdir(composites_dir):
+                self.log(f"Composite-only session: linear negatives ready in {composites_dir}")
+                self.log("Import that folder as one roll in NegPy; film stock is in session.json.")
+        # Driven by whether positives exist, not by the current mode: a session can switch modes
+        # mid-roll and still hold inverted frames that deserve a contact sheet.
         if cfg_copy.get("auto_contact_sheet", True) and session_dirs_copy.get("positives"):
             positives_dir = session_dirs_copy.get("positives")
             if os.path.isdir(positives_dir):
@@ -543,7 +564,7 @@ class SessionManager:
     def get_next_frame_number(self, negatives_dir: str) -> int:
         search_dirs = [negatives_dir]
         if self.dirs:
-            for key in ['processed', 'positives']:
+            for key in ['processed', 'positives', 'composites']:
                 d = self.dirs.get(key)
                 if d and os.path.exists(d):
                     search_dirs.append(d)
@@ -621,8 +642,10 @@ class SessionManager:
                     frame_number = self.get_next_frame_number(neg_dir)
                     self.log(f"Triplet detected! Processing Frame {frame_number:02d} in background worker...")
                     
+                    composite_only = bool(self.config.get("composite_only"))
+                    composite_dir = self.dirs['composites'] if composite_only else neg_dir
                     composite_filename = f"Frame_{frame_number:02d}_Composite.dng"
-                    composite_filepath = os.path.join(neg_dir, composite_filename)
+                    composite_filepath = os.path.join(composite_dir, composite_filename)
                     
                     try:
                         executor = self._get_executor()
@@ -655,7 +678,9 @@ class SessionManager:
                         # Move files
                         for f in group:
                             shutil.move(f, os.path.join(self.dirs['processed'], os.path.basename(f)))
-                        shutil.move(composite_filepath, os.path.join(self.dirs['processed'], composite_filename))
+                        # A handed-off composite stays in composites/: that folder is the import target.
+                        if not composite_only:
+                            shutil.move(composite_filepath, os.path.join(self.dirs['processed'], composite_filename))
                         
                         with self.lock:
                             self.last_frame = self._discover_last_frame()
@@ -663,7 +688,10 @@ class SessionManager:
                         if latest_frame_data:
                             self.broadcast("frame_processed", latest_frame_data)
                         self.save_manifest()
-                        self.log(f"SUCCESS: Frame {frame_number:02d} processed and saved.")
+                        if composite_only:
+                            self.log(f"SUCCESS: Frame {frame_number:02d} composited to {composite_filename} (inversion skipped).")
+                        else:
+                            self.log(f"SUCCESS: Frame {frame_number:02d} processed and saved.")
                         
                     except Exception as e:
                         self.log(f"ERROR processing Frame {frame_number:02d}: {str(e)}")
@@ -704,46 +732,59 @@ class SessionManager:
                         self.stop_event.wait(0.5)
                         continue
                         
-                    self.log(f"Negative detected! Processing {filename} in background worker...")
+                    composite_only = bool(self.config.get("composite_only"))
+                    if composite_only:
+                        self.log(f"Negative detected: {filename} goes to composites for external conversion...")
+                    else:
+                        self.log(f"Negative detected! Processing {filename} in background worker...")
                     
                     try:
-                        executor = self._get_executor()
-                        future = executor.submit(
-                            worker_process_positives,
-                            input_path=filepath,
-                            output_dir=self.dirs['positives'],
-                            clip=self.config["clip"],
-                            gamma=self.config["gamma"],
-                            compress_tiff=self.config["compress_tiff"],
-                            global_levels=self.config["global_levels"],
-                            ignore_margin=self.config["margin"],
-                            scurve=self.config["scurve"],
-                            autocrop=self.config["autocrop"],
-                            monochrome=self.config.get("monochrome", False),
-                            monochrome_channel=self.config.get("monochrome_channel", "luminance"),
-                            reversal=self.config.get("reversal", False),
-                            convert_to_tiff=self.config.get("convert_to_tiff", True),
-                            icc_profile=self.config.get("color_profile", "adobe_rgb"),
-                            preserve_metadata=self.config.get("embed_metadata", True),
-                            base_ratios=self.config.get("base_ratios")
-                        )
-                        success, result, worker_logs = future.result()
-                        if worker_logs:
-                            for line in worker_logs.strip().splitlines():
-                                if line.strip():
-                                    self.log(line)
+                        if composite_only:
+                            # A single exposure needs no compositing: the file is already the
+                            # linear negative the conversion tool imports.
+                            shutil.move(filepath, os.path.join(self.dirs['composites'], filename))
+                        else:
+                            executor = self._get_executor()
+                            future = executor.submit(
+                                worker_process_positives,
+                                input_path=filepath,
+                                output_dir=self.dirs['positives'],
+                                clip=self.config["clip"],
+                                gamma=self.config["gamma"],
+                                compress_tiff=self.config["compress_tiff"],
+                                global_levels=self.config["global_levels"],
+                                ignore_margin=self.config["margin"],
+                                scurve=self.config["scurve"],
+                                autocrop=self.config["autocrop"],
+                                monochrome=self.config.get("monochrome", False),
+                                monochrome_channel=self.config.get("monochrome_channel", "luminance"),
+                                reversal=self.config.get("reversal", False),
+                                convert_to_tiff=self.config.get("convert_to_tiff", True),
+                                icc_profile=self.config.get("color_profile", "adobe_rgb"),
+                                preserve_metadata=self.config.get("embed_metadata", True),
+                                base_ratios=self.config.get("base_ratios")
+                            )
+                            success, result, worker_logs = future.result()
+                            if worker_logs:
+                                for line in worker_logs.strip().splitlines():
+                                    if line.strip():
+                                        self.log(line)
 
-                        if not success:
-                            raise Exception(f"Worker failure: {result}")
+                            if not success:
+                                raise Exception(f"Worker failure: {result}")
+                            
+                            shutil.move(filepath, os.path.join(self.dirs['processed'], filename))
                         
-                        shutil.move(filepath, os.path.join(self.dirs['processed'], filename))
                         with self.lock:
                             self.last_frame = self._discover_last_frame()
                             latest_frame_data = dict(self.last_frame) if self.last_frame else None
                         if latest_frame_data:
                             self.broadcast("frame_processed", latest_frame_data)
                         self.save_manifest()
-                        self.log(f"SUCCESS: {filename} processed and saved.")
+                        if composite_only:
+                            self.log(f"SUCCESS: {filename} queued as a linear negative (inversion skipped).")
+                        else:
+                            self.log(f"SUCCESS: {filename} processed and saved.")
                         
                     except Exception as e:
                         self.log(f"ERROR processing {filename}: {str(e)}")
@@ -1222,12 +1263,17 @@ def get_files():
         positives_dir = session.dirs.get("positives")
         processed_dir = session.dirs.get("processed")
         negatives_dir = session.dirs.get("negatives")
+
+        # A composite-only session's deliverable is the handed-off negative in composites/, so
+        # the gallery lists that folder instead of an empty positives/.
+        composite_only = bool(session.config.get("composite_only"))
+        frames_dir = session.dirs.get("composites") if composite_only else positives_dir
         
         positives = []
-        if positives_dir and os.path.exists(positives_dir):
+        if frames_dir and os.path.exists(frames_dir):
             valid_exts = {'.tif', '.tiff', '.dng', '.cr3', '.raf', '.nef', '.arw', '.rw2', '.nrw', '.dcr', '.jpg', '.jpeg', '.png'}
             try:
-                with os.scandir(positives_dir) as it:
+                with os.scandir(frames_dir) as it:
                     for entry in it:
                         name = entry.name
                         if name.startswith(".") or name.endswith(".part"):
@@ -1328,6 +1374,7 @@ def get_files():
 
         return jsonify({
             "success": True,
+            "composite_only": composite_only,
             "positives": positives,
             "processed": processed,
             "negatives": negatives,

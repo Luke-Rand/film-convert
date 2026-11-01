@@ -166,7 +166,8 @@ Returns the active configuration, folder paths, and operational status of the se
       "negatives": "/Users/lukerand/Pictures/Scans/Ektar100-135-01/negatives",
       "positives": "/Users/lukerand/Pictures/Scans/Ektar100-135-01/positives",
       "processed": "/Users/lukerand/Pictures/Scans/Ektar100-135-01/processed_raws",
-      "errors": "/Users/lukerand/Pictures/Scans/Ektar100-135-01/error_raws"
+      "errors": "/Users/lukerand/Pictures/Scans/Ektar100-135-01/error_raws",
+      "composites": "/Users/lukerand/Pictures/Scans/Ektar100-135-01/composites"
     },
     "config": {
       "clip": 0.1,
@@ -175,6 +176,7 @@ Returns the active configuration, folder paths, and operational status of the se
       "margin": 0.03,
       "autocrop": false,
       "global_levels": false,
+      "composite_only": false,
       "compress_tiff": false,
       "neutralize": false,
       "base_ratios": [1.0, 0.58, 0.23],
@@ -245,6 +247,7 @@ Retrieves the current session processing configuration.
       "margin": 0.03,
       "autocrop": false,
       "global_levels": false,
+      "composite_only": false,
       "compress_tiff": false,
       "neutralize": true,
       "base_ratios": [1.0, 0.58, 0.23],

@@ -58,6 +58,8 @@ def setup_session():
     if color_profile not in ["adobe_rgb", "prophoto_rgb", "srgb", "none"]:
         color_profile = "adobe_rgb"
 
+    composite_only = input("Composite only (write linear negatives for NegPy, skip inversion)? (y/n) [default: n]: ").strip().lower() == 'y'
+
     folder_name = f"{stock}-{fmt}-{roll}"
     session_dir = os.path.join(root_folder, folder_name)
     
@@ -65,7 +67,8 @@ def setup_session():
         "negatives": os.path.join(session_dir, "negatives"),
         "positives": os.path.join(session_dir, "positives"),
         "processed": os.path.join(session_dir, "processed_raws"),
-        "errors": os.path.join(session_dir, "error_raws")
+        "errors": os.path.join(session_dir, "error_raws"),
+        "composites": os.path.join(session_dir, "composites")
     }
     
     for d in dirs.values():
@@ -83,17 +86,21 @@ def setup_session():
             "monochrome_channel": monochrome_channel,
             "reversal": is_reversal,
             "convert_to_tiff": convert_to_tiff,
-            "color_profile": color_profile
+            "color_profile": color_profile,
+            "composite_only": composite_only
         }
     )
         
     print(f"\n✅ Session initialized at: {session_dir}")
-    return dirs, mode, is_mono if 'is_mono' in locals() else is_monochrome, monochrome_channel, is_reversal, convert_to_tiff, color_profile
+    if composite_only:
+        print(f"📦 Composite-only: linear negatives go to {dirs['composites']}")
+        print(f"   Import that folder as one roll in NegPy.\n")
+    return dirs, mode, is_mono if 'is_mono' in locals() else is_monochrome, monochrome_channel, is_reversal, convert_to_tiff, color_profile, composite_only
 
 def get_next_frame_number(dirs):
     """Figures out the next available frame number by looking at existing completed files (ignoring raw _Capture files)."""
     search_dirs = []
-    for key in ['negatives', 'processed', 'positives']:
+    for key in ['negatives', 'processed', 'positives', 'composites']:
         d = dirs.get(key)
         if d and os.path.exists(d):
             search_dirs.append(d)
@@ -116,10 +123,14 @@ def get_next_frame_number(dirs):
                     pass
     return max_num + 1
 
-def run_triplet_pipeline(dirs, is_mono, mono_chan, is_reversal=False, convert_to_tiff=True, color_profile="adobe_rgb", base_ratios=None):
-    """Watches for RAW triplets, composites them, and inverts/processes them to 16-bit TIFFs or True DNGs."""
+def run_triplet_pipeline(dirs, is_mono, mono_chan, is_reversal=False, convert_to_tiff=True, color_profile="adobe_rgb", base_ratios=None, composite_only=False):
+    """Watches for RAW triplets, composites them, and inverts/processes them to 16-bit TIFFs or True DNGs.
+    With composite_only, stops after compositing and leaves a linear DNG in dirs['composites'] for an
+    external converter to import as one roll."""
     print(f"\n🔥 TRIPLET PIPELINE ACTIVE 🔥")
     print(f"Monitoring: {dirs['negatives']}")
+    if composite_only:
+        print(f"📦 Composite-only: linear negatives go to {dirs['composites']} (no inversion)")
     print(f"Waiting for RGB RAW triplets. Press Ctrl+C to exit.\n")
     
     supported_exts = {'.cr3', '.raf', '.nef'}
@@ -142,8 +153,10 @@ def run_triplet_pipeline(dirs, is_mono, mono_chan, is_reversal=False, convert_to
                     
                 print(f"{'-'*50}\n📸 Triplet detected! Processing Frame {frame_number:02d}...")
                 
-                composite_filename = f"Frame_{frame_number:02d}_Composite.tiff"
-                composite_filepath = os.path.join(dirs['negatives'], composite_filename)
+                composite_ext = ".dng" if composite_only else ".tiff"
+                composite_filename = f"Frame_{frame_number:02d}_Composite{composite_ext}"
+                composite_dir = dirs['composites'] if composite_only else dirs['negatives']
+                composite_filepath = os.path.join(composite_dir, composite_filename)
                 
                 try:
                     source_meta = group[1] if len(group) > 1 else group[0]
@@ -159,32 +172,38 @@ def run_triplet_pipeline(dirs, is_mono, mono_chan, is_reversal=False, convert_to
                         return_image=True
                     )
                     
-                    process_positives(
-                        input_path=composite_filepath,
-                        output_dir=dirs['positives'],
-                        clip=0.1,
-                        gamma=2.2,
-                        compress_tiff=False,
-                        global_levels=False,
-                        ignore_margin=0.03,
-                        scurve=0.0,
-                        autocrop=False,
-                        monochrome=is_mono,
-                        monochrome_channel=mono_chan,
-                        reversal=is_reversal,
-                        convert_to_tiff=convert_to_tiff,
-                        icc_profile=color_profile,
-                        preserve_metadata=True,
-                        base_ratios=None if neutralize_base else base_ratios,
-                        preloaded_image=composite_rgb,
-                        source_metadata_path=source_meta
-                    )
+                    if not composite_only:
+                        process_positives(
+                            input_path=composite_filepath,
+                            output_dir=dirs['positives'],
+                            clip=0.1,
+                            gamma=2.2,
+                            compress_tiff=False,
+                            global_levels=False,
+                            ignore_margin=0.03,
+                            scurve=0.0,
+                            autocrop=False,
+                            monochrome=is_mono,
+                            monochrome_channel=mono_chan,
+                            reversal=is_reversal,
+                            convert_to_tiff=convert_to_tiff,
+                            icc_profile=color_profile,
+                            preserve_metadata=True,
+                            base_ratios=None if neutralize_base else base_ratios,
+                            preloaded_image=composite_rgb,
+                            source_metadata_path=source_meta
+                        )
                     
                     for f in group:
                         shutil.move(f, os.path.join(dirs['processed'], os.path.basename(f)))
-                    shutil.move(composite_filepath, os.path.join(dirs['processed'], composite_filename))
+                    # A handed-off negative stays put: its folder is the import target.
+                    if not composite_only:
+                        shutil.move(composite_filepath, os.path.join(dirs['processed'], composite_filename))
                     
-                    print(f"✅ SUCCESS: Frame {frame_number:02d} completed and moved to Positives.")
+                    if composite_only:
+                        print(f"✅ SUCCESS: Frame {frame_number:02d} composited to {composite_filename} (inversion skipped).")
+                    else:
+                        print(f"✅ SUCCESS: Frame {frame_number:02d} completed and moved to Positives.")
                     frame_number += 1
                     
                 except Exception as e:
@@ -200,10 +219,14 @@ def run_triplet_pipeline(dirs, is_mono, mono_chan, is_reversal=False, convert_to
             print("\nExiting scanning session.")
             break
 
-def run_single_shot_pipeline(dirs, is_mono, mono_chan, is_reversal=False, convert_to_tiff=True, color_profile="adobe_rgb", base_ratios=None):
-    """Watches for single TIFF/DNG negatives or positive reversal scans and processes them."""
+def run_single_shot_pipeline(dirs, is_mono, mono_chan, is_reversal=False, convert_to_tiff=True, color_profile="adobe_rgb", base_ratios=None, composite_only=False):
+    """Watches for single TIFF/DNG negatives or positive reversal scans and processes them.
+    With composite_only, moves each negative into dirs['composites'] untouched: a single exposure
+    needs no compositing, so the file is already the linear negative an external converter imports."""
     print(f"\n🔥 SINGLE-SHOT PIPELINE ACTIVE 🔥")
     print(f"Monitoring: {dirs['negatives']}")
+    if composite_only:
+        print(f"📦 Composite-only: negatives move to {dirs['composites']} (no inversion)")
     print(f"Waiting for single TIFF/DNG files. Press Ctrl+C to exit.\n")
     
     supported_exts = {'.dng', '.tiff', '.tif', '.cr3', '.raf', '.nef', '.arw', '.rw2', '.nrw', '.dcr'}
@@ -227,27 +250,31 @@ def run_single_shot_pipeline(dirs, is_mono, mono_chan, is_reversal=False, conver
                 print(f"{'-'*50}\n🎞️  File detected! Processing {filename}...")
                 
                 try:
-                    process_positives(
-                        input_path=filepath,
-                        output_dir=dirs['positives'],
-                        clip=0.1,
-                        gamma=2.2,
-                        compress_tiff=False,
-                        global_levels=False, 
-                        ignore_margin=0.03,
-                        scurve=0.0,          
-                        autocrop=False,
-                        monochrome=is_mono,
-                        monochrome_channel=mono_chan,
-                        reversal=is_reversal,
-                        convert_to_tiff=convert_to_tiff,
-                        icc_profile=color_profile,
-                        preserve_metadata=True,
-                        base_ratios=base_ratios
-                    )
-                    
-                    shutil.move(filepath, os.path.join(dirs['processed'], filename))
-                    print(f"✅ SUCCESS: {filename} processed and positive saved.")
+                    if composite_only:
+                        shutil.move(filepath, os.path.join(dirs['composites'], filename))
+                        print(f"✅ SUCCESS: {filename} moved to composites (inversion skipped).")
+                    else:
+                        process_positives(
+                            input_path=filepath,
+                            output_dir=dirs['positives'],
+                            clip=0.1,
+                            gamma=2.2,
+                            compress_tiff=False,
+                            global_levels=False, 
+                            ignore_margin=0.03,
+                            scurve=0.0,          
+                            autocrop=False,
+                            monochrome=is_mono,
+                            monochrome_channel=mono_chan,
+                            reversal=is_reversal,
+                            convert_to_tiff=convert_to_tiff,
+                            icc_profile=color_profile,
+                            preserve_metadata=True,
+                            base_ratios=base_ratios
+                        )
+                        
+                        shutil.move(filepath, os.path.join(dirs['processed'], filename))
+                        print(f"✅ SUCCESS: {filename} processed and positive saved.")
                     
                 except Exception as e:
                     print(f"❌ ERROR PROCESSING {filename}: {e}")
@@ -259,40 +286,48 @@ def run_single_shot_pipeline(dirs, is_mono, mono_chan, is_reversal=False, conver
             print("\nExiting scanning session.")
             break
 
-def run_pipeline(dirs, mode, is_mono, mono_chan, is_reversal=False, convert_to_tiff=True, color_profile="adobe_rgb", base_ratios=None):
+def run_pipeline(dirs, mode, is_mono, mono_chan, is_reversal=False, convert_to_tiff=True, color_profile="adobe_rgb", base_ratios=None, composite_only=False):
     """Dispatches to the correct pipeline based on user's choice."""
     try:
         if mode == 'triplet':
-            run_triplet_pipeline(dirs, is_mono, mono_chan, is_reversal, convert_to_tiff, color_profile=color_profile, base_ratios=base_ratios)
+            run_triplet_pipeline(dirs, is_mono, mono_chan, is_reversal, convert_to_tiff, color_profile=color_profile, base_ratios=base_ratios, composite_only=composite_only)
         elif mode == 'single':
-            run_single_shot_pipeline(dirs, is_mono, mono_chan, is_reversal, convert_to_tiff, color_profile=color_profile, base_ratios=base_ratios)
+            run_single_shot_pipeline(dirs, is_mono, mono_chan, is_reversal, convert_to_tiff, color_profile=color_profile, base_ratios=base_ratios, composite_only=composite_only)
     finally:
-        positives_dir = dirs.get('positives')
-        if positives_dir and os.path.exists(positives_dir):
-            valid_exts = {'.tiff', '.tif', '.dng', '.jpg', '.jpeg', '.png', '.cr3', '.raf', '.nef', '.arw'}
-            has_positives = any(os.path.isfile(os.path.join(positives_dir, f)) and os.path.splitext(f)[1].lower() in valid_exts for f in os.listdir(positives_dir))
-            if has_positives:
-                session_dir = os.path.dirname(positives_dir)
-                print(f"\n{'='*50}\n📄 Generating Archival Contact Sheet & Roll Summary...")
-                try:
-                    res = generate_contact_sheet(
-                        session_dir=session_dir,
-                        columns=6,
-                        theme="dark"
-                    )
-                    if res.get("success"):
-                        print(f"✅ {res.get('message')}")
-                        if res.get("pdf_path"):
-                            print(f"   PDF:  {res['pdf_path']}")
-                        for jp in res.get("jpeg_paths", []):
-                            print(f"   JPEG: {jp}")
-                except Exception as e:
-                    print(f"❌ Failed to generate contact sheet: {e}")
-                print("="*50 + "\n")
+        if composite_only:
+            composites_dir = dirs.get('composites')
+            if composites_dir and os.path.isdir(composites_dir) and os.listdir(composites_dir):
+                print(f"\n{'='*50}")
+                print(f"📦 Linear negatives ready for conversion: {composites_dir}")
+                print(f"   Import that folder as one roll in NegPy (film stock: see session.json).")
+                print(f"{'='*50}\n")
+        else:
+            positives_dir = dirs.get('positives')
+            if positives_dir and os.path.exists(positives_dir):
+                valid_exts = {'.tiff', '.tif', '.dng', '.jpg', '.jpeg', '.png', '.cr3', '.raf', '.nef', '.arw'}
+                has_positives = any(os.path.isfile(os.path.join(positives_dir, f)) and os.path.splitext(f)[1].lower() in valid_exts for f in os.listdir(positives_dir))
+                if has_positives:
+                    session_dir = os.path.dirname(positives_dir)
+                    print(f"\n{'='*50}\n📄 Generating Archival Contact Sheet & Roll Summary...")
+                    try:
+                        res = generate_contact_sheet(
+                            session_dir=session_dir,
+                            columns=6,
+                            theme="dark"
+                        )
+                        if res.get("success"):
+                            print(f"✅ {res.get('message')}")
+                            if res.get("pdf_path"):
+                                print(f"   PDF:  {res['pdf_path']}")
+                            for jp in res.get("jpeg_paths", []):
+                                print(f"   JPEG: {jp}")
+                    except Exception as e:
+                        print(f"❌ Failed to generate contact sheet: {e}")
+                    print("="*50 + "\n")
 
 if __name__ == "__main__":
     try:
-        session_dirs, mode, is_mono, mono_chan, is_reversal, convert_to_tiff, color_profile = setup_session()
-        run_pipeline(session_dirs, mode, is_mono, mono_chan, is_reversal, convert_to_tiff, color_profile=color_profile)
+        session_dirs, mode, is_mono, mono_chan, is_reversal, convert_to_tiff, color_profile, composite_only = setup_session()
+        run_pipeline(session_dirs, mode, is_mono, mono_chan, is_reversal, convert_to_tiff, color_profile=color_profile, composite_only=composite_only)
     except KeyboardInterrupt:
         print("\nSession setup cancelled.")

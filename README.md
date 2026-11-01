@@ -31,7 +31,7 @@ Connect cameras, adjust settings, and monitor folder activities from a unified v
 
 ### 💡 Scanlight Controller & Automated LED Auto-Tuning (ETTR)
 * **Scanlight Integration:** Integrated support for **Jackw01 Big Scanlight** and **Scanlight v4** via the WebSerial API.
-* **Automated LED Auto-Tuning (ETTR):** Analyzes sensor live view histograms to calculate optimal LED brightness levels, maximizing dynamic range (Expose To The Right) without highlight clipping.
+* **Automated LED Auto-Tuning (ETTR):** Meters sensor live-view histograms and solves each channel's PWM against a chosen ceiling, maximizing dynamic range (Expose To The Right) without highlight clipping. Each correction waits for the LED write to land and for two agreeing frames before stepping, and the step is clamped and damped, so it converges from one side instead of oscillating between levels.
 * **Sequential Narrowband Triplet Auto-Tune:** Sequences Red, Green, and Blue illuminants to calibrate balanced multi-spectral exposures.
 
 ![Scanlight Control Panel Interface Placeholder](docs/screenshots/scanlight_interface.png)
@@ -45,6 +45,11 @@ Connect cameras, adjust settings, and monitor folder activities from a unified v
 * **Subpixel Alignment:** FFT phase correlation automatically corrects mechanical shift and chromatic divergence between exposures.
 * **True DNG & ICC Color Management:** Outputs compliant Digital Negative (DNG 1.4.0.0) files and 16-bit TIFFs tagged with embedded ICC color profiles (Adobe RGB 1998, ProPhoto RGB / ROMM, sRGB).
 * **Lossless Metadata Preservation:** Preserves full camera EXIF and IPTC metadata across all processed composites and positives via `exiftool`.
+
+### 📦 Composite-Only Handoff to an External Converter
+* **Scan and composite only:** Stops after the aligned 16-bit linear composite and skips inversion entirely, leaving one negative per frame in `composites/`.
+* **One folder per roll:** That folder holds nothing but the roll's frames, so a converter imports it as a single roll in one step. `session.json` alongside it records film stock, format and roll number.
+* **Pairs with a dedicated conversion engine:** Use it to keep FilmConvert for capture and hand the tone and color work to a tool such as [NegPy](https://github.com/marcinz606/NegPy). Single-shot sessions are pure pass-through: the negative is already the deliverable.
 
 ### 🎞️ Density Inversion, Curves & Reversal Film
 * **Sensitometric Inversion:** True linear density division preserving shadow and highlight detail.
