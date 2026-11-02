@@ -177,7 +177,7 @@ class SessionManager:
             processed_dir = self.dirs.get("composites")
         else:
             positives_dir = self.dirs.get("positives")
-            processed_dir = self.dirs.get("processed")
+            processed_dir = self.dirs.get("negatives")
         if not positives_dir or not os.path.isdir(positives_dir):
             return None
 
@@ -218,17 +218,22 @@ class SessionManager:
         neg_path = None
         neg_name = None
         neg_size = 0
-        if processed_dir and os.path.isdir(processed_dir):
-            candidate_comp = os.path.join(processed_dir, f"Frame_{frame_num:02d}_Composite.dng")
-            candidate_comp_tif = os.path.join(processed_dir, f"Frame_{frame_num:02d}_Composite.tiff")
+        search_dirs = [self.dirs.get("negatives"), self.dirs.get("processed")] if self.dirs else [processed_dir]
+        for sdir in search_dirs:
+            if not sdir or not os.path.isdir(sdir):
+                continue
+            candidate_comp = os.path.join(sdir, f"Frame_{frame_num:02d}_Composite.dng")
+            candidate_comp_tif = os.path.join(sdir, f"Frame_{frame_num:02d}_Composite.tiff")
             if os.path.isfile(candidate_comp):
                 neg_path = candidate_comp
+                break
             elif os.path.isfile(candidate_comp_tif):
                 neg_path = candidate_comp_tif
+                break
             else:
                 proc_entries = []
                 try:
-                    with os.scandir(processed_dir) as it:
+                    with os.scandir(sdir) as it:
                         for entry in it:
                             name = entry.name
                             if name.startswith(".") or name.endswith(".part"):
@@ -245,6 +250,7 @@ class SessionManager:
                         proc_entries.sort(key=lambda x: x[0])
                         neg_path = proc_entries[-1][1]
                         neg_size = proc_entries[-1][2]
+                        break
                 except OSError:
                     pass
 
@@ -675,12 +681,9 @@ class SessionManager:
                             self.last_triplet_means = means_dict
                         self.broadcast("triplet_means", means_dict)
                         
-                        # Move files
+                        # Move files: raw exposures archive to processed_raws, while composite remains in negatives/
                         for f in group:
                             shutil.move(f, os.path.join(self.dirs['processed'], os.path.basename(f)))
-                        # A handed-off composite stays in composites/: that folder is the import target.
-                        if not composite_only:
-                            shutil.move(composite_filepath, os.path.join(self.dirs['processed'], composite_filename))
                         
                         with self.lock:
                             self.last_frame = self._discover_last_frame()

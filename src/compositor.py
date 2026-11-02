@@ -299,7 +299,7 @@ def process_triplet(group, output_filepath, neutralize_base=False, compress_tiff
 def get_next_frame_number(directory):
     """Finds the next frame number based on existing completed files (ignoring raw _Capture files)."""
     search_dirs = [directory]
-    for sub in ["Processed_RAWs", "Composites", "Positives", "positives", "processed_raws"]:
+    for sub in ["Processed_RAWs", "Composites", "Positives", "positives", "processed_raws", "negatives", "Negatives"]:
         d = os.path.join(directory, sub)
         if os.path.exists(d):
             search_dirs.append(d)
