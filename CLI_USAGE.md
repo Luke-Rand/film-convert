@@ -27,7 +27,7 @@ python src/scanning_session.py
 The script creates organized directories and runs a hot-folder loop:
 ```
 SessionName/
-├── negatives/       <-- Capture your images here
+├── negatives/       <-- Linear composite negatives (and captured frames) live here
 ├── positives/       <-- Completed positive 16-bit TIFFs land here
 ├── composites/      <-- Composite-only mode: linear DNGs for external conversion
 ├── processed_raws/  <-- Original RAWs are safely archived here

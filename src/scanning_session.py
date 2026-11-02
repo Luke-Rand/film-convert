@@ -153,7 +153,7 @@ def run_triplet_pipeline(dirs, is_mono, mono_chan, is_reversal=False, convert_to
                     
                 print(f"{'-'*50}\n📸 Triplet detected! Processing Frame {frame_number:02d}...")
                 
-                composite_ext = ".dng" if composite_only else ".tiff"
+                composite_ext = ".dng"
                 composite_filename = f"Frame_{frame_number:02d}_Composite{composite_ext}"
                 composite_dir = dirs['composites'] if composite_only else dirs['negatives']
                 composite_filepath = os.path.join(composite_dir, composite_filename)
@@ -194,11 +194,9 @@ def run_triplet_pipeline(dirs, is_mono, mono_chan, is_reversal=False, convert_to
                             source_metadata_path=source_meta
                         )
                     
+                    # Move files: raw exposures archive to processed_raws, while composite remains in negatives/
                     for f in group:
                         shutil.move(f, os.path.join(dirs['processed'], os.path.basename(f)))
-                    # A handed-off negative stays put: its folder is the import target.
-                    if not composite_only:
-                        shutil.move(composite_filepath, os.path.join(dirs['processed'], composite_filename))
                     
                     if composite_only:
                         print(f"✅ SUCCESS: Frame {frame_number:02d} composited to {composite_filename} (inversion skipped).")

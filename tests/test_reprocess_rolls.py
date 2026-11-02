@@ -57,3 +57,29 @@ class TestReprocessRolls(unittest.TestCase):
 
         discovered = reprocess_rolls.discover_rolls(self.test_dir)
         self.assertEqual(len(discovered), 2)
+
+    def test_web_ui_discovers_last_frame_in_negatives(self):
+        import web_ui
+        mgr = web_ui.SessionManager()
+        negatives = os.path.join(self.test_dir, "negatives")
+        positives = os.path.join(self.test_dir, "positives")
+        processed = os.path.join(self.test_dir, "processed_raws")
+        os.makedirs(negatives, exist_ok=True)
+        os.makedirs(positives, exist_ok=True)
+        os.makedirs(processed, exist_ok=True)
+
+        mgr.dirs = {
+            "negatives": negatives,
+            "positives": positives,
+            "processed": processed
+        }
+
+        # Place a positive in positives and a composite in negatives
+        Path(os.path.join(positives, "Frame_01_Positive.tiff")).touch()
+        Path(os.path.join(negatives, "Frame_01_Composite.dng")).touch()
+
+        last = mgr._discover_last_frame()
+        self.assertIsNotNone(last)
+        self.assertEqual(last["frame_number"], 1)
+        self.assertEqual(last["negative_name"], "Frame_01_Composite.dng")
+
