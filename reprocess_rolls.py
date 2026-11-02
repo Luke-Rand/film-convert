@@ -44,15 +44,18 @@ def find_raw_source_dir(roll_dir):
             if raws:
                 return p
                 
-    # Check root of roll_dir
+    # Check root of roll_dir (only if files have 'frame' in name or session.json exists)
     raws = [f for f in os.listdir(roll_dir) if os.path.isfile(os.path.join(roll_dir, f)) and os.path.splitext(f)[1].lower() in SUPPORTED_EXTS]
-    if raws:
+    if raws and (os.path.isfile(os.path.join(roll_dir, 'session.json')) or any(re.search(r'frame', f, re.IGNORECASE) for f in raws)):
         return roll_dir
         
     return None
 
 def is_roll_dir(path):
     """Checks if a directory is a roll (contains RAW files or a processed_raws/negatives subfolder with RAWs)."""
+    basename = os.path.basename(path).lower()
+    if basename in {'digital', 'c1', 'capture1', 'cache', 'trash', 'selects', 'output'}:
+        return False
     return find_raw_source_dir(path) is not None
 
 def discover_rolls(target_path):
@@ -171,6 +174,9 @@ def reprocess_roll(roll_dir, args):
         out_dir = os.path.join(roll_dir, 'positives')
     os.makedirs(out_dir, exist_ok=True)
     
+    negatives_dir = os.path.join(roll_dir, 'negatives')
+    os.makedirs(negatives_dir, exist_ok=True)
+    
     # Collect all RAW files and sort by (frame_number, filename)
     raw_files = [f for f in os.listdir(raw_source_dir) if os.path.splitext(f)[1].lower() in SUPPORTED_EXTS]
     raw_files.sort(key=lambda f: (extract_frame_num(f), f.lower()))
@@ -183,6 +189,27 @@ def reprocess_roll(roll_dir, args):
 
     print(f"Found {total_raws} RAW files -> {num_frames} frames to process.\n")
     
+    # If the roll previously had legacy 4-step frame indexing (e.g. Frame_04, Frame_08... Frame_140),
+    # clean up stale composites and positives whose index exceeds num_frames to prevent duplicate frames.
+    for d, pattern in [(out_dir, r'^Frame_(\d+)_Positive'), (negatives_dir, r'^Frame_(\d+)_Composite'), (raw_source_dir, r'^Frame_(\d+)_Composite')]:
+        if os.path.isdir(d):
+            for fname in os.listdir(d):
+                m = re.match(pattern, fname, re.IGNORECASE)
+                if m and int(m.group(1)) > num_frames:
+                    try:
+                        os.remove(os.path.join(d, fname))
+                    except OSError:
+                        pass
+    c1_dir = os.path.join(out_dir, "CaptureOne", "Settings1680")
+    if os.path.isdir(c1_dir):
+        for fname in os.listdir(c1_dir):
+            m = re.match(r'^Frame_(\d+)_Positive', fname, re.IGNORECASE)
+            if m and int(m.group(1)) > num_frames:
+                try:
+                    os.remove(os.path.join(c1_dir, fname))
+                except OSError:
+                    pass
+
     successful_frames = 0
     max_workers = getattr(args, "workers", None) or min(4, max(1, (os.cpu_count() or 2) - 1))
 
@@ -194,7 +221,7 @@ def reprocess_roll(roll_dir, args):
                 group_files = raw_files[i:i+3]
                 frame_idx = (i // 3) + 1
                 comp_name = f"Frame_{frame_idx:02d}_Composite.dng"
-                comp_dir = out_dir if eff["composite_only"] else raw_source_dir
+                comp_dir = out_dir if eff["composite_only"] else negatives_dir
                 comp_path = os.path.join(comp_dir, comp_name)
                 group_full_paths = [os.path.join(raw_source_dir, f) for f in group_files]
                 print(f"[{frame_idx:02d}/{num_frames:02d}] Queueing Frame {frame_idx:02d} ({', '.join(group_files)})...")
@@ -226,7 +253,7 @@ def reprocess_roll(roll_dir, args):
             frame_idx = (i // 3) + 1
             
             comp_name = f"Frame_{frame_idx:02d}_Composite.dng"
-            comp_dir = out_dir if eff["composite_only"] else raw_source_dir
+            comp_dir = out_dir if eff["composite_only"] else negatives_dir
             comp_path = os.path.join(comp_dir, comp_name)
             
             print(f"[{frame_idx:02d}/{num_frames:02d}] Processing Frame {frame_idx:02d} ({', '.join(group_files)})...")
@@ -331,9 +358,9 @@ def main():
     parser.add_argument(
         "directory", 
         type=str, 
-        nargs="?",
-        default="/Volumes/film-scans/2026/2026-08_DixonDR",
-        help="Path to a single roll directory or parent folder containing rolls (default: /Volumes/film-scans/2026/2026-08_DixonDR)"
+        nargs="*",
+        default=["/Volumes/film-scans/2026/2026-08_DixonDR"],
+        help="Path(s) to roll directories or parent folders containing rolls (default: /Volumes/film-scans/2026/2026-08_DixonDR)"
     )
     parser.add_argument("-g", "--gamma", type=float, default=2.2, help="Output gamma curve (default: 2.2, use 1.0 for linear)")
     parser.add_argument("-p", "--clip", type=float, default=0.1, help="Percentile clipping for black/white levels (default: 0.1%%)")
@@ -376,7 +403,13 @@ def main():
                 explicit_dests.add(action.dest)
     args._explicit = explicit_dests
     
-    rolls = discover_rolls(args.directory)
+    target_dirs = args.directory if isinstance(args.directory, list) else [args.directory]
+    rolls = []
+    for td in target_dirs:
+        for r in discover_rolls(td):
+            if r not in rolls:
+                rolls.append(r)
+
     if not rolls:
         print(f"No roll directories with RAW files found in: {args.directory}")
         sys.exit(1)
